@@ -1,0 +1,38 @@
+# Ensure CMake supports FetchContent
+cmake_minimum_required(VERSION 3.16)
+
+idf_component_register(
+    SRCS 
+      "components/BLEManager/BLEGattServer.cpp"
+      "components/BLEManager/BLEManager.cpp"
+      "components/CommandFile/CommandFile.cpp"
+      "components/CommandSerial/CommandSerial.cpp"
+      "components/CommandSocket/CommandSocket.cpp"
+      "components/CommsChannelManager/CommsChannelManager.cpp"
+      "components/ESPOTAUpdate/ESPOTAUpdate.cpp"
+      "components/FileManager/FileManager.cpp"
+      "components/LogManager/LogManager.cpp"
+      "components/MQTTManager/MQTTManager.cpp"
+      "components/NetworkManager/NetworkManager.cpp"
+      "components/ProtocolExchange/ProtocolExchange.cpp"
+      "components/SerialConsole/SerialConsole.cpp"
+      "components/StatePublisher/StatePublisher.cpp"
+      "components/WebServer/WebServer.cpp"
+    INCLUDE_DIRS
+      "components/BLEManager"
+      "components/CommandFile"
+      "components/CommandSerial"
+      "components/CommandSocket"
+      "components/CommsChannelManager"
+      "components/ESPOTAUpdate"
+      "components/FileManager"
+      "components/LogManager"
+      "components/MQTTManager"
+      "components/NetworkManager"
+      "components/ProtocolExchange"
+      "components/SerialConsole"
+      "components/StatePublisher"
+      "components/WebServer"
+    REQUIRES
+      raftcore-src
+    )
