@@ -9,6 +9,7 @@
 
 #include <Logger.h>
 #include "SerialConsole.h"
+#include <RaftUtils.h>
 #include <CommsCoreIF.h>
 #include <CommsChannelMsg.h>
 #include <CommsChannelSettings.h>
@@ -18,6 +19,8 @@
 
 // Log prefix
 static const char *MODULE_PREFIX = "SerialConsole";
+
+// #define DEBUG_SERIAL_CONSOLE
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constructor
@@ -79,7 +82,11 @@ void SerialConsole::setup()
                 .stop_bits = UART_STOP_BITS_1,
                 .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
                 .rx_flow_ctrl_thresh = 100,
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
                 .use_ref_tick = true,
+#else
+                .source_clk = UART_SCLK_DEFAULT
+#endif
         };
         esp_err_t err = uart_param_config((uart_port_t)_uartNum, &uart_config);
         if (err != ESP_OK)

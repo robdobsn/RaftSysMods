@@ -422,7 +422,8 @@ UtilsRetCode::RetCode ProtocolExchange::processRICRESTFileStreamBlock(RICRESTMsg
         LOG_W(MODULE_PREFIX, "processRICRESTFileStreamBlock session not found for streamID %d", streamID);
         UtilsRetCode::RetCode rslt = UtilsRetCode::SESSION_NOT_FOUND;
         char errorMsg[100];
-        snprintf(errorMsg, sizeof(errorMsg), "\"streamID\":%d,\"reason\":\"%s\"", streamID, UtilsRetCode::getRetcStr(rslt));
+        snprintf(errorMsg, sizeof(errorMsg), "\"streamID\":%d,\"reason\":\"%s\"", 
+                        (int)streamID, UtilsRetCode::getRetcStr(rslt));
         Raft::setJsonBoolResult(ricRESTReqMsg.getReq().c_str(), respMsg, false, errorMsg);
         return rslt;
     }

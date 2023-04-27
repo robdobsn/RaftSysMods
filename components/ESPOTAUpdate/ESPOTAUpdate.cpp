@@ -81,11 +81,11 @@ String ESPOTAUpdate::getDebugJSON()
     char tmpBuf[200];
     snprintf(tmpBuf, sizeof(tmpBuf)-1, R"({"Bps":%.1f,"stMs":%d,"bytes":%d,"wrPS":%.1f,"elapS":%.1f,"blk":%d})",
         _fwUpdateLastRate, 
-        (uint32_t)(_fwUpdateBeginTimeUs / 1000),
-        _fwUpdateBytes,
+        (int)(_fwUpdateBeginTimeUs / 1000),
+        (int)_fwUpdateBytes,
         _fwUpdateWriteTimeUs != 0 ? _fwUpdateBytes / (_fwUpdateWriteTimeUs / 1000000.0) : 0.0,
         fwUpdateElapsedMs / 1000.0,
-        _blockSizeLast);
+        (int)_blockSizeLast);
     return tmpBuf;
 }
 

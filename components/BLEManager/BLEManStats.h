@@ -77,24 +77,24 @@ public:
         else
         {
             snprintf(buf, sizeof(buf), R"("rxM":%d,"rxB":%d,"rxBPS":%.1f,"txM":%d,"txB":%d,"txBPS":%.1f,"txErr":%d,"txErrPS":%.1f)",
-                _rxMsgCount,
-                _rxTotalBytes,
+                (int)_rxMsgCount,
+                (int)_rxTotalBytes,
                 _rxRate.getRatePerSec(),
-                _txMsgCount,
-                _txTotalBytes,
+                (int)_txMsgCount,
+                (int)_txTotalBytes,
                 _txRate.getRatePerSec(),
-                _txErrCount,
+                (int)_txErrCount,
                 _txErrRate.getRatePerSec());
         }
         String json = buf;
         if (_rxTestFrameCount > 0)
         {
             snprintf(buf, sizeof(buf), R"("tM":%d,"tB":%d,"tBPS":%.1f,"tSeqErrs":%d,"tDatErrs":%d)",
-                _rxTestFrameCount,
-                _rxTestFrameBytes,
+                (int)_rxTestFrameCount,
+                (int)_rxTestFrameBytes,
                 _rxTestFrameRate.getRatePerSec(),
-                _rxTestSeqErrs,
-                _rxTestDataErrs);
+                (int)_rxTestSeqErrs,
+                (int)_rxTestDataErrs);
             json += ",";
             json += buf;
         }
