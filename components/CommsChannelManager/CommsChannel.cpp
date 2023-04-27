@@ -196,8 +196,8 @@ String CommsChannel::getInfoJSON()
             R"("name":"%s","if":"%s","ch":%s,"hdlr":%d,"chanID":%d,"inMax":%d,"inPk":%d,"inBlk":%d,"outMax":%d,"outPk":%d,"outBlk":%d)",
             _channelProtocolName.c_str(), _interfaceName.c_str(), _channelName.c_str(),
             _pProtocolCodec ? 1 : 0,
-            _pProtocolCodec ? _pProtocolCodec->getChannelID() : -1,
-            _inboundQueue.maxLen(), _inboundQPeak, _settings.inboundBlockLen,
-            _outboundQueue.maxLen(), _outboundQPeak, _settings.outboundBlockLen);
+            (int)(_pProtocolCodec ? _pProtocolCodec->getChannelID() : -1),
+            (int)_inboundQueue.maxLen(), _inboundQPeak, (int)_settings.inboundBlockLen,
+            (int)_outboundQueue.maxLen(), _outboundQPeak, (int)_settings.outboundBlockLen);
     return "{" + String(jsonInfoStr) + "}";
 }
