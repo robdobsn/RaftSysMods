@@ -6,6 +6,8 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef FEATURE_WEB_SERVER_OR_WEB_SOCKETS
+
 #include "WebServer.h"
 #include "WebServerResource.h"
 #include <Logger.h>
@@ -303,3 +305,4 @@ bool WebServer::restAPIMatchEndpoint(const char* url, RdWebServerMethod method,
     }
     return false;
 }
+#endif

@@ -7,6 +7,8 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef FEATURE_MQTT_MANAGER
+
 #include "MQTTManager.h"
 #include <Logger.h>
 #include <RaftUtils.h>
@@ -160,3 +162,5 @@ bool MQTTManager::readyToSend(uint32_t channelID)
 {
     return true;
 }
+
+#endif

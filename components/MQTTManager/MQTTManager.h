@@ -9,6 +9,8 @@
 
 #pragma once
 
+#ifdef FEATURE_MQTT_MANAGER
+
 #include <SysModBase.h>
 #include <RdMQTTClient.h>
 
@@ -51,3 +53,5 @@ private:
     bool sendMQTTMsg(const String& topicName, CommsChannelMsg& msg);
     bool readyToSend(uint32_t channelID);
 };
+
+#endif

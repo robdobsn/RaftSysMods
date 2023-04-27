@@ -8,6 +8,8 @@
 
 #pragma once
 
+#ifdef FEATURE_WEB_SERVER_OR_WEB_SOCKETS
+
 #include <ConfigBase.h>
 #include <RestAPIEndpointManager.h>
 #include <SysModBase.h>
@@ -94,3 +96,5 @@ private:
         }
     }
 };
+
+#endif

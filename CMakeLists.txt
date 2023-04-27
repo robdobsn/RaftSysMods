@@ -12,6 +12,7 @@ idf_component_register(
       "components/ESPOTAUpdate/ESPOTAUpdate.cpp"
       "components/FileManager/FileManager.cpp"
       "components/LogManager/LogManager.cpp"
+      "components/LogManager/LoggerPapertrail.cpp"
       "components/MQTTManager/MQTTManager.cpp"
       "components/NetworkManager/NetworkManager.cpp"
       "components/ProtocolExchange/ProtocolExchange.cpp"
@@ -35,4 +36,8 @@ idf_component_register(
       "components/WebServer"
     REQUIRES
       raftcore-src
+      bt
+      spiffs
+      fatfs
+      app_update
     )
