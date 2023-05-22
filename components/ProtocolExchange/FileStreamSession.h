@@ -11,6 +11,7 @@
 #include <ArduinoOrAlt.h>
 #include <RaftUtils.h>
 #include "FileStreamBlock.h"
+#include "FileStreamBlockOwned.h"
 #include "FileSystemChunker.h"
 #include "FileStreamBase.h"
 #include "RestAPIEndpoint.h"
@@ -67,15 +68,24 @@ public:
     }
     void service();
 
+    void resetCounters(uint32_t fileStreamLength);
+
+    // Static method to get file/stream message type
+    static FileStreamBase::FileStreamMsgType getFileStreamMsgType(const RICRESTMsg& ricRESTReqMsg,
+                const String& cmdName);
+
     // Handle command frame
-    UtilsRetCode::RetCode handleCmdFrame(const String& cmdName, RICRESTMsg& ricRESTReqMsg, String& respMsg, 
+    UtilsRetCode::RetCode handleCmdFrame(FileStreamBase::FileStreamMsgType fsMsgType, 
+                const RICRESTMsg& ricRESTReqMsg, String& respMsg, 
                 const CommsChannelMsg &endpointMsg);
 
     // Handle file/stream block message
-    UtilsRetCode::RetCode handleDataFrame(RICRESTMsg& RICRESTReqMsg, String& respMsg);
+    UtilsRetCode::RetCode handleDataFrame(const RICRESTMsg& ricRESTReqMsg, String& respMsg);
 
-    // Handle file upload block and cancel
+    // Handle file read/write and cancel
     UtilsRetCode::RetCode fileStreamBlockWrite(FileStreamBlock& fileStreamBlock);
+    UtilsRetCode::RetCode fileStreamBlockRead(FileStreamBlockOwned& fileStreamBlock, uint32_t filePos, uint32_t maxLen);
+    UtilsRetCode::RetCode fileStreamGetCRC(uint32_t& crc, uint32_t& fileLen);
     void fileStreamCancelEnd(bool isNormalEnd);
 
     // Debug

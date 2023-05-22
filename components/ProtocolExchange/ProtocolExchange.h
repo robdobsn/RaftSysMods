@@ -69,9 +69,11 @@ private:
     bool processEndpointMsg(CommsChannelMsg& msg);
     bool processRICRESTURL(RICRESTMsg& ricRESTReqMsg, String& respMsg, const APISourceInfo& sourceInfo);
     bool processRICRESTBody(RICRESTMsg& ricRESTReqMsg, String& respMsg, const APISourceInfo& sourceInfo);
+    bool processRICRESTCmdRespJSON(RICRESTMsg& ricRESTReqMsg, String& respMsg, 
+                const APISourceInfo& sourceInfo);
     UtilsRetCode::RetCode processRICRESTCmdFrame(RICRESTMsg& ricRESTReqMsg, String& respMsg, 
                         const CommsChannelMsg &endpointMsg);
-    UtilsRetCode::RetCode processRICRESTFileStreamBlock(RICRESTMsg& ricRESTReqMsg, String& respMsg, CommsChannelMsg &cmdMsg);
+    UtilsRetCode::RetCode processRICRESTFileStreamBlock(const RICRESTMsg& ricRESTReqMsg, String& respMsg, CommsChannelMsg &cmdMsg);
     bool processRICRESTNonFileStream(const String& cmdName, RICRESTMsg& ricRESTReqMsg, String& respMsg, 
                 const CommsChannelMsg &endpointMsg);
 

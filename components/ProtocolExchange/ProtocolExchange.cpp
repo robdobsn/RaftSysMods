@@ -23,15 +23,18 @@ static const char* MODULE_PREFIX = "ProtExchg";
 // Warn
 // #define WARN_ON_SLOW_PROC_ENDPOINT_MESSAGE
 #define WARN_ON_FILE_UPLOAD_FAILED
+// #define WARN_ON_FILE_STREAM_BLOCK_LENGTH_ZERO
 
 // Debug
-// #define DEBUG_RICREST_MESSAGES
-// #define DEBUG_RICREST_MESSAGES_RESPONSE
 // #define DEBUG_ENDPOINT_MESSAGES
 // #define DEBUG_ENDPOINT_MESSAGES_DETAIL
-// #define DEBUG_SLOW_PROC_ENDPOINT_MESSAGE_DETAIL
+// #define DEBUG_RICREST_MESSAGES
+// #define DEBUG_RICREST_MESSAGES_DETAIL
+// #define DEBUG_RICREST_MESSAGES_RESPONSE
+// #define DEBUG_RICREST_MESSAGES_RESPONSE_DETAIL
 // #define DEBUG_FILE_STREAM_SESSIONS
 // #define DEBUG_RAW_CMD_FRAME
+// #define DEBUG_SLOW_PROC_ENDPOINT_MESSAGE_DETAIL
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constructor
@@ -127,7 +130,7 @@ void ProtocolExchange::addCommsChannels(CommsCoreIF& commsCore)
     // Add support for RICSerial
     LOG_I(MODULE_PREFIX, "addCommsChannels - adding RICSerial");
     ProtocolCodecFactoryHelper ricSerialProtocolDef = { ProtocolRICSerial::getProtocolNameStatic(), 
-                        ProtocolRICSerial::createInstance, 
+                        ProtocolRICSerial::createInstance,
                         configGetConfig(), "RICSerial",
                         std::bind(&ProtocolExchange::processEndpointMsg, this, std::placeholders::_1),
                         std::bind(&ProtocolExchange::canProcessEndpointMsg, this) };
@@ -175,11 +178,33 @@ bool ProtocolExchange::processEndpointMsg(CommsChannelMsg &cmdMsg)
     uint32_t msgProcStartTimeMs = millis();
 #endif
 
-#ifdef DEBUG_ENDPOINT_MESSAGES
+#ifdef DEBUG_ENDPOINT_MESSAGES_DETAIL
+    String debugStr;
+    static const uint32_t MAX_DEBUG_BYTES_LEN = 40;
+    uint32_t numBytes = cmdMsg.getBufLen() > MAX_DEBUG_BYTES_LEN ? MAX_DEBUG_BYTES_LEN : cmdMsg.getBufLen();
+    Utils::getHexStrFromBytes(cmdMsg.getBuf(), numBytes, debugStr);
+    String msgNumStr;
+    if (cmdMsg.getMsgNumber() != 0)
+        msgNumStr = String(cmdMsg.getMsgNumber());
+    else
+        msgNumStr = "Unnumbered";
+    LOG_I(MODULE_PREFIX, "processEndpointMsg %s msgNum %s msgType %s len %d data %s%s", 
+            CommsChannelMsg::getProtocolAsString(protocol), 
+            msgNumStr.c_str(),
+            CommsChannelMsg::getMsgTypeAsString(cmdMsg.getMsgTypeCode()),
+            cmdMsg.getBufLen(),
+            debugStr.c_str(),
+            numBytes < cmdMsg.getBufLen() ? "..." : "");
+#elif defined(DEBUG_ENDPOINT_MESSAGES)
     // Debug
-    LOG_I(MODULE_PREFIX, "processEndpointMsg protocol %s msgNum %s msgType %s len %d", 
+    String msgNumStr;
+    if (cmdMsg.getMsgNumber() != 0)
+        msgNumStr = String(cmdMsg.getMsgNumber());
+    else
+        msgNumStr = "Unnumbered";
+    LOG_I(MODULE_PREFIX, "processEndpointMsg %s msgNum %s msgType %s len %d", 
     		CommsChannelMsg::getProtocolAsString(protocol), 
-    		cmdMsg.getMsgNumber() == 0 ? "Unnumbered" : String(cmdMsg.getMsgNumber()).c_str(),
+            msgNumStr.c_str(),
             CommsChannelMsg::getMsgTypeAsString(cmdMsg.getMsgTypeCode()),
     		cmdMsg.getBufLen());
 #endif
@@ -195,17 +220,16 @@ bool ProtocolExchange::processEndpointMsg(CommsChannelMsg &cmdMsg)
         RICRESTMsg ricRESTReqMsg;
         ricRESTReqMsg.decode(cmdMsg.getBuf(), cmdMsg.getBufLen());
 
-#ifdef DEBUG_RICREST_MESSAGES
-        LOG_I(MODULE_PREFIX, "processEndpointMsg RICREST elemCode %s", RICRESTMsg::getRICRESTElemCodeStr(ricRESTReqMsg.getElemCode()));
-#endif
-#ifdef DEBUG_ENDPOINT_MESSAGES_DETAIL
+#ifdef DEBUG_RICREST_MESSAGES_DETAIL
         // Debug
-        String debugStr;
-        if (ricRESTReqMsg.getElemCode() != RICRESTMsg::RICREST_ELEM_CODE_FILEBLOCK)
-            Raft::strFromBuffer(cmdMsg.getBuf(), cmdMsg.getBufLen(), debugStr);
-        else
-            Raft::getHexStrFromBytes(cmdMsg.getBuf(), cmdMsg.getBufLen(), debugStr);
-        LOG_I(MODULE_PREFIX, "processEndpointMsg payload %s", debugStr.c_str());
+        static const uint32_t MAX_DEBUG_BYTES_LEN = 80;
+        String debugStr = ricRESTReqMsg.debugMsg(MAX_DEBUG_BYTES_LEN, true);
+        LOG_I(MODULE_PREFIX, "processEndpointMsg RICREST elemCode %s len %d data %s", 
+                    RICRESTMsg::getRICRESTElemCodeStr(ricRESTReqMsg.getElemCode()), 
+                    cmdMsg.getBufLen(), debugStr.c_str());
+#elif defined(DEBUG_RICREST_MESSAGES)
+        LOG_I(MODULE_PREFIX, "processEndpointMsg RICREST elemCode %s", 
+                    RICRESTMsg::getRICRESTElemCodeStr(ricRESTReqMsg.getElemCode()));
 #endif
 
         // Check elemCode of message
@@ -224,8 +248,7 @@ bool ProtocolExchange::processEndpointMsg(CommsChannelMsg &cmdMsg)
             }
             case RICRESTMsg::RICREST_ELEM_CODE_CMDRESPJSON:
             {
-                // This message type is reserved for responses
-                LOG_W(MODULE_PREFIX, "processEndpointMsg RICREST JSON reserved for response");
+                processRICRESTCmdRespJSON(ricRESTReqMsg, respMsg, APISourceInfo(cmdMsg.getChannelID()));
                 break;
             }
             case RICRESTMsg::RICREST_ELEM_CODE_COMMAND_FRAME:
@@ -252,10 +275,15 @@ bool ProtocolExchange::processEndpointMsg(CommsChannelMsg &cmdMsg)
             if (getCommsCore())
                 getCommsCore()->handleOutboundMessage(endpointMsg);
 
+#ifdef DEBUG_RICREST_MESSAGES_RESPONSE_DETAIL
             // Debug
-#ifdef DEBUG_RICREST_MESSAGES_RESPONSE
-            LOG_I(MODULE_PREFIX, "processEndpointMsg restAPI msgLen %d response %s", 
-                        ricRESTReqMsg.getBinLen(), endpointMsg.getBuf());
+            static const uint32_t MAX_DEBUG_BYTES_LEN = 80;
+            LOG_I(MODULE_PREFIX, "processEndpointMsg RICREST resp %s", 
+                        RICRESTMsg::debugResp(endpointMsg, MAX_DEBUG_BYTES_LEN, true).c_str());
+#elif defined(DEBUG_RICREST_MESSAGES_RESPONSE)
+            static const uint32_t MAX_DEBUG_BYTES_LEN = 10;
+            LOG_I(MODULE_PREFIX, "processEndpointMsg RICREST resp %s", 
+                        RICRESTMsg::debugResp(endpointMsg, MAX_DEBUG_BYTES_LEN, false).c_str());
 #endif
         }
     }
@@ -276,7 +304,8 @@ bool ProtocolExchange::processEndpointMsg(CommsChannelMsg &cmdMsg)
         // Handle via standard REST API
         String respMsg;
         if (getRestAPIEndpointManager())
-            getRestAPIEndpointManager()->handleApiRequest(reqStr.c_str(), respMsg, APISourceInfo(cmdMsg.getChannelID()));
+            getRestAPIEndpointManager()->handleApiRequest(reqStr.c_str(), 
+                        respMsg, APISourceInfo(cmdMsg.getChannelID()));
     }
 
 #ifdef WARN_ON_SLOW_PROC_ENDPOINT_MESSAGE
@@ -286,8 +315,8 @@ bool ProtocolExchange::processEndpointMsg(CommsChannelMsg &cmdMsg)
         String msgHex;
         Raft::getHexStrFromBytes(cmdMsg.getBuf(), cmdMsg.getBufLen(), msgHex);
 #endif
-        LOG_W(MODULE_PREFIX, "processEndpointMsg SLOW took %ldms protocol %d len %d msg %s", 
-                Raft::timeElapsed(millis(), msgProcStartTimeMs),
+        LOG_W(MODULE_PREFIX, "processEndpointMsg SLOW took %dms protocol %d len %d msg %s", 
+                (int)Raft::timeElapsed(millis(), msgProcStartTimeMs),
                 protocol,
                 cmdMsg.getBufLen(),
 #ifdef DEBUG_SLOW_PROC_ENDPOINT_MESSAGE_DETAIL
@@ -330,7 +359,8 @@ bool ProtocolExchange::processRICRESTBody(RICRESTMsg& ricRESTReqMsg, String& res
 //     bool rsltOk = false;
 //     if (pBuffer && _pRestAPIEndpointManager)
 //     {
-//         _pRestAPIEndpointManager->handleApiRequestBody(reqStr, pBuffer, bufferLen, bufferPos, totalBytes, sourceInfo);
+//         _pRestAPIEndpointManager->handleApiRequestBody(reqStr, pBuffer, 
+                    // bufferLen, bufferPos, totalBytes, sourceInfo);
 //         rsltOk = true;
 //     }
 
@@ -346,72 +376,114 @@ bool ProtocolExchange::processRICRESTBody(RICRESTMsg& ricRESTReqMsg, String& res
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Process RICRESTMsg CmdRespJSON
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool ProtocolExchange::processRICRESTCmdRespJSON(RICRESTMsg& ricRESTReqMsg, String& respMsg, 
+                const APISourceInfo& sourceInfo)
+{
+    // Not currently used
+    return false;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Process RICRESTMsg CmdFrame
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 UtilsRetCode::RetCode ProtocolExchange::processRICRESTCmdFrame(RICRESTMsg& ricRESTReqMsg, String& respMsg, 
                 const CommsChannelMsg &endpointMsg)
 {
+    // Handle command frames
+    JSONParams cmdFrame = ricRESTReqMsg.getPayloadJson();
+    String cmdName = cmdFrame.getString("cmdName", "");
+
+    // Get File/Stream message type
+    FileStreamBase::FileStreamMsgType fileStreamMsgType = 
+                        FileStreamSession::getFileStreamMsgType(ricRESTReqMsg, cmdName);
+
+    // Handle non-file-stream messages
+    if (fileStreamMsgType == FileStreamBase::FILE_STREAM_MSG_TYPE_NONE)
+        return processRICRESTNonFileStream(cmdName, ricRESTReqMsg, respMsg, endpointMsg) ? UtilsRetCode::OK : UtilsRetCode::INVALID_OBJECT;
+
     // ChannelID
     uint32_t channelID = endpointMsg.getChannelID();
 
     // Check file/stream messages
     String fileStreamName;
     FileStreamBase::FileStreamContentType fileStreamContentType = FileStreamBase::FILE_STREAM_CONTENT_TYPE_FILE;
-    String cmdName;
     String restAPIEndpointName;
     uint32_t streamID = FileStreamBase::FILE_STREAM_ID_ANY;
     uint32_t fileStreamLength = 0;
-    FileStreamBase::FileStreamMsgType fileStreamMsgType = 
-                    FileStreamBase::getFileStreamMsgInfo(ricRESTReqMsg, cmdName, fileStreamName, 
+    FileStreamBase::getFileStreamMsgInfo(cmdFrame, fileStreamName, 
                             fileStreamContentType, streamID, restAPIEndpointName, fileStreamLength);
-
-    // Handle non-file-stream messages
-    if (fileStreamMsgType == FileStreamBase::FILE_STREAM_MSG_TYPE_NONE)
-        return processRICRESTNonFileStream(cmdName, ricRESTReqMsg, respMsg, endpointMsg) ? UtilsRetCode::OK : UtilsRetCode::INVALID_OBJECT;
 
     // Handle file stream
     FileStreamSession* pSession = nullptr;
+    bool respondToMismatchedSession = true;
     switch (fileStreamMsgType)
     {
-        case FileStreamBase::FILE_STREAM_MSG_TYPE_START:
+        case FileStreamBase::FILE_STREAM_MSG_TYPE_UPLOAD_START:
             pSession = getFileStreamNewSession(fileStreamName.c_str(), channelID, fileStreamContentType, 
-                                    restAPIEndpointName.c_str(), FileStreamBase::FILE_STREAM_FLOW_TYPE_COMMS_CHANNEL,
+                                    restAPIEndpointName.c_str(), 
+                                    FileStreamBase::FILE_STREAM_FLOW_TYPE_RICREST_UPLOAD,
                                     fileStreamLength);
             break;
-        case FileStreamBase::FILE_STREAM_MSG_TYPE_END:
+        case FileStreamBase::FILE_STREAM_MSG_TYPE_UPLOAD_END:
             pSession = getFileStreamExistingSession(fileStreamName.c_str(), channelID, streamID);
-            if (!pSession)
-            {
-                // Streams can end before ufEnd received so simply ack the message
-                Raft::setJsonBoolResult(ricRESTReqMsg.getReq().c_str(), respMsg, true);
-                return UtilsRetCode::SESSION_NOT_FOUND;
-            }
+            break;
+        case FileStreamBase::FILE_STREAM_MSG_TYPE_DOWNLOAD_START:
+            pSession = getFileStreamNewSession(fileStreamName.c_str(), channelID, fileStreamContentType, 
+                                    restAPIEndpointName.c_str(), 
+                                    FileStreamBase::FILE_STREAM_FLOW_TYPE_RICREST_DOWNLOAD,
+                                    fileStreamLength);
+            respondToMismatchedSession = false;
+            break;
+        case FileStreamBase::FILE_STREAM_MSG_TYPE_DOWNLOAD_END:
+            pSession = getFileStreamExistingSession(fileStreamName.c_str(), channelID, streamID);
+            break;
+        case FileStreamBase::FILE_STREAM_MSG_TYPE_DOWNLOAD_ACK:
+            pSession = getFileStreamExistingSession(fileStreamName.c_str(), channelID, streamID);
+            // Ignore mismatched ACK frames (which will result in pSession being nullptr)
+            respondToMismatchedSession = false;
             break;
         default:
-            // LOG_I(MODULE_PREFIX, "processRICRESTCmdFrame cmdName %s fileStreamMsgType %d", cmdName.c_str(), fileStreamMsgType);
             pSession = getFileStreamExistingSession(fileStreamName.c_str(), channelID, streamID);
             break;
     }
 
-    // Check session is valid
-    if (!pSession)
+    // Check session is found
+    if (!pSession && respondToMismatchedSession)
     {
         // Failure
-        Raft::setJsonBoolResult(ricRESTReqMsg.getReq().c_str(), respMsg, false);
+        Raft::setJsonBoolResult(ricRESTReqMsg.getReq().c_str(), respMsg, true);
         return UtilsRetCode::SESSION_NOT_FOUND;
     }
 
     // Session is valid so send message to it
-    return pSession->handleCmdFrame(cmdName, ricRESTReqMsg, respMsg, endpointMsg);
+    return pSession->handleCmdFrame(fileStreamMsgType, ricRESTReqMsg, respMsg, endpointMsg);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Process RICRESTMsg file/stream block
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-UtilsRetCode::RetCode ProtocolExchange::processRICRESTFileStreamBlock(RICRESTMsg& ricRESTReqMsg, String& respMsg, CommsChannelMsg &cmdMsg)
+UtilsRetCode::RetCode ProtocolExchange::processRICRESTFileStreamBlock(const RICRESTMsg& ricRESTReqMsg, 
+                    String& respMsg, CommsChannelMsg &cmdMsg)
 {
+    // Check length
+    if (ricRESTReqMsg.getBinLen() == 0)
+    {
+#ifdef WARN_ON_FILE_STREAM_BLOCK_LENGTH_ZERO
+        LOG_W(MODULE_PREFIX, "processRICRESTFileStreamBlock invalid length %d", ricRESTReqMsg.getBinLen());
+#endif
+        UtilsRetCode::RetCode rslt = UtilsRetCode::INVALID_DATA;
+        char errorMsg[100];
+        snprintf(errorMsg, sizeof(errorMsg), "\"length\":%d,\"reason\":\"%s\"", 
+                            ricRESTReqMsg.getBinLen(), UtilsRetCode::getRetcStr(rslt));
+        Raft::setJsonBoolResult(ricRESTReqMsg.getReq().c_str(), respMsg, false, errorMsg);
+        return rslt;
+    }
+
     // Extract streamID
     uint32_t streamID = ricRESTReqMsg.getStreamID();
 
@@ -423,7 +495,7 @@ UtilsRetCode::RetCode ProtocolExchange::processRICRESTFileStreamBlock(RICRESTMsg
         UtilsRetCode::RetCode rslt = UtilsRetCode::SESSION_NOT_FOUND;
         char errorMsg[100];
         snprintf(errorMsg, sizeof(errorMsg), "\"streamID\":%d,\"reason\":\"%s\"", 
-                        (int)streamID, UtilsRetCode::getRetcStr(rslt));
+                            streamID, UtilsRetCode::getRetcStr(rslt));
         Raft::setJsonBoolResult(ricRESTReqMsg.getReq().c_str(), respMsg, false, errorMsg);
         return rslt;
     }
@@ -436,7 +508,8 @@ UtilsRetCode::RetCode ProtocolExchange::processRICRESTFileStreamBlock(RICRESTMsg
 // Process RICRESTMsg CmdFrame that are non-file-stream messages
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool ProtocolExchange::processRICRESTNonFileStream(const String& cmdName, RICRESTMsg& ricRESTReqMsg, String& respMsg, 
+bool ProtocolExchange::processRICRESTNonFileStream(const String& cmdName, 
+                RICRESTMsg& ricRESTReqMsg, String& respMsg, 
                 const CommsChannelMsg &endpointMsg)
 {
     // Convert to REST API query string - it won't necessarily be a valid query string for external use
@@ -448,7 +521,8 @@ bool ProtocolExchange::processRICRESTNonFileStream(const String& cmdName, RICRES
 
     // Handle via standard REST API
     if (getRestAPIEndpointManager())
-        return getRestAPIEndpointManager()->handleApiRequest(reqStr.c_str(), respMsg, APISourceInfo(endpointMsg.getChannelID()));
+        return getRestAPIEndpointManager()->handleApiRequest(reqStr.c_str(), 
+                            respMsg, APISourceInfo(endpointMsg.getChannelID()));
     return false;
 }
 
@@ -456,7 +530,8 @@ bool ProtocolExchange::processRICRESTNonFileStream(const String& cmdName, RICRES
 // Process RICRESTMsg CmdFrame that are non-file-stream messages
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-FileStreamSession* ProtocolExchange::findFileStreamSession(uint32_t streamID, const char* fileStreamName, uint32_t channelID)
+FileStreamSession* ProtocolExchange::findFileStreamSession(uint32_t streamID, 
+                                    const char* fileStreamName, uint32_t channelID)
 {
     // First check the case where we know the streamID
     if (streamID != FileStreamBase::FILE_STREAM_ID_ANY)
@@ -491,12 +566,14 @@ FileStreamSession* ProtocolExchange::getFileStreamNewSession(const char* fileStr
                 FileStreamBase::FileStreamFlowType flowType, uint32_t fileStreamLength)
 {
     // Check existing sessions
-    FileStreamSession* pSession = findFileStreamSession(FileStreamBase::FILE_STREAM_ID_ANY, fileStreamName, channelID);
+    FileStreamSession* pSession = findFileStreamSession(FileStreamBase::FILE_STREAM_ID_ANY, 
+                            fileStreamName, channelID);
     if (pSession)
     {
         // If we find one then ignore this as it is a re-start of an existing session
-        LOG_W(MODULE_PREFIX, "getFileStreamNewSession restart existing - ignored name %s channelID %d",
-                        fileStreamName, channelID);
+        LOG_W(MODULE_PREFIX, "getFileStreamNewSession restart existing - ignored name %s channelID %d flow %s",
+                        fileStreamName, channelID, FileStreamBase::getFileStreamFlowTypeStr(flowType));
+        pSession->resetCounters(fileStreamLength);
         return pSession;
     }
 
@@ -504,8 +581,8 @@ FileStreamSession* ProtocolExchange::getFileStreamNewSession(const char* fileStr
     if (_sessions.size() > MAX_SIMULTANEOUS_FILE_STREAM_SESSIONS)
     {
         // Max sessions already active
-        LOG_W(MODULE_PREFIX, "getFileStreamNewSession max active - ignored name %s channelID %d",
-                        fileStreamName, channelID);
+        LOG_W(MODULE_PREFIX, "getFileStreamNewSession max active - ignored name %s channelID %d flow %s",
+                        fileStreamName, channelID, FileStreamBase::getFileStreamFlowTypeStr(flowType));
         return nullptr;
     }
 
@@ -517,8 +594,8 @@ FileStreamSession* ProtocolExchange::getFileStreamNewSession(const char* fileStr
                 fileStreamLength);
     if (!pSession)
     {
-        LOG_W(MODULE_PREFIX, "getFileStreamNewSession failed to create session name %s channelID %d endpointName %s",
-                        fileStreamName, channelID, restAPIEndpointName);
+        LOG_W(MODULE_PREFIX, "getFileStreamNewSession failed to create session name %s channelID %d endpointName %s flow %s",
+                        fileStreamName, channelID, restAPIEndpointName, FileStreamBase::getFileStreamFlowTypeStr(flowType));
         return nullptr;
     }
 

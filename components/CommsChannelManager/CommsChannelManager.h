@@ -57,6 +57,8 @@ public:
 
     // Get the optimal comms block size
     virtual uint32_t getInboundBlockLen(uint32_t channelID, uint32_t defaultSize) override final;
+    virtual uint32_t getOutboundBlockLen(uint32_t channelID, uint32_t defaultSize) override final;
+
 
     // Get info
     String getInfoJSON();

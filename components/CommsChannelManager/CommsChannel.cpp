@@ -171,15 +171,21 @@ void CommsChannel::addToOutboundQueue(CommsChannelMsg& msg)
     if (_outboundQPeak < _outboundQueue.count())
         _outboundQPeak = _outboundQueue.count();
 
+#ifdef DEBUG_OUTBOUND_QUEUE
+    LOG_I(MODULE_PREFIX, "addToOutboundQueue msglen %d cmdVecPtr %p dataPtr %p", 
+                msg.getBufLen(), msg.getCmdVector(), msg.getCmdVector().data());
+#endif
 }
 
 bool CommsChannel::getFromOutboundQueue(CommsChannelMsg& msg)
 {
     bool hasGot = _outboundQueue.get(msg);
+
 #ifdef DEBUG_OUTBOUND_QUEUE
     if (hasGot)
     {
-        LOG_I(MODULE_PREFIX, "Got from outboundQueue msgLen %d", msg.getBufLen());
+        LOG_I(MODULE_PREFIX, "getFromOutboundQueue msglen %d cmdVecPtr %p dataPtr %p", 
+                    msg.getBufLen(), msg.getCmdVector(), msg.getCmdVector().data());    
     }
 #endif
     return hasGot;

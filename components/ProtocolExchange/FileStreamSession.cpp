@@ -10,15 +10,19 @@
 #include "SysModBase.h"
 #include "FileUploadHTTPProtocol.h"
 #include "FileUploadOKTOProtocol.h"
+#include "FileDownloadOKTOProtocol.h"
 #include "StreamDatagramProtocol.h"
 #include "RestAPIEndpointManager.h"
 #include "RICRESTMsg.h"
+#include <MiniHDLC.h>
+#include <SpiramAwareAllocator.h>
 
 static const char* MODULE_PREFIX = "FSSess";
 
 // Warn
 #define WARN_ON_FW_UPDATE_FAILED
 #define WARN_ON_STREAM_FAILED
+#define WARN_ON_FILE_CHUNKER_START_FAILED
 
 // Debug
 // #define DEBUG_FILE_STREAM_START_END
@@ -65,7 +69,16 @@ FileStreamSession::FileStreamSession(const String& filename, uint32_t channelID,
     {
         _pFileChunker = new FileSystemChunker();
         if (_pFileChunker)
-            _pFileChunker->start(filename, 0, false, true, true);
+        {
+            _pFileChunker->start(filename, 0, false, FileStreamBase::isUploadFlowType(fileStreamFlowType), true, true);
+        }
+        if (!_pFileChunker || !_pFileChunker->isActive())
+        {
+#ifdef WARN_ON_FILE_CHUNKER_START_FAILED
+            LOG_W(MODULE_PREFIX, "constructor failed to start file chunker");
+#endif
+            return;
+        }
     }
 
     // Construct file/stream handling protocol
@@ -78,6 +91,8 @@ FileStreamSession::FileStreamSession(const String& filename, uint32_t channelID,
             {
                 _pFileStreamProtocolHandler = new FileUploadHTTPProtocol(
                             std::bind(&FileStreamSession::fileStreamBlockWrite, this, std::placeholders::_1),
+                            std::bind(&FileStreamSession::fileStreamBlockRead, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                            std::bind(&FileStreamSession::fileStreamGetCRC, this, std::placeholders::_1, std::placeholders::_2),
                             std::bind(&FileStreamSession::fileStreamCancelEnd, this, std::placeholders::_1),
                             pCommsCore,
                             fileStreamContentType, 
@@ -86,10 +101,26 @@ FileStreamSession::FileStreamSession(const String& filename, uint32_t channelID,
                             fileStreamLength,
                             filename.c_str());
             }
-            else
+            else if (_fileStreamFlowType == FileStreamBase::FILE_STREAM_FLOW_TYPE_RICREST_UPLOAD)
             {
                 _pFileStreamProtocolHandler = new FileUploadOKTOProtocol(
                             std::bind(&FileStreamSession::fileStreamBlockWrite, this, std::placeholders::_1),
+                            std::bind(&FileStreamSession::fileStreamBlockRead, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                            std::bind(&FileStreamSession::fileStreamGetCRC, this, std::placeholders::_1, std::placeholders::_2),
+                            std::bind(&FileStreamSession::fileStreamCancelEnd, this, std::placeholders::_1),
+                            pCommsCore,
+                            fileStreamContentType, 
+                            fileStreamFlowType,
+                            streamID,
+                            fileStreamLength,
+                            filename.c_str());
+            }
+            else if (_fileStreamFlowType == FileStreamBase::FILE_STREAM_FLOW_TYPE_RICREST_DOWNLOAD)
+            {
+                _pFileStreamProtocolHandler = new FileDownloadOKTOProtocol(
+                            std::bind(&FileStreamSession::fileStreamBlockWrite, this, std::placeholders::_1),
+                            std::bind(&FileStreamSession::fileStreamBlockRead, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                            std::bind(&FileStreamSession::fileStreamGetCRC, this, std::placeholders::_1, std::placeholders::_2),
                             std::bind(&FileStreamSession::fileStreamCancelEnd, this, std::placeholders::_1),
                             pCommsCore,
                             fileStreamContentType, 
@@ -105,6 +136,8 @@ FileStreamSession::FileStreamSession(const String& filename, uint32_t channelID,
             // Create protocol handler
             _pFileStreamProtocolHandler = new StreamDatagramProtocol(
                         std::bind(&FileStreamSession::fileStreamBlockWrite, this, std::placeholders::_1),
+                        std::bind(&FileStreamSession::fileStreamBlockRead, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                            std::bind(&FileStreamSession::fileStreamGetCRC, this, std::placeholders::_1, std::placeholders::_2),
                         std::bind(&FileStreamSession::fileStreamCancelEnd, this, std::placeholders::_1),
                         pCommsCore,
                         fileStreamContentType, 
@@ -165,16 +198,28 @@ void FileStreamSession::service()
     }
 }
 
+void FileStreamSession::resetCounters(uint32_t fileStreamLength){
+    if (!_pFileStreamProtocolHandler) return;
+    _pFileStreamProtocolHandler->resetCounters(fileStreamLength);
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Handle command frame
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-UtilsRetCode::RetCode FileStreamSession::handleCmdFrame(const String& cmdName, RICRESTMsg& ricRESTReqMsg, String& respMsg, 
-            const CommsChannelMsg &endpointMsg)
+UtilsRetCode::RetCode FileStreamSession::handleCmdFrame(FileStreamBase::FileStreamMsgType fsMsgType, 
+                const RICRESTMsg& ricRESTReqMsg, String& respMsg, 
+                const CommsChannelMsg &endpointMsg)
 {
+    // Check handler exists
     if (!_pFileStreamProtocolHandler)
         return UtilsRetCode::INVALID_OBJECT;
-    UtilsRetCode::RetCode rslt = _pFileStreamProtocolHandler->handleCmdFrame(cmdName, ricRESTReqMsg, respMsg, endpointMsg);
+
+    // Send to handler
+    UtilsRetCode::RetCode rslt = 
+            _pFileStreamProtocolHandler->handleCmdFrame(fsMsgType, ricRESTReqMsg, respMsg, endpointMsg);
+
+    // Session may now be finished
     if (!_pFileStreamProtocolHandler->isActive())
         _isActive = false;
     return rslt;
@@ -184,7 +229,7 @@ UtilsRetCode::RetCode FileStreamSession::handleCmdFrame(const String& cmdName, R
 // Handle file/stream block message
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-UtilsRetCode::RetCode FileStreamSession::handleDataFrame(RICRESTMsg& ricRESTReqMsg, String& respMsg)
+UtilsRetCode::RetCode FileStreamSession::handleDataFrame(const RICRESTMsg& ricRESTReqMsg, String& respMsg)
 {
     if (!_pFileStreamProtocolHandler)
     {
@@ -210,15 +255,119 @@ String FileStreamSession::getDebugJSON()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// File/stream block write - callback from FileStreamBase
+// File/stream get CRC
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+UtilsRetCode::RetCode FileStreamSession::fileStreamGetCRC(uint32_t& crc, uint32_t& fileLen)
+{
+    // Check that a file chunker is available and active
+    if (!_pFileChunker || !_pFileChunker->isActive())
+        return UtilsRetCode::NOT_XFERING;
+
+    // Get CRC and file length
+    fileLen = _pFileChunker->getFileLen();
+
+    // Use chunker to get chunks and calculate CRC
+    uint32_t crcValue = MiniHDLC::crcInitCCITT();
+
+    // Reset chunker
+    _pFileChunker->restart();
+
+    // Get chunks and calculate CRC
+    std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> chunkBuf;
+    const uint32_t CRC_CHUNK_SIZE = SpiramAwareAllocator<uint8_t>::max_allocatable() > 500000 ? 2000 : 500;
+    chunkBuf.resize(CRC_CHUNK_SIZE);
+    bool finalBlockRead = false;
+    while (!finalBlockRead)
+    {
+        // Get next chunk
+        uint32_t bytesRead = 0;
+        bool readOk = _pFileChunker->nextRead(chunkBuf.data(), chunkBuf.size(), bytesRead, finalBlockRead);
+
+        // Check for error
+        if (!readOk)
+            break;
+
+        // Calculate CRC
+        crcValue = MiniHDLC::crcUpdateCCITT(crcValue, chunkBuf.data(), bytesRead);
+    }
+
+    // Reset chunker again
+    _pFileChunker->restart();
+
+    // CRC value
+    crc = crcValue;
+    return UtilsRetCode::OK;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// File/stream block read
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+UtilsRetCode::RetCode FileStreamSession::fileStreamBlockRead(FileStreamBlockOwned& fileStreamBlock,
+            uint32_t filePos, uint32_t maxLen)
+{
+    // Check chunker is active
+    if (!_pFileChunker || !_pFileChunker->isActive())
+        return UtilsRetCode::NOT_XFERING;
+
+    // Allocate buffer
+    std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> chunkBuf;
+    chunkBuf.resize(maxLen);
+
+    // Check allocation
+    if (chunkBuf.size() == 0)
+        return UtilsRetCode::INSUFFICIENT_RESOURCE;
+
+    // Current file pos
+    uint32_t curFilePos = _pFileChunker->getFilePos();
+
+    // Check if at the required position
+    if (curFilePos != filePos)
+    {
+        // Seek to required position
+        if (!_pFileChunker->seek(filePos))
+            return UtilsRetCode::NOT_XFERING;
+    }
+
+    // Get next chunk
+    uint32_t bytesRead = 0;
+    bool finalBlockRead = false;
+    bool readOk = _pFileChunker->nextRead(chunkBuf.data(), chunkBuf.size(), bytesRead, finalBlockRead);
+
+    // Fill fileStreamBlock
+    uint32_t fileLen = _pFileChunker->getFileLen();
+    fileStreamBlock.set(_pFileChunker->getFileName().c_str(),
+            fileLen,
+            filePos,
+            chunkBuf.data(),
+            bytesRead,
+            finalBlockRead,
+            0, false,
+            fileLen, true,
+            filePos == 0);
+    return readOk ? UtilsRetCode::OK : UtilsRetCode::NOT_XFERING;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// File/stream block write
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 UtilsRetCode::RetCode FileStreamSession::fileStreamBlockWrite(FileStreamBlock& fileStreamBlock)
 {
 #ifdef DEBUG_FILE_STREAM_BLOCK
-    LOG_I(MODULE_PREFIX, "fileStreamBlockWrite pos %d len %d%s fileStreamContentType %d isFirst %d isFinal %d name %s",
-                fileStreamBlock.filePos, fileStreamBlock.blockLen, fileStreamBlock.fileLenValid ? (" of " + String(fileStreamBlock.fileLen) + " ").c_str() : "",
-                _fileStreamContentType, fileStreamBlock.firstBlock, fileStreamBlock.finalBlock, fileStreamBlock.filename);
+    {
+        String lenStr = String(fileStreamBlock.blockLen);
+        if (fileStreamBlock.fileLenValid)
+            lenStr += " of " + String(fileStreamBlock.fileLen);
+        LOG_I(MODULE_PREFIX, "fileStreamBlockWrite pos %d len %s fileStreamContentType %d isFirst %d isFinal %d name %s",
+                fileStreamBlock.filePos, 
+                lenStr.c_str(),
+                _fileStreamContentType, 
+                fileStreamBlock.firstBlock, 
+                fileStreamBlock.finalBlock, 
+                fileStreamBlock.filename);
+    }
 #endif
 
     // Keep session alive while we're receiving
@@ -241,6 +390,9 @@ UtilsRetCode::RetCode FileStreamSession::fileStreamBlockWrite(FileStreamBlock& f
             _isActive = false;
             return UtilsRetCode::INVALID_DATA;
     }
+#ifdef DEBUG_FILE_STREAM_BLOCK
+    LOG_I(MODULE_PREFIX, "fileStreamBlockWrite write finished, time %dms, handledOk: %s", (millis() - _sessionLastActiveMs), UtilsRetCode::getRetcStr(handledOk));
+#endif
 
     // Check handled ok
     if (handledOk == UtilsRetCode::OK)
@@ -344,4 +496,31 @@ void FileStreamSession::fileStreamCancelEnd(bool isNormalEnd)
         _pFirmwareUpdater->fileStreamCancelEnd(isNormalEnd);
         return;
     }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Get file/stream message type
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+FileStreamBase::FileStreamMsgType FileStreamSession::getFileStreamMsgType(const RICRESTMsg& ricRESTReqMsg,
+                const String& cmdName)
+{
+    // Check with Upload OKTO protocol
+    FileStreamBase::FileStreamMsgType msgType = 
+                    FileUploadOKTOProtocol::getFileStreamMsgType(ricRESTReqMsg, cmdName);
+    if (msgType != FileStreamBase::FILE_STREAM_MSG_TYPE_NONE)
+        return msgType;
+
+    // Check with Download OKTO protocol
+    msgType = FileDownloadOKTOProtocol::getFileStreamMsgType(ricRESTReqMsg, cmdName);
+    if (msgType != FileStreamBase::FILE_STREAM_MSG_TYPE_NONE)
+        return msgType;
+
+    // Check with Stream Datagram protocol
+    msgType = StreamDatagramProtocol::getFileStreamMsgType(ricRESTReqMsg, cmdName);
+    if (msgType != FileStreamBase::FILE_STREAM_MSG_TYPE_NONE)
+        return msgType;
+
+    // Return none
+    return FileStreamBase::FILE_STREAM_MSG_TYPE_NONE;
 }

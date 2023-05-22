@@ -38,6 +38,7 @@ idf_component_register(
       "components/WebServer"
     REQUIRES
       raftcore-src
+      raftwebserver-src
       bt
       spiffs
       fatfs

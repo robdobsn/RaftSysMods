@@ -12,7 +12,7 @@
 #ifdef FEATURE_MQTT_MANAGER
 
 #include <SysModBase.h>
-#include <RdMQTTClient.h>
+#include <RaftMQTTClient.h>
 
 class ConfigBase;
 class RestAPIEndpointManager;
@@ -44,7 +44,7 @@ protected:
 
 private:
     // MQTT client
-    RdMQTTClient _mqttClient;
+    RaftMQTTClient _mqttClient;
 
     // EndpointID used to identify this message channel to the CommsChannelManager object
     uint32_t _commsChannelID;

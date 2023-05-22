@@ -25,6 +25,7 @@ static const char* MODULE_PREFIX = "CommsMan";
 // #define DEBUG_REGISTER_CHANNEL
 // #define DEBUG_OUTBOUND_MSG_ALL_CHANNELS
 // #define DEBUG_INBOUND_BLOCK_MAX
+// #define DEBUG_OUTBOUND_BLOCK_MAX
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constructor
@@ -92,12 +93,14 @@ void CommsChannelManager::service()
 #endif
                     // Handle the message
                     pChannel->addTxMsgToProtocolCodec(msg);
-#ifdef DEBUG_COMMS_MANAGER_SERVICE
-                    LOG_I(MODULE_PREFIX, "service, msg sent channelID %d, msgType %s msgNum %d, len %d",
-                        msg.getChannelID(), msg.getMsgTypeAsString(msg.getMsgTypeCode()), msg.getMsgNumber(), msg.getBufLen());
-#endif
                 }
             }
+        }
+        else
+        {
+#ifdef DEBUG_COMMS_MANAGER_SERVICE
+            LOG_I(MODULE_PREFIX, "service, channelID %d, can't accept", channelID);
+#endif
         }
 
         // Inbound messages - possibly multiple messages
@@ -367,6 +370,27 @@ uint32_t CommsChannelManager::getInboundBlockLen(uint32_t channelID, uint32_t de
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Get the outbound comms block size
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+uint32_t CommsChannelManager::getOutboundBlockLen(uint32_t channelID, uint32_t defaultSize)
+{
+    // Get the optimal block size
+    if (channelID >= _commsChannelVec.size())
+        return defaultSize;
+
+    // Ensure we have a handler
+    ensureProtocolCodecExists(channelID);
+
+    // Check validity
+    uint32_t blockMax = _commsChannelVec[channelID]->getOutboundBlockLen();
+#ifdef DEBUG_OUTBOUND_BLOCK_MAX
+    LOG_I(MODULE_PREFIX, "getOutboundBlockLen channelID %d %d", channelID, blockMax);
+#endif
+    return blockMax;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Handle outbound message on a specific channel
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -447,13 +471,12 @@ void CommsChannelManager::ensureProtocolCodecExists(uint32_t channelID)
         {
             // Debug
 #ifdef DEBUG_PROTOCOL_CODEC
-            LOG_I(MODULE_PREFIX, "ensureProtocolCodecExists channelID %d protocol %s configPrefix %s",
-                    channelID, channelProtocol.c_str(), 
-                    codecFactoryHelper.pConfigPrefix ? codecFactoryHelper.pConfigPrefix : "NULL");
+            LOG_I(MODULE_PREFIX, "ensureProtocolCodecExists channelID %d protocol %s params %s",
+                    channelID, channelProtocol.c_str(), codecFactoryHelper.paramsJSON.c_str());
 #endif
 
             // Create a protocol object
-            ProtocolBase* pProtocolCodec = codecFactoryHelper.createFn(channelID, 
+            ProtocolBase* pProtocolCodec = codecFactoryHelper.createFn(channelID,
                         codecFactoryHelper.config,
                         codecFactoryHelper.pConfigPrefix,
                         std::bind(&CommsChannelManager::frameSendCB, this, std::placeholders::_1), 
