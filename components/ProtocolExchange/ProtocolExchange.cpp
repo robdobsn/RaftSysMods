@@ -21,8 +21,9 @@
 static const char* MODULE_PREFIX = "ProtExchg";
 
 // Warn
-// #define WARN_ON_SLOW_PROC_ENDPOINT_MESSAGE
+#define WARN_ON_SLOW_PROC_ENDPOINT_MESSAGE
 #define WARN_ON_FILE_UPLOAD_FAILED
+#define WARN_ON_FILE_STREAM_SESSION_NOT_FOUND
 // #define WARN_ON_FILE_STREAM_BLOCK_LENGTH_ZERO
 
 // Debug
@@ -83,8 +84,9 @@ void ProtocolExchange::service()
         if (!pSession->isActive())
         {
 #ifdef DEBUG_FILE_STREAM_SESSIONS
-            LOG_I(MODULE_PREFIX, "service session inactive name %s channel %d streamID %d",
-                        pSession->getFileStreamName().c_str(), pSession->getChannelID(), pSession->getStreamID());
+            LOG_I(MODULE_PREFIX, "service session inactive name %s channel %d streamID %d pSession %p",
+                        pSession->getFileStreamName().c_str(), pSession->getChannelID(), 
+                        pSession->getStreamID(), pSession);
 #endif            
             // Tidy up inactive session
             _sessions.remove(pSession);
@@ -452,10 +454,19 @@ UtilsRetCode::RetCode ProtocolExchange::processRICRESTCmdFrame(RICRESTMsg& ricRE
     }
 
     // Check session is found
-    if (!pSession && respondToMismatchedSession)
+    if (!pSession)
     {
-        // Failure
-        Raft::setJsonBoolResult(ricRESTReqMsg.getReq().c_str(), respMsg, true);
+        if (respondToMismatchedSession)
+        {
+            // Failure
+            Raft::setJsonBoolResult(ricRESTReqMsg.getReq().c_str(), respMsg, true);
+        }
+
+        // Debug
+#ifdef WARN_ON_FILE_STREAM_SESSION_NOT_FOUND
+        LOG_W(MODULE_PREFIX, "processRICRESTCmdFrame session not found msgType %s streamName %s streamID %d", 
+                FileStreamBase::getFileStreamMsgTypeStr(fileStreamMsgType), fileStreamName.c_str(), streamID);
+#endif
         return UtilsRetCode::SESSION_NOT_FOUND;
     }
 
@@ -638,8 +649,8 @@ FileStreamSession* ProtocolExchange::getFileStreamExistingSession(const char* fi
         return nullptr;
     }
 #ifdef DEBUG_FILE_STREAM_SESSIONS
-    LOG_I(MODULE_PREFIX, "getFileStreamExistingSession OK name %s channelID %d streamID %d", 
-            fileStreamName, channelID, streamID);
+    LOG_I(MODULE_PREFIX, "getFileStreamExistingSession OK name %s channelID %d streamID %d pSession %p", 
+            fileStreamName, channelID, streamID, pSession);
 #endif
     return pSession;
 }

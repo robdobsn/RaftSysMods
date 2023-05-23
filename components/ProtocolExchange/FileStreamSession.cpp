@@ -222,6 +222,9 @@ UtilsRetCode::RetCode FileStreamSession::handleCmdFrame(FileStreamBase::FileStre
     // Session may now be finished
     if (!_pFileStreamProtocolHandler->isActive())
         _isActive = false;
+
+    // Keep session alive while we're receiving
+    _sessionLastActiveMs = millis();        
     return rslt;
 }
 
