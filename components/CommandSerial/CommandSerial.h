@@ -10,6 +10,9 @@
 
 #include <ConfigBase.h>
 #include <RestAPIEndpointManager.h>
+#include <CommsCoreIF.h>
+#include <CommandSerialPort.h>
+#include <CommsBridgeMsg.h>
 #include <SysModBase.h>
 #include <list>
 
@@ -36,27 +39,18 @@ protected:
     virtual void addCommsChannels(CommsCoreIF& commsCoreIF) override final;
 
 private:
-    // Helpers
-    void applySetup();
-    void begin();
-    void end();
-    bool sendMsg(CommsChannelMsg& msg);
 
-    // Vars
-    bool _isEnabled;
+    // List of serial ports
+    std::list<CommandSerialPort> _serialPorts;
 
-    // Serial details
-    int _uartNum;
-    int _baudRate;
-    int _txPin;
-    int _rxPin;
-    uint32_t _rxBufSize;
-    uint32_t _txBufSize;
-
-    // Flag indicating begun
-    bool _isInitialised;
-    String _protocol;
+    // Comms core IF
+    CommsCoreIF* _pCommsCoreIF = nullptr;
 
     // EndpointID used to identify this message channel to the CommsChannelManager object
-    uint32_t _commsChannelID;
+    uint32_t _commsChannelID = CommsCoreIF::CHANNEL_ID_UNDEFINED;
+    uint32_t _bridgeID = COMMS_BRIDGE_ID_COM_SERIAL_0;
+
+    // Helpers
+    bool sendMsg(CommsChannelMsg& msg);
+    void apiCommandSerial(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 };

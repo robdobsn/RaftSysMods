@@ -7,6 +7,7 @@ idf_component_register(
       "components/BLEManager/BLEManager.cpp"
       "components/CommandFile/CommandFile.cpp"
       "components/CommandSerial/CommandSerial.cpp"
+      "components/CommandSerial/CommandSerialPort.cpp"
       "components/CommandSocket/CommandSocket.cpp"
       "components/ESPOTAUpdate/ESPOTAUpdate.cpp"
       "components/FileManager/FileManager.cpp"
