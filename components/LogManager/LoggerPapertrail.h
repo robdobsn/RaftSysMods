@@ -21,7 +21,7 @@ class LoggerPapertrail : public LoggerBase
 public:
     LoggerPapertrail(const ConfigBase& logDestConfig);
     virtual ~LoggerPapertrail();
-    virtual void IRAM_ATTR log(esp_log_level_t level, const char *tag, const char* msg) override final;
+    virtual void log(esp_log_level_t level, const char *tag, const char* msg) override final;
 
 private:
     String _host;

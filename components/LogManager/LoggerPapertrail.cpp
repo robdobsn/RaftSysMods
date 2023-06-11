@@ -36,7 +36,7 @@ LoggerPapertrail::~LoggerPapertrail()
     }
 }
 
-void IRAM_ATTR LoggerPapertrail::log(esp_log_level_t level, const char *tag, const char* msg)
+void LOGGING_FUNCTION_DECORATOR LoggerPapertrail::log(esp_log_level_t level, const char *tag, const char* msg)
 {
     // Check level
     if (level > _level)
