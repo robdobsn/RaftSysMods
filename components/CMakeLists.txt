@@ -1,0 +1,42 @@
+cmake_minimum_required(VERSION 3.16)
+
+idf_component_register(
+  SRCS
+    "BLEManager/BLEGattServer.cpp"
+    "BLEManager/BLEManager.cpp"
+    "CommandFile/CommandFile.cpp"
+    "CommandSerial/CommandSerial.cpp"
+    "CommandSerial/CommandSerialPort.cpp"
+    "CommandSocket/CommandSocket.cpp"
+    "ESPOTAUpdate/ESPOTAUpdate.cpp"
+    "FileManager/FileManager.cpp"
+    "LogManager/LoggerPapertrail.cpp"
+    "LogManager/LogManager.cpp"
+    "MQTTManager/MQTTManager.cpp"
+    "NetworkManager/NetworkManager.cpp"
+    "SerialConsole/SerialConsole.cpp"
+    "StatePublisher/StatePublisher.cpp"
+    "WebServer/WebServer.cpp"
+  INCLUDE_DIRS
+    "BLEManager"
+    "CommandFile"
+    "CommandSerial"
+    "CommandSocket"
+    "CommsChannelManager"
+    "ESPOTAUpdate"
+    "FileManager"
+    "LogManager"
+    "MQTTManager"
+    "NetworkManager"
+    "ProtocolExchange"
+    "SerialConsole"
+    "StatePublisher"
+    "WebServer"
+  REQUIRES
+    raftcore-src
+    raftwebserver-src
+    bt
+    spiffs
+    fatfs
+    app_update
+)

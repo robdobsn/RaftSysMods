@@ -1,15 +1,13 @@
 {
   "name": "RaftSysMods",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "System modules for the Raft ESP32 framework",
   "keywords": "esp32, esp32s3, framework",
-  "repository":
-  {
+  "repository": {
     "type": "git",
     "url": "https://github.com/robdobsn/RaftSysMods"
   },
-  "authors":
-  [
+  "authors": [
     {
       "name": "Rob Dobson",
       "email": "rob@dobson.com",
@@ -19,8 +17,13 @@
   ],
   "license": "MIT",
   "homepage": "https://github.com/robdobsn/RaftCore",
-  "frameworks": ["arduino", "espidf"],
-  "platforms": ["espressif32"],
+  "frameworks": [
+    "arduino",
+    "espidf"
+  ],
+  "platforms": [
+    "espressif32"
+  ],
   "build": {
     "srcDir": "components/core",
     "includeDir": "components/core",
@@ -28,7 +31,7 @@
     "libArchive": false,
     "extraScript": "lib_script.py",
     "flags": [
-      "-DJSMN_PARENT_LINKS", 
+      "-DJSMN_PARENT_LINKS",
       "-DJSMN_STRICT",
       "-Icomponents/BLEManager",
       "-Icomponents/CommandFile",
