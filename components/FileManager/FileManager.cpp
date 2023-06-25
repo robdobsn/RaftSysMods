@@ -227,12 +227,12 @@ void FileManager::apiUploadFileComplete(const String &reqStr, String &respStr, c
 // Upload file to file system - part of file
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-UtilsRetCode::RetCode FileManager::apiUploadFileBlock(const String& req, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo)
+RaftRetCode::RetCode FileManager::apiUploadFileBlock(const String& req, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo)
 {
     if (_pProtocolExchange)
         return _pProtocolExchange->handleFileUploadBlock(req, fileStreamBlock, sourceInfo, 
                     FileStreamBase::FILE_STREAM_CONTENT_TYPE_FILE, "");
-    return UtilsRetCode::INVALID_OPERATION;
+    return RaftRetCode::INVALID_OPERATION;
 }
 
 // /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

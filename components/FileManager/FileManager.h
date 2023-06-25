@@ -78,6 +78,6 @@ private:
     void apiUploadFileComplete(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
 
     // Upload file to file system - part of file (from HTTP POST file)
-    UtilsRetCode::RetCode apiUploadFileBlock(const String& req, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo);
+    RaftRetCode::RetCode apiUploadFileBlock(const String& req, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo);
 
 };

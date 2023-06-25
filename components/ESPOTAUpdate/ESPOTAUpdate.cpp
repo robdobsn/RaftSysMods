@@ -157,7 +157,7 @@ bool ESPOTAUpdate::fileStreamStart(const char* fileName, size_t fileLen)
 // Firmware update block (handle a firmware data block)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-UtilsRetCode::RetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
+RaftRetCode::RetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
 {
     // Get params
     const uint8_t *pBlock = fileStreamBlock.pBlock;
@@ -168,7 +168,7 @@ UtilsRetCode::RetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStr
     {
         if (!fileStreamStart(fileStreamBlock.filename, 
                     fileStreamBlock.fileLenValid ? fileStreamBlock.fileLen : fileStreamBlock.contentLen))
-            return UtilsRetCode::INVALID_OPERATION;
+            return RaftRetCode::INVALID_OPERATION;
     }
 
     // Check if in progress
@@ -183,7 +183,7 @@ UtilsRetCode::RetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStr
         {
             _otaDirectInProgress = false;
             LOG_E(MODULE_PREFIX, "esp_ota_write failed! err=0x%x", err);
-            return UtilsRetCode::OTHER_FAILURE;
+            return RaftRetCode::OTHER_FAILURE;
         }
     }
 
@@ -191,10 +191,10 @@ UtilsRetCode::RetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStr
     if (fileStreamBlock.finalBlock)
     {
         if (!firmwareUpdateEnd())
-            return UtilsRetCode::INVALID_DATA;
+            return RaftRetCode::INVALID_DATA;
     }
 
-    return UtilsRetCode::OK;
+    return RaftRetCode::OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -259,7 +259,7 @@ bool ESPOTAUpdate::fileStreamCancelEnd(bool isNormalEnd)
 // Handle the API update
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-UtilsRetCode::RetCode ESPOTAUpdate::fwUpdateAPIPart(FileStreamBlock& fileStreamBlock)
+RaftRetCode::RetCode ESPOTAUpdate::fwUpdateAPIPart(FileStreamBlock& fileStreamBlock)
 {
     // LOG_I(MODULE_PREFIX, "fwUpdateAPIPart %d, %d, %d, %d", contentLen, index, len, finalBlock);
 
@@ -297,7 +297,7 @@ void ESPOTAUpdate::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager)
 }
 
 // ESP Firmware update
-UtilsRetCode::RetCode ESPOTAUpdate::apiESPFirmwarePart(const String& reqStr, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo)
+RaftRetCode::RetCode ESPOTAUpdate::apiESPFirmwarePart(const String& reqStr, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo)
 {
     // Handle with OTA update
 #ifdef DEBUG_ESP_OTA_UPDATE
