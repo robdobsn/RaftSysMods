@@ -120,8 +120,8 @@ void CommandSerialPort::setup(ConfigBase& config, const char* pModName)
         LOG_I(MODULE_PREFIX, "setup ok uartNum %d baudRate %d txPin %d rxPin %d rxBufSize %d txBufSize %d protocol %s", 
                     _uartNum, _baudRate, _txPin, _rxPin, (int)_rxBufSize, (int)_txBufSize, _protocol.c_str());
     } else {
-        LOG_I(MODULE_PREFIX, "setup enabled uartNum %d txPin %d rxPin %d", 
-                    _isEnabled ? "YES" : "NO", _txPin, _rxPin);
+        LOG_I(MODULE_PREFIX, "setup enabled %s uartNum %d txPin %d rxPin %d", 
+                    _isEnabled ? "YES" : "NO", _uartNum, _txPin, _rxPin);
     }
 }
 
@@ -151,7 +151,7 @@ bool CommandSerialPort::getData(std::vector<uint8_t, SpiramAwareAllocator<uint8_
 
 #ifdef DEBUG_COMMAND_SERIAL_DETAIL
             String outStr;
-            Utils::getHexStrFromBytes(data.data(), data.size(), outStr);
+            Raft::getHexStrFromBytes(data.data(), data.size(), outStr);
             LOG_I(MODULE_PREFIX, "getData uartNum %d dataLen %d data %s", _uartNum, data.size(), outStr.c_str());
 #endif
             // LOG_D(MODULE_PREFIX, "service charsAvail %d ch %02x", numCharsAvailable, buf[0]);
@@ -176,7 +176,7 @@ uint32_t CommandSerialPort::putData(const uint8_t* pData, uint32_t dataLen)
 #ifdef DEBUG_COMMAND_SERIAL_DETAIL
     // Debug
     String outStr;
-    Utils::getHexStrFromBytes(pData, dataLen, outStr);
+    Raft::getHexStrFromBytes(pData, dataLen, outStr);
     LOG_I(MODULE_PREFIX, "putData uartNum %d dataLen %d data %s", _uartNum, dataLen, outStr.c_str());
 #endif
 

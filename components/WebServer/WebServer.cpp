@@ -20,11 +20,13 @@
 #include <RaftWebHandlerStaticFiles.h>
 #include <RaftWebHandlerRestAPI.h>
 #include <RaftWebHandlerWS.h>
-WebServer* WebServer::_pThisWebServer = NULL;
+
+// #define DEBUG_WEBSOCKETS
 
 static const char* MODULE_PREFIX = "WebServer";
 
-// #define DEBUG_WEBSOCKETS
+// Singleton
+WebServer* WebServer::_pThisWebServer = nullptr;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constructor
@@ -33,14 +35,6 @@ static const char* MODULE_PREFIX = "WebServer";
 WebServer::WebServer(const char *pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig) 
         : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
 {
-    // Config variables
-    _webServerEnabled = false;
-    _accessControlAllowOriginAll = true;
-    _port = 80;
-
-    // Is setup
-    _isWebServerSetup = false;
-
     // Singleton
     _pThisWebServer = this;
 }
@@ -75,19 +69,20 @@ void WebServer::applySetup()
     _webServerEnabled = configGetBool("enable", false);
 
     // Port
-    _port = configGetLong("webServerPort", 80);
+    _port = configGetLong("webServerPort", RaftWebServerSettings::DEFAULT_HTTP_PORT);
 
     // Access control allow origin all
-    _accessControlAllowOriginAll = configGetBool("allowOriginAll", true);
+    std::vector<String> stdRespHeaders;
+    configGetArrayElems("stdRespHeaders", stdRespHeaders);
 
     // REST API prefix
-    _restAPIPrefix = configGetString("apiPrefix", "api/");
+    _restAPIPrefix = configGetString("apiPrefix", RaftWebServerSettings::DEFAULT_REST_API_PREFIX);
 
     // File server enable
     bool enableFileServer = configGetBool("fileServer", true);
 
     // Num connection slots
-    uint32_t numConnSlots = configGetLong("numConnSlots", 6);
+    uint32_t numConnSlots = configGetLong("numConnSlots", RaftWebServerSettings::DEFAULT_CONN_SLOTS);
 
     // Websockets
     configGetArrayElems("websockets", _webSocketConfigs);
@@ -95,7 +90,7 @@ void WebServer::applySetup()
     // Get Task settings
     UBaseType_t taskCore = configGetLong("taskCore", RaftWebServerSettings::DEFAULT_TASK_CORE);
     BaseType_t taskPriority = configGetLong("taskPriority", RaftWebServerSettings::DEFAULT_TASK_PRIORITY);
-    uint32_t taskStackSize = configGetLong("taskStack", RaftWebServerSettings::DEFAULT_TASK_SIZE_BYTES);
+    uint32_t taskStackSize = configGetLong("taskStack", RaftWebServerSettings::DEFAULT_TASK_STACK_BYTES);
 
     // Get server send buffer max length
     uint32_t sendBufferMaxLen = configGetLong("sendMax", RaftWebServerSettings::DEFAULT_SEND_BUFFER_MAX_LEN);
@@ -108,7 +103,7 @@ void WebServer::applySetup()
         {
             RaftWebServerSettings settings(_port, numConnSlots, _webSocketConfigs.size() > 0, 
                     enableFileServer, taskCore, taskPriority, taskStackSize, sendBufferMaxLen,
-                    CommsCoreIF::CHANNEL_ID_REST_API);
+                    CommsCoreIF::CHANNEL_ID_REST_API, stdRespHeaders, nullptr, nullptr);
             _raftWebServer.setup(settings);
         }
         _isWebServerSetup = true;
@@ -126,9 +121,6 @@ void WebServer::applySetup()
 
 void WebServer::beginServer()
 {
-    // Add headers
-    if (_accessControlAllowOriginAll)
-        _raftWebServer.addResponseHeader({"Access-Control-Allow-Origin", "*"});
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -153,9 +145,9 @@ void WebServer::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager)
 void WebServer::setupEndpoints()
 {
     // Handle REST endpoints
-    LOG_I(MODULE_PREFIX, "setupEndpoints serverEnabled %s port %d apiPrefix %s accessControlAllowOriginAll %s", 
+    LOG_I(MODULE_PREFIX, "setupEndpoints serverEnabled %s port %d apiPrefix %s", 
             _webServerEnabled ? "Y" : "N", _port, 
-            _restAPIPrefix.c_str(), _accessControlAllowOriginAll ? "Y" : "N");
+            _restAPIPrefix.c_str());
     RaftWebHandlerRestAPI* pHandler = new RaftWebHandlerRestAPI(_restAPIPrefix,
                 std::bind(&WebServer::restAPIMatchEndpoint, this, std::placeholders::_1, 
                         std::placeholders::_2, std::placeholders::_3));
@@ -178,14 +170,18 @@ void WebServer::addStaticResource(const WebServerResource *pResource, const char
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Static Files
+// 
+// Serve static files from the file system
+// @param servePaths (comma separated and can include uri=path pairs separated by =)
+// @param cacheControl (nullptr or cache control header value eg "no-cache, no-store, must-revalidate")
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void WebServer::serveStaticFiles(const char* baseUrl, const char* baseFolder, const char* cacheControl)
+void WebServer::serveStaticFiles(const char* servePaths, const char* cacheControl)
 {
     // Handle file systems
-    RaftWebHandlerStaticFiles* pHandler = new RaftWebHandlerStaticFiles(baseUrl, baseFolder, cacheControl, "index.html");
+    RaftWebHandlerStaticFiles* pHandler = new RaftWebHandlerStaticFiles(servePaths, cacheControl);
     bool handlerAddOk = _raftWebServer.addHandler(pHandler);
-    LOG_I(MODULE_PREFIX, "serveStaticFiles url %s folder %s addResult %s", baseUrl, baseFolder, 
+    LOG_I(MODULE_PREFIX, "serveStaticFiles servePaths %s addResult %s", servePaths, 
                 handlerAddOk ? "OK" : "FILE SERVER DISABLED");
     if (!handlerAddOk)
         delete pHandler;
@@ -245,7 +241,7 @@ void WebServer::webSocketSetup()
 
         // Register a channel  with the protocol endpoint manager
         // for each possible connection
-        uint32_t maxConn = jsonConfig.getLong("maxConn", 1);
+        uint32_t maxConn = pHandler->getMaxConnections();
         for (uint32_t connIdx = 0; connIdx < maxConn; connIdx++)
         {
             String interfaceName = jsonConfig.getString("pfix", "ws");
@@ -255,12 +251,12 @@ void WebServer::webSocketSetup()
                     protocol.c_str(), 
                     interfaceName.c_str(),
                     wsName.c_str(),
-                    [this](CommsChannelMsg& msg) { 
-                        return _raftWebServer.sendMsg(msg.getBuf(), msg.getBufLen(), 
-                                false, msg.getChannelID());
+                    [this, pHandler](CommsChannelMsg& msg) { 
+                        return pHandler->sendMsg(msg.getBuf(), msg.getBufLen(), 
+                                msg.getChannelID());
                     },
-                    [this](uint32_t channelID, bool& noConn) {
-                        return _raftWebServer.canSend(channelID, noConn); 
+                    [this, pHandler](uint32_t channelID, bool& noConn) {
+                        return pHandler->canSend(channelID, noConn); 
                     },
                     &commsChannelSettings);
 

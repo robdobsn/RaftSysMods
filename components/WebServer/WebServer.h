@@ -32,9 +32,15 @@ public:
     // Begin
     void beginServer();
 
-    // Add resources to the web server
+    // Add resources: servable content defined in code
+    // @param pResources array of resource definitions
+    // @param numResources number of resource definitions
     void addStaticResources(const WebServerResource *pResources, int numResources);
-    void serveStaticFiles(const char* baseUrl, const char* baseFolder, const char* cacheControl = NULL);
+
+    // Serve static files from the file system
+    // @param servePaths (comma separated and can include uri=path pairs separated by =)
+    // @param cacheControl (nullptr or cache control header value eg "no-cache, no-store, must-revalidate")
+    void serveStaticFiles(const char* servePaths, const char* cacheControl = NULL);
     
     // Server-side event handler (one-way text to browser)
     void enableServerSideEvents(const String& eventsURL);
@@ -66,13 +72,12 @@ private:
     void webSocketSetup();
 
     // Server config
-    bool _accessControlAllowOriginAll;
-    bool _webServerEnabled;
-    uint32_t _port;
-    String _restAPIPrefix;
+    bool _webServerEnabled = false;
+    uint32_t _port = RaftWebServerSettings::DEFAULT_HTTP_PORT;
+    String _restAPIPrefix = RaftWebServerSettings::DEFAULT_REST_API_PREFIX;
 
     // Web server setup
-    bool _isWebServerSetup;
+    bool _isWebServerSetup = false;
 
     // Server
     RaftWebServer _raftWebServer;
