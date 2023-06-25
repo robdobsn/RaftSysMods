@@ -53,8 +53,8 @@ private:
     
     // Helpers
     void applySetup();
-    void apiWifiSet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
-    void apiWifiClear(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
-    void apiWiFiPause(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
-    void apiWifiScan(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiWifiSet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiWifiClear(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiWiFiPause(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiWifiScan(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
 };

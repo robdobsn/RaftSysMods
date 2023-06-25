@@ -169,6 +169,6 @@ private:
     void outboundMsgTask();
     bool nimbleStart();
     bool nimbleStop();
-    void apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
     uint32_t parkmiller_next(uint32_t seed) const;
 };

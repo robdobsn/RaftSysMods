@@ -383,7 +383,7 @@ bool SerialConsole::sendMsg(CommsChannelMsg& msg)
 // Handle JSON command
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-RaftRetCode::RetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
+RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
 {
     // Extract command from JSON
     ConfigBase jsonInfo(cmdJSON);
@@ -411,7 +411,7 @@ RaftRetCode::RetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
             if (err != ESP_OK)
             {
                 LOG_E(MODULE_PREFIX, "receiveCmdJson FAILED to remove uart driver from port %d, err %d", _uartNum, err);
-                return RaftRetCode::INVALID_DATA;
+                return RaftRetCode::RAFT_RET_INVALID_DATA;
             }
 
             // Install uart driver            
@@ -419,10 +419,10 @@ RaftRetCode::RetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
             if (err != ESP_OK)
             {
                 LOG_E(MODULE_PREFIX, "receiveCmdJson FAILED to install uart driver to port %d, err %d", _uartNum, err);
-                return RaftRetCode::INVALID_DATA;
+                return RaftRetCode::RAFT_RET_INVALID_DATA;
             }
         }
-        return RaftRetCode::OK;
+        return RaftRetCode::RAFT_RET_OK;
     }
-    return RaftRetCode::INVALID_OPERATION;
+    return RaftRetCode::RAFT_RET_INVALID_OPERATION;
 }

@@ -52,5 +52,5 @@ private:
 
     // Helpers
     bool sendMsg(CommsChannelMsg& msg);
-    void apiCommandSerial(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiCommandSerial(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 };

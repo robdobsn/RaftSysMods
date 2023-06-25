@@ -157,7 +157,7 @@ bool ESPOTAUpdate::fileStreamStart(const char* fileName, size_t fileLen)
 // Firmware update block (handle a firmware data block)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-RaftRetCode::RetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
+RaftRetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
 {
     // Get params
     const uint8_t *pBlock = fileStreamBlock.pBlock;
@@ -168,7 +168,7 @@ RaftRetCode::RetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStre
     {
         if (!fileStreamStart(fileStreamBlock.filename, 
                     fileStreamBlock.fileLenValid ? fileStreamBlock.fileLen : fileStreamBlock.contentLen))
-            return RaftRetCode::INVALID_OPERATION;
+            return RaftRetCode::RAFT_RET_INVALID_OPERATION;
     }
 
     // Check if in progress
@@ -183,7 +183,7 @@ RaftRetCode::RetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStre
         {
             _otaDirectInProgress = false;
             LOG_E(MODULE_PREFIX, "esp_ota_write failed! err=0x%x", err);
-            return RaftRetCode::OTHER_FAILURE;
+            return RaftRetCode::RAFT_RET_OTHER_FAILURE;
         }
     }
 
@@ -191,10 +191,10 @@ RaftRetCode::RetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStre
     if (fileStreamBlock.finalBlock)
     {
         if (!firmwareUpdateEnd())
-            return RaftRetCode::INVALID_DATA;
+            return RaftRetCode::RAFT_RET_INVALID_DATA;
     }
 
-    return RaftRetCode::OK;
+    return RaftRetCode::RAFT_RET_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -259,7 +259,7 @@ bool ESPOTAUpdate::fileStreamCancelEnd(bool isNormalEnd)
 // Handle the API update
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-RaftRetCode::RetCode ESPOTAUpdate::fwUpdateAPIPart(FileStreamBlock& fileStreamBlock)
+RaftRetCode ESPOTAUpdate::fwUpdateAPIPart(FileStreamBlock& fileStreamBlock)
 {
     // LOG_I(MODULE_PREFIX, "fwUpdateAPIPart %d, %d, %d, %d", contentLen, index, len, finalBlock);
 
@@ -297,7 +297,7 @@ void ESPOTAUpdate::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager)
 }
 
 // ESP Firmware update
-RaftRetCode::RetCode ESPOTAUpdate::apiESPFirmwarePart(const String& reqStr, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo)
+RaftRetCode ESPOTAUpdate::apiESPFirmwarePart(const String& reqStr, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo)
 {
     // Handle with OTA update
 #ifdef DEBUG_ESP_OTA_UPDATE
@@ -307,7 +307,7 @@ RaftRetCode::RetCode ESPOTAUpdate::apiESPFirmwarePart(const String& reqStr, File
     return fwUpdateAPIPart(fileStreamBlock);
 }
 
-void ESPOTAUpdate::apiESPFirmwareUpdateDone(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+RaftRetCode ESPOTAUpdate::apiESPFirmwareUpdateDone(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
 {
     // Handle with OTA update
 #ifdef DEBUG_ESP_OTA_UPDATE
@@ -315,5 +315,5 @@ void ESPOTAUpdate::apiESPFirmwareUpdateDone(const String &reqStr, String &respSt
     LOG_I(MODULE_PREFIX, "apiESPFirmwareDone");
 #endif
     fwUpdateAPIFinal();
-    Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
 }

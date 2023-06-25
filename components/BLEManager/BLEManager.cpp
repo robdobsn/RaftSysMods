@@ -1194,7 +1194,7 @@ void BLEManager::outboundMsgTask()
 // API Restart BLE
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void BLEManager::apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+RaftRetCode BLEManager::apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
 {
     // Stop advertising
     stopAdvertising();
@@ -1204,7 +1204,7 @@ void BLEManager::apiBLERestart(const String &reqStr, String &respStr, const APIS
     _bleRestartLastMs = millis();
 
     // Restart in progress
-    Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

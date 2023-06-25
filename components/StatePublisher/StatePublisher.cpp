@@ -409,7 +409,7 @@ bool StatePublisher::publishData(StatePublisher::PubRec& pubRec, InterfaceRateRe
 // Subscription
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void StatePublisher::apiSubscription(String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
+RaftRetCode StatePublisher::apiSubscription(String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
 {
 #ifdef DEBUG_API_SUBSCRIPTION
     LOG_I(MODULE_PREFIX, "apiSubscription reqStr %s", reqStr.c_str());
@@ -516,7 +516,7 @@ void StatePublisher::apiSubscription(String &reqStr, String& respStr, const APIS
             }
         }
     }
-    Raft::setJsonBoolResult(cmdName.c_str(), respStr, true);
+    return Raft::setJsonBoolResult(cmdName.c_str(), respStr, true);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -100,7 +100,7 @@ void CommandFile::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager)
 // Run a file
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void CommandFile::apiFileRun(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
+RaftRetCode CommandFile::apiFileRun(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
 {
     // File
     String fileName = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1);
@@ -140,7 +140,7 @@ void CommandFile::apiFileRun(const String &reqStr, String& respStr, const APISou
         rslt = true;
 	}
 
-    Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt);
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -27,7 +27,7 @@ public:
     ~StatePublisher();
 
     // Subscription API
-    void apiSubscription(String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiSubscription(String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
     // Debug
     virtual String getDebugJSON() override final;

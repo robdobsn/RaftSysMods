@@ -187,14 +187,14 @@ bool CommandSerial::sendMsg(CommsChannelMsg& msg)
 // API
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void CommandSerial::apiCommandSerial(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
+RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
 {
     // Check valid
     if (!_pCommsCoreIF)
     {
         Raft::setJsonErrorResult(reqStr.c_str(), respStr, "noCommsChannelManager");
         LOG_W(MODULE_PREFIX, "apiCommandSerial noCommsChannelManager");
-        return;
+        return RaftRetCode::RAFT_RET_INVALID_OBJECT;
     }
 
     // Extract parameters
@@ -208,7 +208,7 @@ void CommandSerial::apiCommandSerial(const String &reqStr, String& respStr, cons
     {
         Raft::setJsonErrorResult(reqStr.c_str(), respStr, "notEnoughParams");
         LOG_W(MODULE_PREFIX, "apiCommandSerial not enough params %d", params.size());
-        return;
+        return RaftRetCode::RAFT_RET_INVALID_DATA;
     }
 
     // Check type of command
@@ -225,7 +225,7 @@ void CommandSerial::apiCommandSerial(const String &reqStr, String& respStr, cons
             {
                 Raft::setJsonErrorResult(reqStr.c_str(), respStr, "noPort");
                 LOG_W(MODULE_PREFIX, "apiCommandSerial no port");
-                return;
+                return RaftRetCode::RAFT_RET_INVALID_DATA;
             }
 
             // Find the port
@@ -245,13 +245,12 @@ void CommandSerial::apiCommandSerial(const String &reqStr, String& respStr, cons
                     // Set result
                     String resultStr = String("\"bridgeID\":") + String(bridgeID);
                     Raft::setJsonResult(reqStr.c_str(), respStr, true, nullptr, resultStr.c_str());
-                    return;
+                    return RaftRetCode::RAFT_RET_OK;
                 }
             }
 
             // If we get here the port name isn't found
-            Raft::setJsonErrorResult(reqStr.c_str(), respStr, "portNotFound");
-            return;
+            return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "portNotFound");
         }
 
         // Check if removing bridge
@@ -275,25 +274,18 @@ void CommandSerial::apiCommandSerial(const String &reqStr, String& respStr, cons
                     serialPort.clearBridgeID();
 
                     // Set result
-                    Raft::setJsonResult(reqStr.c_str(), respStr, true);
-                    return;
+                    return Raft::setJsonResult(reqStr.c_str(), respStr, true);
                 }
             }
 
             // If we get here the port name isn't found
-            Raft::setJsonErrorResult(reqStr.c_str(), respStr, "portNotFound");
-            return;
+            return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "portNotFound");
         }
 
         // Unknown bridge action
-        else
-        {
-            Raft::setJsonErrorResult(reqStr.c_str(), respStr, "unknownAction");
-        }
+        return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "unknownAction");
     }
-    else
-    {
-        // Unknown command
-        Raft::setJsonErrorResult(reqStr.c_str(), respStr, "unknownCommand");
-    }
+
+    // Unknown command
+    return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "unknownCommand");
 }

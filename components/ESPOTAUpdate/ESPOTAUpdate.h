@@ -31,7 +31,7 @@ public:
 
     // Start/Data/Cancel methods
     virtual bool fileStreamStart(const char* fileName, size_t fileLen) override final;
-    virtual RaftRetCode::RetCode fileStreamDataBlock(FileStreamBlock& fileStreamBlock) override final;
+    virtual RaftRetCode fileStreamDataBlock(FileStreamBlock& fileStreamBlock) override final;
     virtual bool fileStreamCancelEnd(bool isNormalEnd) override final;
 
     // Get debug string
@@ -74,11 +74,11 @@ private:
     void onDataReceived(uint8_t *pDataReceived, size_t dataReceivedLen);
 
     // API ESP Firmware update
-    RaftRetCode::RetCode apiESPFirmwarePart(const String& req, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo);
-    void apiESPFirmwareUpdateDone(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiESPFirmwarePart(const String& req, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo);
+    RaftRetCode apiESPFirmwareUpdateDone(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
 
     // Direct firmware update
-    virtual RaftRetCode::RetCode fwUpdateAPIPart(FileStreamBlock& fileStreamBlock);
+    virtual RaftRetCode fwUpdateAPIPart(FileStreamBlock& fileStreamBlock);
     void fwUpdateAPIFinal();
     bool firmwareUpdateEnd();
 };

@@ -57,27 +57,27 @@ private:
     void applySetup();
 
     // Format file system
-    void apiReformatFS(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiReformatFS(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
     // List files on a file system
     // In the reqStr the first part of the path is the file system name (e.g. sd or local, can be blank to default)
     // The second part of the path is the folder - note that / must be replaced with ~ in folder
-    void apiFileList(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiFileList(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
     // Read file contents
     // In the reqStr the first part of the path is the file system name (e.g. sd or local)
     // The second part of the path is the folder and filename - note that / must be replaced with ~ in folder
-    void apiFileRead(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiFileRead(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
     // Delete file on the file system
     // In the reqStr the first part of the path is the file system name (e.g. sd or local)
     // The second part of the path is the filename - note that / must be replaced with ~ in filename
-    void apiDeleteFile(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiDeleteFile(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
     // API upload file to file system - completed
-    void apiUploadFileComplete(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiUploadFileComplete(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
 
     // Upload file to file system - part of file (from HTTP POST file)
-    RaftRetCode::RetCode apiUploadFileBlock(const String& req, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo);
+    RaftRetCode apiUploadFileBlock(const String& req, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo);
 
 };

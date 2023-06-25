@@ -115,7 +115,7 @@ void FileManager::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager)
 // Format file system
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void FileManager::apiReformatFS(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
+RaftRetCode FileManager::apiReformatFS(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
 {
     // File system
     String fileSystemStr = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1);
@@ -128,6 +128,7 @@ void FileManager::apiReformatFS(const String &reqStr, String& respStr, const API
         if (pSysMan)
             pSysMan->systemRestart();
     }
+    return RaftRetCode::RAFT_RET_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -136,7 +137,7 @@ void FileManager::apiReformatFS(const String &reqStr, String& respStr, const API
 // The second part of the path is the folder - note that / must be replaced with ~ in folder
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void FileManager::apiFileList(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
+RaftRetCode FileManager::apiFileList(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
 {
     // File system
     String fileSystemStr = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1);
@@ -158,6 +159,7 @@ void FileManager::apiFileList(const String &reqStr, String& respStr, const APISo
 #ifdef DEBUG_FILE_MANAGER_FILE_LIST_DETAIL
     LOG_W(MODULE_PREFIX, "apiFileList respStr %s", respStr.c_str());
 #endif
+    return RaftRetCode::RAFT_RET_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -166,7 +168,7 @@ void FileManager::apiFileList(const String &reqStr, String& respStr, const APISo
 // The second part of the path is the folder and filename - note that / must be replaced with ~ in folder
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void FileManager::apiFileRead(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
+RaftRetCode FileManager::apiFileRead(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
 {
     // File system
     String fileSystemStr = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1);
@@ -180,10 +182,11 @@ void FileManager::apiFileRead(const String &reqStr, String& respStr, const APISo
     if (!pFileContents)
     {
         respStr = "";
-        return;
+        return RaftRetCode::RAFT_RET_CANNOT_START;
     }
     respStr = pFileContents;
     free(pFileContents);
+    return RaftRetCode::RAFT_RET_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -192,7 +195,7 @@ void FileManager::apiFileRead(const String &reqStr, String& respStr, const APISo
 // The second part of the path is the filename - note that / must be replaced with ~ in filename
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void FileManager::apiDeleteFile(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
+RaftRetCode FileManager::apiDeleteFile(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
 {
     // File system
     String fileSystemStr = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1);
@@ -205,34 +208,34 @@ void FileManager::apiDeleteFile(const String &reqStr, String& respStr, const API
     filenameStr.replace("~", "/");
     if (filenameStr.length() != 0)
         rslt = fileSystem.deleteFile(fileSystemStr, filenameStr);
-    Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt);
     LOG_I(MODULE_PREFIX, "deleteFile reqStr %s fs %s, filename %s rslt %s", 
                         reqStr.c_str(), fileSystemStr.c_str(), filenameStr.c_str(),
                         rslt ? "ok" : "fail");
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Upload file to file system - completed
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void FileManager::apiUploadFileComplete(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+RaftRetCode FileManager::apiUploadFileComplete(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
 {
 #ifdef DEBUG_FILE_MANAGER_UPLOAD
     LOG_I(MODULE_PREFIX, "uploadFileComplete %s", reqStr.c_str());
 #endif
-    Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Upload file to file system - part of file
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-RaftRetCode::RetCode FileManager::apiUploadFileBlock(const String& req, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo)
+RaftRetCode FileManager::apiUploadFileBlock(const String& req, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo)
 {
     if (_pProtocolExchange)
         return _pProtocolExchange->handleFileUploadBlock(req, fileStreamBlock, sourceInfo, 
                     FileStreamBase::FILE_STREAM_CONTENT_TYPE_FILE, "");
-    return RaftRetCode::INVALID_OPERATION;
+    return RaftRetCode::RAFT_RET_INVALID_OPERATION;
 }
 
 // /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -204,7 +204,7 @@ void NetworkManager::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager
                           "Scan WiFi networks - wifiscan/start - wifiscan/results");
 }
 
-void NetworkManager::apiWifiSet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+RaftRetCode NetworkManager::apiWifiSet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
 {
     // LOG_I(MODULE_PREFIX, "apiWifiSet incoming %s", reqStr.c_str());
 
@@ -241,10 +241,10 @@ void NetworkManager::apiWifiSet(const String &reqStr, String &respStr, const API
         String errorStr;
         getSysManager()->setFriendlyName(hostname, false, errorStr);
     }
-    Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt);
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt);
 }
 
-void NetworkManager::apiWifiClear(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+RaftRetCode NetworkManager::apiWifiClear(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
 {
     // See if system restart required
     String sysRestartStr = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1);
@@ -264,28 +264,28 @@ void NetworkManager::apiWifiClear(const String &reqStr, String &respStr, const A
         // Request a system restart
         if (sysRestart && getSysManager())
             getSysManager()->systemRestart();
-        return;
+        return RaftRetCode::RAFT_RET_OK;
     }
-    Raft::setJsonErrorResult(reqStr.c_str(), respStr, esp_err_to_name(err));
+    return Raft::setJsonErrorResult(reqStr.c_str(), respStr, esp_err_to_name(err));
 }
 
-// void NetworkManager::apiWifiExtAntenna(String &reqStr, String &respStr)
+// RaftRetCode NetworkManager::apiWifiExtAntenna(String &reqStr, String &respStr)
 // {
 //     LOG_I(MODULE_PREFIX, "Set external antenna - not supported");
-//     Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
+//     return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
 // }
 
-// void NetworkManager::apiWifiIntAntenna(String &reqStr, String &respStr)
+// RaftRetCode NetworkManager::apiWifiIntAntenna(String &reqStr, String &respStr)
 // {
 //     LOG_I(MODULE_PREFIX, "Set internal antenna - not supported");
-//     Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
+//     return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
 // }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Control WiFi pause on BLE connection
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void NetworkManager::apiWiFiPause(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
+RaftRetCode NetworkManager::apiWiFiPause(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
 {
     // Get pause arg
     String arg = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1, false);
@@ -299,14 +299,14 @@ void NetworkManager::apiWiFiPause(const String &reqStr, String& respStr, const A
     {
         networkSystem.pauseWiFi(false);
     }
-    Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Scan WiFi
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void NetworkManager::apiWifiScan(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+RaftRetCode NetworkManager::apiWifiScan(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
 {
     LOG_I(MODULE_PREFIX, "apiWifiScan %s", reqStr.c_str());
 
@@ -316,5 +316,5 @@ void NetworkManager::apiWifiScan(const String &reqStr, String &respStr, const AP
     // Scan WiFi
     String jsonResult;
     bool rslt = networkSystem.wifiScan(arg.equalsIgnoreCase("start"), jsonResult);
-    Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt, jsonResult.c_str());
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt, jsonResult.c_str());
 }
