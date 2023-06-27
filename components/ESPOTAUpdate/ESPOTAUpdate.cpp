@@ -172,7 +172,7 @@ RaftRetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
     }
 
     // Check if in progress
-    if (_otaDirectInProgress)
+    if (_otaDirectInProgress && pBlock && (blockLen > 0))
     {
         uint64_t fwStart = micros();
         esp_err_t err = esp_ota_write(_otaDirectUpdateHandle, (const void *)pBlock, blockLen);
@@ -183,7 +183,7 @@ RaftRetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
         {
             _otaDirectInProgress = false;
             LOG_E(MODULE_PREFIX, "esp_ota_write failed! err=0x%x", err);
-            return RaftRetCode::RAFT_RET_OTHER_FAILURE;
+            return RaftRetCode::RAFT_RET_INVALID_DATA;
         }
     }
 

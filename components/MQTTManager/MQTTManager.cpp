@@ -24,7 +24,9 @@
 // Log prefix
 static const char *MODULE_PREFIX = "MQTTMan";
 
+// #define DEBUG_MQTT_MAN_TOPIC_SETUP
 // #define DEBUG_MQTT_SEND
+// #define DEBUG_MQTT_MAN_COMMS_CHANNELS
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constructor
@@ -59,7 +61,9 @@ void MQTTManager::setup()
     // Handle topics
     std::vector<String> mqttTopics;
     configGetConfig().getArrayElems("topics", mqttTopics);
+#ifdef DEBUG_MQTT_MAN_TOPIC_SETUP
     LOG_I(MODULE_PREFIX, "setup topics %d", mqttTopics.size());
+#endif
     for (uint32_t i = 0; i < mqttTopics.size(); i++)
     {
         // Extract topic details
@@ -118,7 +122,9 @@ void MQTTManager::addCommsChannels(CommsCoreIF& commsCoreIF)
     // Get a list of outbound topic names
     std::vector<String> topicNames;
     _mqttClient.getTopicNames(topicNames, false, true);
+#ifdef DEBUG_MQTT_MAN_COMMS_CHANNELS
     LOG_I(MODULE_PREFIX, "addCommsChannels numOutTopics %d", topicNames.size());
+#endif
 
     // Comms channel
     static const CommsChannelSettings commsChannelSettings;
@@ -126,8 +132,9 @@ void MQTTManager::addCommsChannels(CommsCoreIF& commsCoreIF)
     // Register an endpoint for each
     for (String& topicName : topicNames)
     {
+#ifdef DEBUG_MQTT_MAN_COMMS_CHANNELS        
         LOG_I(MODULE_PREFIX, "addCommsChannels %s", topicName.c_str());
-
+#endif
         // Register as a channel
         _commsChannelID = commsCoreIF.registerChannel("RICJSON", 
                 "MQTT",

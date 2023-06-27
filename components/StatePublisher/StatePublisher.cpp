@@ -409,7 +409,7 @@ bool StatePublisher::publishData(StatePublisher::PubRec& pubRec, InterfaceRateRe
 // Subscription
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-RaftRetCode StatePublisher::apiSubscription(String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
+RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
 {
 #ifdef DEBUG_API_SUBSCRIPTION
     LOG_I(MODULE_PREFIX, "apiSubscription reqStr %s", reqStr.c_str());

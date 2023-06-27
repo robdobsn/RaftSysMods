@@ -38,4 +38,10 @@ private:
     static const uint32_t LOG_WINDOW_MAX_COUNT = 60;
     uint32_t _logWindowThrottleStartMs = 0;
     static const uint32_t LOG_WINDOW_THROTTLE_BACKOFF_MS = 30000;
+
+    // Avoid logging internal errors too often
+    uint32_t _internalDNSResolveErrorLastTime = 0;
+    uint32_t _internalSocketCreateErrorLastTime = 0;
+    uint32_t _internalLoggingFailedErrorLastTime = 0;
+    static const uint32_t INTERNAL_ERROR_LOG_MIN_GAP_MS = 10000;
 };

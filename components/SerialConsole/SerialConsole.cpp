@@ -15,6 +15,7 @@
 #include <CommsChannelSettings.h>
 #include <RestAPIEndpointManager.h>
 #include <ConfigBase.h>
+#include <JSONParams.h>
 #include <driver/uart.h>
 
 // Log prefix
@@ -120,6 +121,9 @@ void SerialConsole::setup()
 
 void SerialConsole::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager)
 {
+    endpointManager.addEndpoint("console", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET, 
+                std::bind(&SerialConsole::apiConsole, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3), 
+                "console API e.g. console/settings?baud=1000000");
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -425,4 +429,56 @@ RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
         return RaftRetCode::RAFT_RET_OK;
     }
     return RaftRetCode::RAFT_RET_INVALID_OPERATION;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// API
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+RaftRetCode SerialConsole::apiConsole(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
+{
+    // Extract parameters
+    std::vector<String> params;
+    std::vector<RdJson::NameValuePair> nameValues;
+    RestAPIEndpointManager::getParamsAndNameValues(reqStr.c_str(), params, nameValues);
+    JSONParams nvJson = RdJson::getJSONFromNVPairs(nameValues, true);
+
+    // Check valid
+    if (params.size() < 2)
+    {
+        Raft::setJsonErrorResult(reqStr.c_str(), respStr, "notEnoughParams");
+        LOG_W(MODULE_PREFIX, "apiConsole not enough params %d", params.size());
+        return RaftRetCode::RAFT_RET_INVALID_DATA;
+    }
+
+    // Check type of command
+    String cmdStr = params[1];
+    if (cmdStr.equalsIgnoreCase("settings"))
+    {
+        // Iterate over name/values
+        RaftRetCode result = RaftRetCode::RAFT_RET_INVALID_DATA;
+        for (auto& nv : nameValues)
+        {
+            if (nv.name.equalsIgnoreCase("baud"))
+            {
+                // Set UART baud rate
+                int baudRate = nv.value.toInt();
+                LOG_I(MODULE_PREFIX, "apiConsole baudRate (uart %d) changed to %d", _uartNum, baudRate);
+
+                // Delay a short time to help with serial comms
+                delay(100);
+
+                // Set baud rate
+                uart_set_baudrate((uart_port_t)_uartNum, baudRate);
+                result = Raft::setJsonResult(reqStr.c_str(), respStr, true);
+                if (result != RaftRetCode::RAFT_RET_OK)
+                    break;
+            }
+        }
+        if (result != RaftRetCode::RAFT_RET_INVALID_DATA)
+            return result;
+    }
+
+    // Unknown command
+    return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "unknownCommand");
 }

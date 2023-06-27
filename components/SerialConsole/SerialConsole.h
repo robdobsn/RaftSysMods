@@ -17,6 +17,7 @@ class RestAPIEndpointManager;
 class CommsCoreIF;
 class CommsChannelMsg;
 class ConfigBase;
+class APISourceInfo;
 
 class SerialConsole : public SysModBase
 {
@@ -112,4 +113,5 @@ private:
     void showEndpoints();
     bool sendMsg(CommsChannelMsg& msg);
     void processReceivedData(std::vector<uint8_t, SpiramAwareAllocator<uint8_t>>& rxData);
+    RaftRetCode apiConsole(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 };

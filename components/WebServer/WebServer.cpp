@@ -21,7 +21,7 @@
 #include <RaftWebHandlerRestAPI.h>
 #include <RaftWebHandlerWS.h>
 
-// #define DEBUG_WEBSOCKETS
+// #define DEBUG_WEBSERVER_WEBSOCKETS
 
 static const char* MODULE_PREFIX = "WebServer";
 
@@ -209,7 +209,7 @@ void WebServer::webSocketSetup()
     static const CommsChannelSettings commsChannelSettings;
 
     // Add websocket handler
-#ifdef DEBUG_WEBSOCKETS
+#ifdef DEBUG_WEBSERVER_WEBSOCKETS
     LOG_I(MODULE_PREFIX, "webSocketSetup num websocket configs %d", _webSocketConfigs.size());
 #endif
     CommsCoreIF* pCommsCore = getCommsCore();
@@ -264,6 +264,7 @@ void WebServer::webSocketSetup()
             pHandler->setupWebSocketChannelID(connIdx, wsChanID);
 
             // Debug
+#ifdef DEBUG_WEBSERVER_WEBSOCKETS
             LOG_I(MODULE_PREFIX, "webSocketSetup prefix %s wsName %s protocol %s maxConn %d maxPacketSize %ld maxTxQueued %ld pingMs %ld channelID %d", 
                         interfaceName.c_str(), 
                         wsName.c_str(),
@@ -273,6 +274,7 @@ void WebServer::webSocketSetup()
                         jsonConfig.getLong("txQueueMax", 2),
                         jsonConfig.getLong("pingMs", 2000),
                         wsChanID);
+#endif
         }
     }
 }
