@@ -21,12 +21,14 @@
 #include <CommsCoreIF.h>
 #include <SysManager.h>
 
-// Log prefix
-static const char *MODULE_PREFIX = "MQTTMan";
-
-// #define DEBUG_MQTT_MAN_TOPIC_SETUP
-// #define DEBUG_MQTT_SEND
+// #define DEBUG_MQTT_MAN_SEND
 // #define DEBUG_MQTT_MAN_COMMS_CHANNELS
+// #define DEBUG_MQTT_MAN_TOPIC_SETUP
+
+// Log prefix
+#if defined(DEBUG_MQTT_MAN_SEND) || defined(DEBUG_MQTT_MAN_COMMS_CHANNELS) || defined(DEBUG_MQTT_MAN_TOPIC_SETUP)
+static const char *MODULE_PREFIX = "MQTTMan";
+#endif
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constructor
@@ -153,7 +155,7 @@ bool MQTTManager::sendMQTTMsg(const String& topicName, CommsChannelMsg& msg)
 {
     String msgStr;
     Raft::strFromBuffer(msg.getBuf(), msg.getBufLen(), msgStr);
-#ifdef DEBUG_MQTT_SEND
+#ifdef DEBUG_MQTT_MAN_SEND
     LOG_I(MODULE_PREFIX, "sendMQTTMsg topicName %s msg %s", topicName.c_str(), msgStr.c_str());
 #endif
 
