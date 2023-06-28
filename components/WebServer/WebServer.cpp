@@ -178,10 +178,19 @@ void WebServer::addStaticResource(const WebServerResource *pResource, const char
 
 void WebServer::serveStaticFiles(const char* servePaths, const char* cacheControl)
 {
+    // Handle default serve path
+    String servePathsStr = servePaths ? servePaths : "";
+    if (servePathsStr.length() == 0)
+    {
+        servePathsStr = String("/=/") + fileSystem.getDefaultFSRoot();
+        servePathsStr += ",/files/local=/local";
+        servePathsStr += ",/files/sd=/sd";
+    }
+
     // Handle file systems
-    RaftWebHandlerStaticFiles* pHandler = new RaftWebHandlerStaticFiles(servePaths, cacheControl);
+    RaftWebHandlerStaticFiles* pHandler = new RaftWebHandlerStaticFiles(servePathsStr.c_str(), cacheControl);
     bool handlerAddOk = _raftWebServer.addHandler(pHandler);
-    LOG_I(MODULE_PREFIX, "serveStaticFiles servePaths %s addResult %s", servePaths, 
+    LOG_I(MODULE_PREFIX, "serveStaticFiles servePaths %s addResult %s", servePathsStr.c_str(), 
                 handlerAddOk ? "OK" : "FILE SERVER DISABLED");
     if (!handlerAddOk)
         delete pHandler;
