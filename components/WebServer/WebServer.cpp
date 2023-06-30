@@ -14,6 +14,7 @@
 #include <RaftUtils.h>
 #include <RestAPIEndpointManager.h>
 #include <NetworkSystem.h>
+#include <FileSystem.h>
 #include <RaftWebServer.h>
 #include <CommsCoreIF.h>
 #include <CommsChannelMsg.h>

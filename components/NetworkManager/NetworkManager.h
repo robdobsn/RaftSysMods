@@ -20,7 +20,7 @@ class NetworkManager : public SysModBase
 {
 public:
     NetworkManager(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, 
-                ConfigBase* pMutableConfig, const char* defaultHostname);
+                ConfigBase* pMutableConfig);
 
 protected:
     // Setup
@@ -49,11 +49,11 @@ private:
     String _defaultHostname;
     
     // Last connection status
-    NetworkSystem::ConnStateCode _prevConnState;
+    bool _prevConnectedWithIP = false;
     
     // Helpers
-    void applySetup();
-    RaftRetCode apiWifiSet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiWifiSTASet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiWifiAPSet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
     RaftRetCode apiWifiClear(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
     RaftRetCode apiWiFiPause(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
     RaftRetCode apiWifiScan(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);

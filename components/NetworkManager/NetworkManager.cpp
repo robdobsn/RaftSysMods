@@ -10,7 +10,6 @@
 #include <Logger.h>
 #include <NetworkManager.h>
 #include <RaftUtils.h>
-#include <ESPUtils.h>
 #include <ConfigNVS.h>
 #include <RestAPIEndpointManager.h>
 #include <SysManager.h>
@@ -26,12 +25,9 @@ NetworkManager* NetworkManager::_pNetworkManager = NULL;
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 NetworkManager::NetworkManager(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, 
-            ConfigBase *pMutableConfig, const char* defaultHostname)
+            ConfigBase *pMutableConfig)
     : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
 {
-    _prevConnState = NetworkSystem::CONN_STATE_NONE;
-    _defaultHostname = defaultHostname;
-
     // Singleton
     _pNetworkManager = this;
 }
@@ -42,55 +38,56 @@ NetworkManager::NetworkManager(const char *pModuleName, ConfigBase &defaultConfi
 
 void NetworkManager::setup()
 {
-    applySetup();
-}
+    // Network settings
+    NetworkSettings networkSettings;
+    networkSettings.setFromConfig(configGetConfig(), _defaultHostname.c_str());
 
-void NetworkManager::applySetup()
-{
-    // Extract info from config
-    bool isWiFiEnabled = configGetBool("WiFiEnabled", false);
-    bool isWiFiAPModeEnabled = configGetBool("WiFiAPModeEn", false);
-    bool isWiFiSTAModeEnabled = configGetBool("WiFiSTAModeEn", true);
-    bool isEthWiFiBridged = configGetBool("EthWiFiBridge", false);
-    String defaultHostname = configGetString("defaultHostname", _defaultHostname.c_str());
-
-    // Ethernet settings
-    String ethLanChip = configGetString("EthLanChip", "");
-    NetworkSystem::EthSettings ethSettings(ethLanChip.c_str(), 
-            configGetLong("EthPowerPin", -1),
-            configGetLong("EthMDCPin", -1),
-            configGetLong("EthMDIOPin", -1),
-            configGetLong("EthPhyAddr", 0),
-            configGetLong("EthPhyRstPin", -1));
-    bool isEthEnabled = configGetBool("EthEnabled", false);
-
+    // Check if we have a friendly name
+    bool friendlyNameSet = false;
+    String friendlyName = getSysManager()->getFriendlyName(friendlyNameSet);
+    if (!friendlyName.isEmpty())
+        networkSystem.setHostname(friendlyName.c_str());
+    
     // Setup network system
-    networkSystem.setup(isWiFiEnabled, isEthEnabled, defaultHostname.c_str(), 
-                isWiFiSTAModeEnabled, isWiFiAPModeEnabled, isEthWiFiBridged, &ethSettings);
+    bool setupOk = networkSystem.setup(networkSettings);
 
     // Debug
-    LOG_I(MODULE_PREFIX, "setup Eth enabled:%s powerPin %d mdcPin %d mdioPin %d phyAddr %d phyRstPin %d defaultHostname %s",
-            isEthEnabled ? "Y" : "N",
-            ethSettings._powerPin, ethSettings._smiMDCPin, ethSettings._smiMDIOPin, 
-            ethSettings._phyAddr, ethSettings._phyRstPin,
-            defaultHostname.c_str());
+    LOG_I(MODULE_PREFIX, "setup network %s %s", 
+            setupOk ? "OK" : "FAILED",
+            networkSystem.getSettingsJSON(false).c_str());
 
-    // Get SSID and password
-    String ssid = configGetString("WiFiSSID", "");
-    String password = configGetString("WiFiPass", "");
-    String apSSID = configGetString("WiFiAPSSID", "");
-    String apPassword = configGetString("WiFiAPPass", "");
+    // Check if setup failed
+    if (!setupOk)
+        return;
 
-    // Set WiFi credentials
-    bool rsltOk = networkSystem.configureWiFi(ssid, password, "", apSSID, apPassword);
+    // Setup WiFi STA
+    if (networkSettings.enableWifiSTAMode)
+    {
+        // Get Wifi STA SSID and password
+        String ssid = configGetString("WiFiSSID", "");
+        String password = configGetString("WiFiPass", "");
+        if (!ssid.isEmpty())
+        {
+            bool rsltOk = networkSystem.configWifiSTA(ssid, password);
+            LOG_I(MODULE_PREFIX, "setup WiFi STA %s SSID %s", 
+                rsltOk ? "OK" : "FAILED",
+                ssid.c_str());
+        }
+    }
 
-    // Debug
-    LOG_I(MODULE_PREFIX, "setup %s WiFi:%s Eth:%s SSID %s defaultHostname %s", 
-            rsltOk ? "OK" : "FAILED",
-            networkSystem.isWiFiEnabled() ? "ENABLED" : "NO", 
-            networkSystem.isEthEnabled() ? "ENABLED" : "NO",
-            ssid.c_str(),
-            defaultHostname.c_str());
+    // Setup WiFi AP
+    if (networkSettings.enableWifiAPMode)
+    {
+        String apSSID = configGetString("WiFiAPSSID", "");
+        String apPassword = configGetString("WiFiAPPass", "");
+        if (!apSSID.isEmpty())
+        {
+            bool rsltOk = networkSystem.configWifiAP(apSSID, apPassword);
+            LOG_I(MODULE_PREFIX, "setup WiFi AP %s BSSID %s",
+                rsltOk ? "OK" : "FAILED",
+                apSSID.c_str());
+        }
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -103,13 +100,13 @@ void NetworkManager::service()
     networkSystem.service();
 
     // Check for status change
-    NetworkSystem::ConnStateCode connState = networkSystem.getConnState();
-    if (_prevConnState != connState)
+    bool isConnWithIP = networkSystem.isIPConnected();
+    if (_prevConnectedWithIP != isConnWithIP)
     {
         // Inform hooks of status change
         if (_pNetworkManager)
-            _pNetworkManager->executeStatusChangeCBs(connState == NetworkSystem::ConnStateCode::CONN_STATE_WIFI_AND_IP);
-        _prevConnState = connState;
+            _pNetworkManager->executeStatusChangeCBs(isConnWithIP);
+        _prevConnectedWithIP = isConnWithIP;
     }
 }
 
@@ -119,23 +116,10 @@ void NetworkManager::service()
 
 String NetworkManager::getStatusJSON()
 {
-
-    NetworkSystem::ConnStateCode connState = networkSystem.getConnState();
-    char statusStr[300];
-    bool isValid = false;
-    snprintf(statusStr, sizeof(statusStr), 
-                R"({"rslt":"ok","isConn":%d,"isPaused":%d,"connState":"%s","SSID":"%s","IP":"%s","Hostname":"%s","WiFiMAC":"%s","rssi":%d,"ethConn":%d,"ethIP":"%s","v":"%s"})",
-                connState != NetworkSystem::CONN_STATE_NONE,
-                networkSystem.isPaused() ? 1 : 0, 
-                networkSystem.getConnStateCodeStr(connState).c_str(),
-                networkSystem.getSSID().c_str(),
-                networkSystem.getWiFiIPV4AddrStr().c_str(),
-                networkSystem.getHostname().c_str(),
-                getSystemMACAddressStr(ESP_MAC_WIFI_STA, ":").c_str(),
-                networkSystem.getRSSI(isValid),
-                networkSystem.isEthConnectedWithIP() ? 1 : 0,
-                networkSystem.getEthIPV4AddrStr().c_str(),
-                getSysManager() ? getSysManager()->getSystemVersion().c_str() : "0.0.0");
+    String statusStr = R"({"rslt":"ok","isPaused":)" + String(networkSystem.isPaused() ? 1 : 0);
+    statusStr += R"(,"v":)" + String(getSysManager() ? getSysManager()->getSystemVersion() : "0.0.0");
+    statusStr += networkSystem.getConnStateJSON(false, true, true, true);
+    statusStr += R"(})";
     return statusStr;
 }
 
@@ -145,24 +129,7 @@ String NetworkManager::getStatusJSON()
 
 String NetworkManager::getDebugJSON()
 {
-    String debugStr, debugEthStr;
-    bool isValid = false;
-    // WiFi
-    if (networkSystem.isWiFiStaConnectedWithIP())
-        debugStr += R"("s":"conn","SSID":")" + networkSystem.getSSID() + 
-                    R"(","hostname":")" + networkSystem.getHostname() + 
-                    R"(","IP":")" + networkSystem.getWiFiIPV4AddrStr() + 
-                    R"(","rssi":)" + networkSystem.getRSSI(isValid) + 
-                    R"()";
-    else if (networkSystem.isPaused())
-        debugStr += R"("s":"paused")";
-    else
-        debugStr += R"("s":"none")";
-
-    // Ethernet
-    if(networkSystem.isEthConnectedWithIP())
-        debugEthStr += R"("ethIP":")" + networkSystem.getEthIPV4AddrStr() + R"(")";
-    return "{" + (debugEthStr.length() > 0 ? debugStr + "," + debugEthStr : debugStr) + "}";
+    return networkSystem.getConnStateJSON(true, true, true, true);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -185,8 +152,11 @@ double NetworkManager::getNamedValue(const char* valueName, bool& isValid)
 void NetworkManager::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager)
 {
     endpointManager.addEndpoint("w", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
-                          std::bind(&NetworkManager::apiWifiSet, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
-                          "Setup WiFi SSID/password/hostname");
+                          std::bind(&NetworkManager::apiWifiSTASet, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                          "Setup WiFi STA e.g. w/SSID/password");
+    endpointManager.addEndpoint("wap", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
+                          std::bind(&NetworkManager::apiWifiAPSet, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                          "Setup WiFi AP e.g. wap/BSSID/password");
     endpointManager.addEndpoint("wc", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
                           std::bind(&NetworkManager::apiWifiClear, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
                           "Clear WiFi settings");
@@ -204,45 +174,75 @@ void NetworkManager::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager
                           "Scan WiFi networks - wifiscan/start - wifiscan/results");
 }
 
-RaftRetCode NetworkManager::apiWifiSet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// WiFi STA set
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+RaftRetCode NetworkManager::apiWifiSTASet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
 {
-    // LOG_I(MODULE_PREFIX, "apiWifiSet incoming %s", reqStr.c_str());
+    // LOG_I(MODULE_PREFIX, "apiWifiSTASet incoming %s", reqStr.c_str());
 
     // Get SSID - note that ? is valid in SSIDs so don't split on ? character
     String ssid = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1, false);
     // Get pw - as above
     String pw = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 2, false);
     // LOG_I(MODULE_PREFIX, "WiFi PW length %d PW %s", pw.length(), pw.c_str());
-    // Get hostname - as above
-    String hostname = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 3, false);
-    // Get AP SSID
-    String apSSID = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 4, false);
-    // Get AP pw
-    String apPassword = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 5, false);
 
-
-    // Debug
-    if ((ssid.length() > 0) || (apSSID.length() > 0))
+    // Check valid
+    String errorStr;
+    bool configRslt = false;
+    if (!ssid.isEmpty())
     {
-        LOG_I(MODULE_PREFIX, "apiWifiSet SSID %s (len %d) hostname %s (len %d) AP SSID %s (len %d) ", 
-                        ssid.c_str(), ssid.length(), hostname.c_str(), hostname.length(), apSSID.c_str(), apSSID.length());
+        // Configure WiFi
+        configRslt = networkSystem.configWifiSTA(ssid, pw);
+        if (!configRslt)
+            errorStr = "configWifiSTA failed";
+
+        // Set hostname if specified
+        LOG_I(MODULE_PREFIX, "apiWifiSTASet %s SSID %s (len %d)", 
+                    configRslt ? "OK" : "FAIL",
+                    ssid.c_str(), ssid.length());
     }
     else
     {
-        LOG_I(MODULE_PREFIX, "apiWifiSet neither STA or AP SSID is set");
+        LOG_I(MODULE_PREFIX, "apiWifiSTASet no SSID specified");
+        errorStr = "No SSID specified";
     }
 
-    // Configure WiFi
-    bool rslt = networkSystem.configureWiFi(ssid, pw, hostname, apSSID, apPassword);
-
-    // Set hostname as System friendly name (note that this can also clear the hostname if it is empty)
-    if (rslt)
-    {
-        String errorStr;
-        getSysManager()->setFriendlyName(hostname, false, errorStr);
-    }
-    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt);
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, configRslt, errorStr.c_str());
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// WiFi AP set
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+RaftRetCode NetworkManager::apiWifiAPSet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+{
+    // Get BSSID - note that ? is valid in BSSIDs so don't split on ? character
+    String bssid = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1, false);
+    // Get pw - as above
+    String pw = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 2, false);
+
+    // Debug
+    if (bssid.length() > 0)
+    {
+        // Configure WiFi AP
+        bool rslt = networkSystem.configWifiAP(bssid, pw);
+        LOG_I(MODULE_PREFIX, "apiWifiAPSet %s BSSID %s (len %d)", 
+                    rslt ? "OK" : "FAIL",
+                    bssid.c_str(), bssid.length());
+        String errorStr;
+        if (!rslt)
+            errorStr = "configWifiAP failed";
+        return Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt, errorStr.c_str());
+    }
+    LOG_I(MODULE_PREFIX, "apiWifiAPSet BSSID not specified");
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, false, "No BSSID specified");
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// WiFi clear
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 RaftRetCode NetworkManager::apiWifiClear(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
 {
