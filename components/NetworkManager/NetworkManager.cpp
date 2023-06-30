@@ -64,8 +64,8 @@ void NetworkManager::setup()
     if (networkSettings.enableWifiSTAMode)
     {
         // Get Wifi STA SSID and password
-        String ssid = configGetString("WiFiSSID", "");
-        String password = configGetString("WiFiPass", "");
+        String ssid = configGetString("wifiSSID", configGetString("WiFiSSID", ""));
+        String password = configGetString("wifiPW", configGetString("WiFiPass", ""));
         if (!ssid.isEmpty())
         {
             bool rsltOk = networkSystem.configWifiSTA(ssid, password);
@@ -78,12 +78,12 @@ void NetworkManager::setup()
     // Setup WiFi AP
     if (networkSettings.enableWifiAPMode)
     {
-        String apSSID = configGetString("WiFiAPSSID", "");
+        String apSSID = configGetString("wifiAPSSID", configGetString("wifiAPSSID", ""));
         String apPassword = configGetString("WiFiAPPass", "");
         if (!apSSID.isEmpty())
         {
             bool rsltOk = networkSystem.configWifiAP(apSSID, apPassword);
-            LOG_I(MODULE_PREFIX, "setup WiFi AP %s BSSID %s",
+            LOG_I(MODULE_PREFIX, "setup WiFi AP %s SSID %s",
                 rsltOk ? "OK" : "FAILED",
                 apSSID.c_str());
         }
@@ -156,7 +156,7 @@ void NetworkManager::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager
                           "Setup WiFi STA e.g. w/SSID/password");
     endpointManager.addEndpoint("wap", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
                           std::bind(&NetworkManager::apiWifiAPSet, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
-                          "Setup WiFi AP e.g. wap/BSSID/password");
+                          "Setup WiFi AP e.g. wap/SSID/password");
     endpointManager.addEndpoint("wc", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
                           std::bind(&NetworkManager::apiWifiClear, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
                           "Clear WiFi settings");
@@ -218,26 +218,26 @@ RaftRetCode NetworkManager::apiWifiSTASet(const String &reqStr, String &respStr,
 
 RaftRetCode NetworkManager::apiWifiAPSet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
 {
-    // Get BSSID - note that ? is valid in BSSIDs so don't split on ? character
-    String bssid = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1, false);
+    // Get SSID - note that ? is valid in SSIDs so don't split on ? character
+    String ssid = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1, false);
     // Get pw - as above
     String pw = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 2, false);
 
     // Debug
-    if (bssid.length() > 0)
+    if (ssid.length() > 0)
     {
         // Configure WiFi AP
-        bool rslt = networkSystem.configWifiAP(bssid, pw);
-        LOG_I(MODULE_PREFIX, "apiWifiAPSet %s BSSID %s (len %d)", 
+        bool rslt = networkSystem.configWifiAP(ssid, pw);
+        LOG_I(MODULE_PREFIX, "apiWifiAPSet %s SSID %s (len %d)", 
                     rslt ? "OK" : "FAIL",
-                    bssid.c_str(), bssid.length());
+                    ssid.c_str(), ssid.length());
         String errorStr;
         if (!rslt)
             errorStr = "configWifiAP failed";
         return Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt, errorStr.c_str());
     }
-    LOG_I(MODULE_PREFIX, "apiWifiAPSet BSSID not specified");
-    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, false, "No BSSID specified");
+    LOG_I(MODULE_PREFIX, "apiWifiAPSet SSID not specified");
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, false, "No SSID specified");
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
