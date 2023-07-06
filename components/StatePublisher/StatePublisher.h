@@ -11,6 +11,7 @@
 #include <ArduinoOrAlt.h>
 #include <APISourceInfo.h>
 #include <SysModBase.h>
+#include <CommsCoreIF.h>
 #include <list>
 #include <vector>
 
@@ -87,6 +88,8 @@ private:
         uint32_t _lastPublishMs = 0;
         int32_t _channelID = PUBLISHING_HANDLE_UNDEFINED;
         bool _forceMsgGen = false;
+        bool _isPersistent = false;
+        bool _isSuppressed = false;
     };
 
     // Publication records
@@ -117,5 +120,5 @@ private:
 
     // Helpers
     void cleanUp();
-    bool publishData(PubRec& pubRec, InterfaceRateRec& rateRec);
+    CommsCoreRetCode publishData(PubRec& pubRec, InterfaceRateRec& rateRec);
 };

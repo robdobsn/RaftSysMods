@@ -27,6 +27,7 @@
 // #define DEBUG_STATE_PUBLISHER_SETUP
 // #define DEBUG_REDUCED_PUBLISHING_RATE_WHEN_BUSY
 // #define DEBUG_FORCE_GENERATION_OF_PUBLISH_MSGS
+// #define DEBUG_PUBLISH_SUPPRESS_RESTART
 
 // Logging
 static const char* MODULE_PREFIX = "StatePub";
@@ -128,6 +129,8 @@ void StatePublisher::setup()
                     ifRateRec._protocol = protocol;
                     ifRateRec.setRateHz(rateHz);
                     ifRateRec._lastPublishMs = millis();
+                    ifRateRec._isPersistent = true;
+                    ifRateRec._isSuppressed = false;
                     pubRec._interfaceRates.push_back(ifRateRec);
 
                     // Debug
@@ -214,6 +217,10 @@ void StatePublisher::service()
         // And each interface
         for (InterfaceRateRec& rateRec : pubRec._interfaceRates)
         {
+            // Check if interface is suppressed
+            if (rateRec._isSuppressed)
+                continue;
+
             // Check for time to publish
             bool publishDueToTimeout = (rateRec._rateHz != 0) && Raft::isTimeout(millis(), rateRec._lastPublishMs, 
                                     reducePublishingRate ? REDUCED_PUB_RATE_WHEN_BUSY_MS : rateRec._betweenPubsMs);
@@ -257,33 +264,48 @@ void StatePublisher::service()
 
                 // Check if interface can accept messages
                 bool noConn = false;
-                if (!getCommsCore()->canAcceptOutbound(rateRec._channelID, noConn))
-                    continue;
+                if (getCommsCore()->canAcceptOutbound(rateRec._channelID, noConn))
+                {
 
 #ifdef DEBUG_REDUCED_PUBLISHING_RATE_WHEN_BUSY
-                if (reducePublishingRate)
-                {
-                    LOG_I(MODULE_PREFIX, "service publishing rate reduced for channel %d", rateRec._channelID);
-                }
+                    if (reducePublishingRate)
+                    {
+                        LOG_I(MODULE_PREFIX, "service publishing rate reduced for channel %d", rateRec._channelID);
+                    }
 #endif
 
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
-                uint64_t startUs = micros();
+                    uint64_t startUs = micros();
 #endif
 
-                publishData(pubRec, rateRec);
+                    CommsCoreRetCode publishRetc = publishData(pubRec, rateRec);
 
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
-                uint64_t elapUs = micros() - startUs;
-                if (_recentWorstTimeUs < elapUs)
-                    _recentWorstTimeUs = elapUs;
-                if (Raft::isTimeout(millis(), _worstTimeSetMs, 1000))
-                {
-                    LOG_I(MODULE_PREFIX, "PubSlowest %lld", _recentWorstTimeUs);
-                    _recentWorstTimeUs = 0;
-                    _worstTimeSetMs = millis();
-                }
+                    uint64_t elapUs = micros() - startUs;
+                    if (_recentWorstTimeUs < elapUs)
+                        _recentWorstTimeUs = elapUs;
+                    if (Raft::isTimeout(millis(), _worstTimeSetMs, 1000))
+                    {
+                        LOG_I(MODULE_PREFIX, "PubSlowest %lld", _recentWorstTimeUs);
+                        _recentWorstTimeUs = 0;
+                        _worstTimeSetMs = millis();
+                    }
 #endif
+
+                    // Check for no connection
+                    if (publishRetc == COMMS_CORE_RET_NO_CONN)
+                        noConn = true;
+                }
+
+                // Check if there is no connection on this channel - if so then check if the rateRec is
+                // persistent and, if not, then suppress publishing this rateRec
+                if (noConn && !rateRec._isPersistent)
+                {
+#ifdef DEBUG_PUBLISH_SUPPRESS_RESTART
+                    LOG_I(MODULE_PREFIX, "service suppressing rateRec channelID %d", rateRec._channelID);
+#endif
+                    rateRec._isSuppressed = true;
+                }
             }
         }
     }
@@ -343,11 +365,11 @@ void StatePublisher::receiveMsgGenCB(const char* msgGenID, SysMod_publishMsgGenF
 // Publish data
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool StatePublisher::publishData(StatePublisher::PubRec& pubRec, InterfaceRateRec& rateRec)
+CommsCoreRetCode StatePublisher::publishData(StatePublisher::PubRec& pubRec, InterfaceRateRec& rateRec)
 {
     // Check comms core
     if (!getCommsCore())
-        return false;
+        return COMMS_CORE_RET_FAIL;
 
     // Endpoint message we're going to send
     CommsChannelMsg endpointMsg(rateRec._channelID, MSG_PROTOCOL_ROSSERIAL, 0, MSG_TYPE_PUBLISH);
@@ -368,9 +390,9 @@ bool StatePublisher::publishData(StatePublisher::PubRec& pubRec, InterfaceRateRe
     }
 #endif
     if (!msgOk)
-        return false;
+        return COMMS_CORE_RET_FAIL;
     if (endpointMsg.getBufLen() == 0)
-        return true;
+        return COMMS_CORE_RET_FAIL;
 
 #ifdef DEBUG_PUBLISHING_MESSAGE
 #ifdef DEBUG_ONLY_THIS_MSG_ID
@@ -391,7 +413,7 @@ bool StatePublisher::publishData(StatePublisher::PubRec& pubRec, InterfaceRateRe
 #endif
 
     // Send message
-    getCommsCore()->handleOutboundMessage(endpointMsg);
+    CommsCoreRetCode retc = getCommsCore()->handleOutboundMessage(endpointMsg);
 
 #ifdef DEBUG_PUBLISHING_MESSAGE
 #ifdef DEBUG_ONLY_THIS_MSG_ID
@@ -399,10 +421,11 @@ bool StatePublisher::publishData(StatePublisher::PubRec& pubRec, InterfaceRateRe
 #endif
     {
         // Debug
-        LOG_I(MODULE_PREFIX, "sendPublishMsg channelID %d payloadLen %d", rateRec._channelID, endpointMsg.getBufLen());
+        LOG_I(MODULE_PREFIX, "sendPublishMsg channelID %d payloadLen %d retc %d", 
+                    rateRec._channelID, endpointMsg.getBufLen(), retc);
     }
 #endif
-    return false;
+    return retc;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -492,6 +515,13 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                         interfaceRateFound = true;
                         rateRec.setRateHz(pubRateHz);
                         rateRec._forceMsgGen = true;
+#ifdef DEBUG_PUBLISH_SUPPRESS_RESTART
+                        if (rateRec._isSuppressed)
+                        {
+                            LOG_I(MODULE_PREFIX, "apiSubscription restoring suppressed rateRec channelID %d", channelID);
+                        }   
+#endif                     
+                        rateRec._isSuppressed = false;
 #ifdef DEBUG_API_SUBSCRIPTION
                         LOG_I(MODULE_PREFIX, "apiSubscription updated rateRec channelID %d rateHz %.2f", channelID, pubRateHz);
 #endif
@@ -507,6 +537,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                     ifRateRec.setRateHz(pubRateHz);
                     ifRateRec._lastPublishMs = millis();
                     ifRateRec._forceMsgGen = true;
+                    ifRateRec._isSuppressed = false;
                     pubRec._interfaceRates.push_back(ifRateRec);
 #ifdef DEBUG_API_SUBSCRIPTION
                     LOG_I(MODULE_PREFIX, "apiSubscription created rateRec channelID %d rateHz %.2f", channelID, pubRateHz);
