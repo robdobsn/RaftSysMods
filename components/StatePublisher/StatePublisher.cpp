@@ -515,6 +515,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                         interfaceRateFound = true;
                         rateRec.setRateHz(pubRateHz);
                         rateRec._forceMsgGen = true;
+                        rateRec._lastPublishMs = millis();
 #ifdef DEBUG_PUBLISH_SUPPRESS_RESTART
                         if (rateRec._isSuppressed)
                         {
