@@ -261,12 +261,12 @@ void WebServer::webSocketSetup()
                     protocol.c_str(), 
                     interfaceName.c_str(),
                     wsName.c_str(),
-                    [this, pHandler](CommsChannelMsg& msg) { 
-                        return pHandler->sendMsg(msg.getBuf(), msg.getBufLen(), 
+                    [this](CommsChannelMsg& msg) { 
+                        return _raftWebServer.sendBufferOnChannel(msg.getBuf(), msg.getBufLen(), 
                                 msg.getChannelID());
                     },
-                    [this, pHandler](uint32_t channelID, bool& noConn) {
-                        return pHandler->canSend(channelID, noConn); 
+                    [this](uint32_t channelID, bool& noConn) {
+                        return _raftWebServer.canSendBufferOnChannel(channelID, noConn); 
                     },
                     &commsChannelSettings);
 
