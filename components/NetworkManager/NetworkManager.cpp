@@ -264,7 +264,7 @@ RaftRetCode NetworkManager::apiWifiClear(const String &reqStr, String &respStr, 
         // Request a system restart
         if (sysRestart && getSysManager())
             getSysManager()->systemRestart();
-        return RaftRetCode::RAFT_RET_OK;
+        return RaftRetCode::RAFT_OK;
     }
     return Raft::setJsonErrorResult(reqStr.c_str(), respStr, esp_err_to_name(err));
 }

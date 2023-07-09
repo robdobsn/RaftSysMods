@@ -415,7 +415,7 @@ RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
             if (err != ESP_OK)
             {
                 LOG_E(MODULE_PREFIX, "receiveCmdJson FAILED to remove uart driver from port %d, err %d", _uartNum, err);
-                return RaftRetCode::RAFT_RET_INVALID_DATA;
+                return RaftRetCode::RAFT_INVALID_DATA;
             }
 
             // Install uart driver            
@@ -423,12 +423,12 @@ RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
             if (err != ESP_OK)
             {
                 LOG_E(MODULE_PREFIX, "receiveCmdJson FAILED to install uart driver to port %d, err %d", _uartNum, err);
-                return RaftRetCode::RAFT_RET_INVALID_DATA;
+                return RaftRetCode::RAFT_INVALID_DATA;
             }
         }
-        return RaftRetCode::RAFT_RET_OK;
+        return RaftRetCode::RAFT_OK;
     }
-    return RaftRetCode::RAFT_RET_INVALID_OPERATION;
+    return RaftRetCode::RAFT_INVALID_OPERATION;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -448,7 +448,7 @@ RaftRetCode SerialConsole::apiConsole(const String &reqStr, String& respStr, con
     {
         Raft::setJsonErrorResult(reqStr.c_str(), respStr, "notEnoughParams");
         LOG_W(MODULE_PREFIX, "apiConsole not enough params %d", params.size());
-        return RaftRetCode::RAFT_RET_INVALID_DATA;
+        return RaftRetCode::RAFT_INVALID_DATA;
     }
 
     // Check type of command
@@ -456,7 +456,7 @@ RaftRetCode SerialConsole::apiConsole(const String &reqStr, String& respStr, con
     if (cmdStr.equalsIgnoreCase("settings"))
     {
         // Iterate over name/values
-        RaftRetCode result = RaftRetCode::RAFT_RET_INVALID_DATA;
+        RaftRetCode result = RaftRetCode::RAFT_INVALID_DATA;
         for (auto& nv : nameValues)
         {
             if (nv.name.equalsIgnoreCase("baud"))
@@ -471,11 +471,11 @@ RaftRetCode SerialConsole::apiConsole(const String &reqStr, String& respStr, con
                 // Set baud rate
                 uart_set_baudrate((uart_port_t)_uartNum, baudRate);
                 result = Raft::setJsonResult(reqStr.c_str(), respStr, true);
-                if (result != RaftRetCode::RAFT_RET_OK)
+                if (result != RaftRetCode::RAFT_OK)
                     break;
             }
         }
-        if (result != RaftRetCode::RAFT_RET_INVALID_DATA)
+        if (result != RaftRetCode::RAFT_INVALID_DATA)
             return result;
     }
 

@@ -168,7 +168,7 @@ RaftRetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
     {
         if (!fileStreamStart(fileStreamBlock.filename, 
                     fileStreamBlock.fileLenValid ? fileStreamBlock.fileLen : fileStreamBlock.contentLen))
-            return RaftRetCode::RAFT_RET_INVALID_OPERATION;
+            return RaftRetCode::RAFT_INVALID_OPERATION;
     }
 
     // Check if in progress
@@ -183,7 +183,7 @@ RaftRetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
         {
             _otaDirectInProgress = false;
             LOG_E(MODULE_PREFIX, "esp_ota_write failed! err=0x%x", err);
-            return RaftRetCode::RAFT_RET_INVALID_DATA;
+            return RaftRetCode::RAFT_INVALID_DATA;
         }
     }
 
@@ -191,10 +191,10 @@ RaftRetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
     if (fileStreamBlock.finalBlock)
     {
         if (!firmwareUpdateEnd())
-            return RaftRetCode::RAFT_RET_INVALID_DATA;
+            return RaftRetCode::RAFT_INVALID_DATA;
     }
 
-    return RaftRetCode::RAFT_RET_OK;
+    return RaftRetCode::RAFT_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

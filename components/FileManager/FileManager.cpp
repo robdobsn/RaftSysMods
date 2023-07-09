@@ -128,7 +128,7 @@ RaftRetCode FileManager::apiReformatFS(const String &reqStr, String& respStr, co
         if (pSysMan)
             pSysMan->systemRestart();
     }
-    return RaftRetCode::RAFT_RET_OK;
+    return RaftRetCode::RAFT_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -159,7 +159,7 @@ RaftRetCode FileManager::apiFileList(const String &reqStr, String& respStr, cons
 #ifdef DEBUG_FILE_MANAGER_FILE_LIST_DETAIL
     LOG_W(MODULE_PREFIX, "apiFileList respStr %s", respStr.c_str());
 #endif
-    return RaftRetCode::RAFT_RET_OK;
+    return RaftRetCode::RAFT_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -182,11 +182,11 @@ RaftRetCode FileManager::apiFileRead(const String &reqStr, String& respStr, cons
     if (!pFileContents)
     {
         respStr = "";
-        return RaftRetCode::RAFT_RET_CANNOT_START;
+        return RaftRetCode::RAFT_CANNOT_START;
     }
     respStr = pFileContents;
     free(pFileContents);
-    return RaftRetCode::RAFT_RET_OK;
+    return RaftRetCode::RAFT_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -235,7 +235,7 @@ RaftRetCode FileManager::apiUploadFileBlock(const String& req, FileStreamBlock& 
     if (_pProtocolExchange)
         return _pProtocolExchange->handleFileUploadBlock(req, fileStreamBlock, sourceInfo, 
                     FileStreamBase::FILE_STREAM_CONTENT_TYPE_FILE, "");
-    return RaftRetCode::RAFT_RET_INVALID_OPERATION;
+    return RaftRetCode::RAFT_INVALID_OPERATION;
 }
 
 // /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
