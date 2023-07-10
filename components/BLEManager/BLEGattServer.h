@@ -13,12 +13,12 @@
 
 #ifdef CONFIG_BT_ENABLED
 
+#include <functional>
 #undef min
 #undef max
 #include <host/ble_hs.h>
 #undef min
 #undef max
-#include <functional>
 
 typedef std::function<void (const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength)> BLEGattServerAccessCBType;
 

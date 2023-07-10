@@ -7,10 +7,10 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include <Logger.h>
-#include <RaftUtils.h>
 #include <CommandSerial.h>
-#include <CommsChannelMsg.h>
 #include <JSONParams.h>
+#include <RaftUtils.h>
+#include <CommsChannelMsg.h>
 #include <CommsChannelSettings.h>
 
 static const char *MODULE_PREFIX = "CommandSerial";

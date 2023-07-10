@@ -7,8 +7,8 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include <Logger.h>
-#include <RaftUtils.h>
 #include <CommandFile.h>
+#include <RaftUtils.h>
 #include <FileSystem.h>
 #include <RestAPIEndpointManager.h>
 

@@ -8,15 +8,15 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include <Logger.h>
+#include "BLEManager.h"
+#include "BLEGattServer.h"
 #include <RestAPIEndpointManager.h>
-#include <RaftUtils.h>
-#include <ESPUtils.h>
-#include <SysManager.h>
 #include <CommsCoreIF.h>
 #include <CommsChannelMsg.h>
 #include <CommsChannelSettings.h>
-#include "BLEManager.h"
-#include "BLEGattServer.h"
+#include <RaftUtils.h>
+#include <ESPUtils.h>
+#include <SysManager.h>
 
 #ifdef CONFIG_BT_ENABLED
 #include "esp_nimble_hci.h"
@@ -448,9 +448,9 @@ String BLEManager::getDebugJSON()
     // Also ble_gap_conn_desc can be obtained
     String advertisingInfo;
     if (advertisingActive)
-        advertisingInfo = R"(,"adv":")" + String(ble_svc_gap_device_name()) + R"(")";
+        advertisingInfo = R"("adv":")" + String(ble_svc_gap_device_name()) + R"(",)";
     char tmpBuf[200];
-    snprintf(tmpBuf, sizeof(tmpBuf)-1, R"({"s":"%s"%s%s,)",
+    snprintf(tmpBuf, sizeof(tmpBuf)-1, R"({"s":"%s",%s%s)",
         _isConnected ? (gapConnActive ? "actv" : "conn") : (advertisingActive ? "adv" : (discoveryActive ? "disco" : "none")),
         rssiStr.c_str(),
         advertisingInfo.c_str());

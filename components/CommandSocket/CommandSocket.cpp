@@ -6,13 +6,13 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "CommandSocket.h"
 #include <Logger.h>
+#include <CommandSocket.h>
 #include <RaftUtils.h>
+#include <RestAPIEndpointManager.h>
 #include <CommsCoreIF.h>
 #include <CommsChannelMsg.h>
 #include <CommsChannelSettings.h>
-#include <RestAPIEndpointManager.h>
 #include <NetworkSystem.h>
 
 static const char *MODULE_PREFIX = "CommandSocket";
