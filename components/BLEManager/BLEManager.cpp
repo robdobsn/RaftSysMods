@@ -207,6 +207,7 @@ void BLEManager::applySetup()
 
         // Deinitialize
         nimble_port_deinit();
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
         esp_err_t err = esp_nimble_hci_and_controller_deinit();
         if (err != ESP_OK)
         {
@@ -214,6 +215,7 @@ void BLEManager::applySetup()
             LOG_W(MODULE_PREFIX, "applySetup deinit failed");
 #endif
         }
+#endif
         _BLEDeviceInitialised = false;
 
         // Debug
@@ -1120,8 +1122,13 @@ String BLEManager::getAdvertisingName()
 
     // Name
     String adName = _pBLEManager->configGetString("adName", "");
+    bool friendlyNameIsSet = false;
     if (adName.length() == 0)
-        adName = _pBLEManager->getFriendlyName();
+    {
+        String friendlyName = _pBLEManager->getFriendlyName(friendlyNameIsSet);
+        if (friendlyNameIsSet)
+            adName = friendlyName;
+    }
     if ((adName.length() == 0) && (_pBLEManager))
         adName = _pBLEManager->_defaultAdvName;
     if (adName.length() == 0)
@@ -1213,6 +1220,7 @@ RaftRetCode BLEManager::apiBLERestart(const String &reqStr, String &respStr, con
 
 bool BLEManager::nimbleStart()
 {
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
     // Init Nimble
     esp_err_t err = esp_nimble_hci_and_controller_init();
     if (err != ESP_OK)
@@ -1222,6 +1230,7 @@ bool BLEManager::nimbleStart()
 #endif
         return false;
     }
+#endif
 
     // Log level for NimBLE module is set in here so if we want to override it
     // we have to do so after this call
@@ -1285,11 +1294,14 @@ bool BLEManager::nimbleStop()
         return false;
     }
     nimble_port_deinit();
+
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
     ret = esp_nimble_hci_and_controller_deinit();
     if (ret != 0) {
         LOG_W(MODULE_PREFIX, "nimbleStop nimble_port_deinit() failed ret=%d", ret);
         return false;
     }
+#endif
     return true;
 }
 

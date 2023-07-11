@@ -116,9 +116,9 @@ void NetworkManager::service()
 
 String NetworkManager::getStatusJSON()
 {
-    String statusStr = R"({"rslt":"ok","isPaused":)" + String(networkSystem.isPaused() ? 1 : 0);
+    String statusStr = R"({"rslt":"ok")";
     statusStr += R"(,"v":)" + String(getSysManager() ? getSysManager()->getSystemVersion() : "0.0.0");
-    statusStr += networkSystem.getConnStateJSON(false, true, true, true);
+    statusStr += networkSystem.getConnStateJSON(false, true, true, true, true);
     statusStr += R"(})";
     return statusStr;
 }
@@ -129,7 +129,7 @@ String NetworkManager::getStatusJSON()
 
 String NetworkManager::getDebugJSON()
 {
-    return networkSystem.getConnStateJSON(true, true, true, true);
+    return networkSystem.getConnStateJSON(true, true, true, true, false);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -299,7 +299,8 @@ RaftRetCode NetworkManager::apiWiFiPause(const String &reqStr, String& respStr, 
     {
         networkSystem.pauseWiFi(false);
     }
-    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
+    String pauseJSON = "\"isPaused\":" + String(networkSystem.isPaused() ? "1" : "0");
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true, pauseJSON.c_str());
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
