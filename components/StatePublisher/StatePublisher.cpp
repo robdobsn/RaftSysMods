@@ -28,6 +28,7 @@
 // #define DEBUG_REDUCED_PUBLISHING_RATE_WHEN_BUSY
 // #define DEBUG_FORCE_GENERATION_OF_PUBLISH_MSGS
 // #define DEBUG_PUBLISH_SUPPRESS_RESTART
+// #define DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
 
 // Logging
 static const char* MODULE_PREFIX = "StatePub";
@@ -295,6 +296,12 @@ void StatePublisher::service()
                     // Check for no connection
                     if (publishRetc == COMMS_CORE_RET_NO_CONN)
                         noConn = true;
+                }
+                else
+                {
+#ifdef DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
+                    LOG_I(MODULE_PREFIX, "service cannot accept outbound for channel %d noConn %d", rateRec._channelID, noConn);
+#endif
                 }
 
                 // Check if there is no connection on this channel - if so then check if the rateRec is

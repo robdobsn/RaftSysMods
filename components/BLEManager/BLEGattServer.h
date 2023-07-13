@@ -34,6 +34,13 @@ public:
     static int initServer();
     static void deinitServer();
 
+    // Set connection handle
+    static void setIsConnected(bool isConnected, uint16_t connHandle)
+    {
+        _bleIsConnected = isConnected;
+        _bleGapConnHandle = connHandle;
+    }
+
     // Callback
     static void registrationCallback(struct ble_gatt_register_ctxt *ctxt, void *arg);
 
@@ -49,9 +56,12 @@ public:
     // Send to central (using notification)
     static bool sendToCentral(const uint8_t* pBuf, uint32_t bufLen);
 
-    // Check ready to send
-    static bool readyToSend(bool& noConn);
-
+    // Check if notification is enabled
+    static bool isNotificationEnabled()
+    {
+        return _responseNotifyState;
+    }
+    
 private:
 
     // Max size of packet that can be received from NimBLE
@@ -62,6 +72,7 @@ private:
 
     // Handles
     static uint16_t _bleGattMessageResponseHandle;
+    static bool _bleIsConnected;
     static uint16_t _bleGapConnHandle;
 
     // State of notify (send from peripheral)
@@ -86,5 +97,8 @@ private:
     static const uint32_t MIN_TIME_BETWEEN_ERROR_MSGS_MS = 500;
     static uint32_t _lastBLEErrorMsgMs;
     static uint32_t _lastBLEErrorMsgCode;
+
+    // Get HS error message
+    static const char* getHSErrorMsg(int errorCode);
 };
 #endif // CONFIG_BT_ENABLED

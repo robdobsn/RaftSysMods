@@ -384,10 +384,7 @@ void BLEManager::addCommsChannels(CommsCoreIF& commsCoreIF)
             "BLE",
             "BLE",
             std::bind(&BLEManager::sendBLEMsg, this, std::placeholders::_1),
-            [this](uint32_t channelID, bool& noConn) {
-                bool isConn = BLEGattServer::readyToSend(noConn);
-                return isConn && (_bleFragmentQueue.count() == 0);
-            },
+            std::bind(&BLEManager::isReadyToSend, this, std::placeholders::_1, std::placeholders::_2),
             &commsChannelSettings);
 #endif // CONFIG_BT_ENABLED
 }
@@ -1026,6 +1023,33 @@ void BLEManager::gattAccessCallback(const char* characteristicName, bool readOp,
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Check if ready to send message over BLE
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Check ready to send
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool BLEManager::isReadyToSend(uint32_t channelID, bool& noConn)
+{
+    // Check for connection
+    noConn = false;
+    if (!_isConnected)
+    {
+        noConn = true;
+        return false;
+    }
+    // Check state of gatt server
+    noConn = !BLEGattServer::isNotificationEnabled();
+    if (noConn)
+        return false;
+    // Check the queue is empty
+    if (_outboundMsgInFlight || (_bleFragmentQueue.count() > 0))
+        return false;
+    return true;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Send message over BLE
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1104,6 +1128,9 @@ void BLEManager::setIsConnected(bool isConnected, uint16_t connHandle)
     // Connected state change
     _isConnected = isConnected;
     _bleGapConnHandle = connHandle;
+
+    // Set into GATT
+    BLEGattServer::setIsConnected(isConnected, connHandle);
     
     // Inform hooks of status change
     if (_pBLEManager)

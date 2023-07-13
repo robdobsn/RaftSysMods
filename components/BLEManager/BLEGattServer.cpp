@@ -68,6 +68,7 @@ ble_uuid128_t BLEGattServer::GATT_RICV2_MESSAGE_RESPONSE_UUID =
 // Statics
 uint16_t BLEGattServer::_bleGattMessageResponseHandle = 0;
 bool BLEGattServer::_responseNotifyState = false;
+bool BLEGattServer::_bleIsConnected = false;
 uint16_t BLEGattServer::_bleGapConnHandle = 0;
 uint32_t BLEGattServer::_lastBLEErrorMsgMs = 0;
 uint32_t BLEGattServer::_lastBLEErrorMsgCode = 0;
@@ -221,7 +222,10 @@ int BLEGattServer::responseCharAccess(uint16_t conn_handle, uint16_t attr_handle
         // This is not expected to happen as the central receives data via
         // a subscription and isn't expected to read from the characteristic directly
 #ifdef WARN_ON_BLE_CHAR_READ_UNEXPECTED
-        LOG_W(MODULE_PREFIX, "respCharCB unexpected opRead");
+        char buf[BLE_UUID_STR_LEN];
+        LOG_W(MODULE_PREFIX, "respCharCB unexpected opRead om %p om_len %d uuid %s", 
+                    ctxt->om, ctxt->om->om_len, 
+                    ble_uuid_to_str(ctxt->chr->uuid, buf));
 #endif
         return 0;
     }
@@ -297,6 +301,13 @@ int bleCallbackWR(uint16_t conn_handle,
 
 bool BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen)
 {
+    // Check connected
+    if (!BLEGattServer::_bleIsConnected)
+    {
+        LOG_W(MODULE_PREFIX, "sendToCentral failed as not connected");
+        return false;
+    }
+
     // Check if we are in notify state
     if (!BLEGattServer::_responseNotifyState) 
     {
@@ -307,12 +318,12 @@ bool BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen)
     // Form buffer to send
     struct os_mbuf *om = ble_hs_mbuf_from_flat(pBuf, bufLen);
 #ifdef DEBUG_RESP_CHARACTERISTIC
-    LOG_I(MODULE_PREFIX, "sendToCentral sending bufLen %d", bufLen);
+    LOG_I(MODULE_PREFIX, "sendToCentral sending bufLen %d om %p", bufLen, om);
 #endif
 #ifdef WARN_ON_BLE_CHAR_WRITE_TAKING_TOO_LONG
     uint64_t nowUS = micros();
 #endif
-    int rc = ble_gattc_notify_custom(BLEGattServer::_bleGapConnHandle, BLEGattServer::_bleGattMessageResponseHandle, om);
+    int rc = ble_gatts_notify_custom(BLEGattServer::_bleGapConnHandle, BLEGattServer::_bleGattMessageResponseHandle, om);
 #ifdef WARN_ON_BLE_CHAR_WRITE_TAKING_TOO_LONG
     uint64_t elapsedUs = micros() - nowUS;
     if (elapsedUs > 50000)
@@ -325,26 +336,13 @@ bool BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen)
         if (Raft::isTimeout(millis(), _lastBLEErrorMsgMs, MIN_TIME_BETWEEN_ERROR_MSGS_MS) || 
                     (_lastBLEErrorMsgCode != rc))
         {
-            LOG_W(MODULE_PREFIX, "sendToCentral failed rc = %d bufLen %d", rc, bufLen);
+            LOG_W(MODULE_PREFIX, "sendToCentral failed %s (%d) bufLen %d", getHSErrorMsg(rc), rc, bufLen);
             _lastBLEErrorMsgCode = rc;
             _lastBLEErrorMsgMs = millis();
         }
         return false;
     }
     return true;
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Check ready to send
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-bool BLEGattServer::readyToSend(bool& noConn)
-{
-    // Return true if we have a connection and set the noConn flag to false in this case
-    // This ensures that we don't block the queue if there is no connection
-    noConn = !BLEGattServer::_responseNotifyState;
-    // LOG_W(MODULE_PREFIX, "readyToSend %d", BLEGattServer::_responseNotifyState);
-    return BLEGattServer::_responseNotifyState;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -402,6 +400,47 @@ void BLEGattServer::handleSubscription(struct ble_gap_event * pEvent, uint16_t c
 #ifdef DEBUG_RESP_SUBSCRIPTION
     LOG_W(MODULE_PREFIX, "handleSubscription notify enabled %s", _responseNotifyState ? "YES" : "NO");
 #endif
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Get HS error message
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+const char* BLEGattServer::getHSErrorMsg(int errorCode)
+{
+    switch(errorCode)
+    {
+        case 0: return "OK";
+        case BLE_HS_EAGAIN: return "TryAgain";
+        case BLE_HS_EALREADY: return "AlreadyInProgress";
+        case BLE_HS_EINVAL: return "InvalidArgs";
+        case BLE_HS_EMSGSIZE: return "BufferTooSmall";
+        case BLE_HS_ENOENT: return "NoEntry";
+        case BLE_HS_ENOMEM: return "NoMem";
+        case BLE_HS_ENOTCONN: return "NotConn";
+        case BLE_HS_ENOTSUP: return "NotSupp";
+        case BLE_HS_EAPP: return "AppCallbackErr";
+        case BLE_HS_EBADDATA: return "InvalidCmd";
+        case BLE_HS_EOS: return "OSerr";
+        case BLE_HS_ECONTROLLER: return "ControllerErr";
+        case BLE_HS_ETIMEOUT: return "Timeout";
+        case BLE_HS_EDONE: return "Done";
+        case BLE_HS_EBUSY: return "Busy";
+        case BLE_HS_EREJECT: return "Reject";
+        case BLE_HS_EUNKNOWN: return "Unknown";
+        case BLE_HS_EROLE: return "Role";
+        case BLE_HS_ETIMEOUT_HCI: return "TimeoutHCI";
+        case BLE_HS_ENOMEM_EVT: return "NoMemEvt";
+        case BLE_HS_ENOADDR: return "NoAddr";
+        case BLE_HS_ENOTSYNCED: return "NotSynced";
+        case BLE_HS_EAUTHEN: return "Authen";
+        case BLE_HS_EAUTHOR: return "Author";
+        case BLE_HS_EENCRYPT: return "Encrypt";
+        case BLE_HS_EENCRYPT_KEY_SZ: return "EncryptKeySz";
+        case BLE_HS_ESTORE_CAP: return "StoreCap";
+        case BLE_HS_ESTORE_FAIL: return "StoreFail";
+        default: return "Unknown";
+    }
 }
 
 #endif // CONFIG_BT_ENABLED

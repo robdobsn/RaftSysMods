@@ -161,6 +161,7 @@ private:
     static void print_addr(const uint8_t *addr);
     static void gattAccessCallbackStatic(const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength);
     void gattAccessCallback(const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength);
+    bool isReadyToSend(uint32_t channelID, bool& noConn);
     bool sendBLEMsg(CommsChannelMsg& msg);
     void setIsConnected(bool isConnected, uint16_t connHandle = 0);
     String getAdvertisingName();
