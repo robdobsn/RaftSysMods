@@ -718,6 +718,21 @@ int BLEManager::nimbleGapEvent(struct ble_gap_event *event, void *arg)
 #ifdef DEBUG_LOG_CONNECT_DETAIL
                 logConnectionInfo(&desc);
 #endif
+
+                // Request an update to the connection parameters to try to ensure minimum connection interval
+                struct ble_gap_upd_params params;
+                memset(&params, 0, sizeof(params));
+                params.itvl_min = 6;
+                params.itvl_max = 6;
+                params.latency = 0;
+                params.supervision_timeout = 1000;
+                params.min_ce_len = 0x0001;
+                params.max_ce_len = 0x0001;
+                rc = ble_gap_update_params(event->connect.conn_handle, &params);
+                if (rc != 0)
+                {
+                    LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to set update params; rc = %d", rc);
+                }
             }
             else
             {
