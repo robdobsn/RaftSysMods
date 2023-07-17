@@ -9,7 +9,6 @@
 
 #include <Logger.h>
 #include "BLEManager.h"
-#include "BLEGattServer.h"
 #include <RestAPIEndpointManager.h>
 #include <CommsCoreIF.h>
 #include <CommsChannelMsg.h>
@@ -70,11 +69,11 @@
 // Statics, etc
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// NOTE: this is the main service in BLEGattServer
 #ifdef CONFIG_BT_ENABLED
 // Log prefix
 static const char *MODULE_PREFIX = "BLEMan";
 
+// Main service in BLEGattServer
 ble_uuid128_t BLEManager::BLE_RICV2_ADVERTISING_UUID = BLEGattServer::GATT_RICV2_MAIN_SERVICE_UUID;
 #endif
 
@@ -88,6 +87,7 @@ BLEManager *BLEManager::_pBLEManager = NULL;
 BLEManager::BLEManager(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, 
                 ConfigBase *pMutableConfig, const char* defaultAdvName)
     : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig),
+      _gattServer(gattAccessCallbackStatic),
       _bleFragmentQueue(DEFAULT_OUTBOUND_MSG_QUEUE_SIZE)
 {
     // BLE interface
@@ -197,7 +197,7 @@ void BLEManager::applySetup()
 #endif
 
         // Deinit GATTServer
-        BLEGattServer::deinitServer();
+        _gattServer.deinit();
 
         // Remove callbacks etc
         ble_hs_cfg.store_status_cb = NULL;
@@ -886,7 +886,7 @@ int BLEManager::nimbleGapEvent(struct ble_gap_event *event, void *arg)
                         event->subscribe.cur_indicate);
 #endif
             // Handle subscription to GATT attr
-            BLEGattServer::handleSubscription(event, _bleGapConnHandle);
+            _gattServer.handleSubscription(event, _bleGapConnHandle);
             return 0;
         }
         case BLE_GAP_EVENT_MTU:
@@ -1055,7 +1055,7 @@ bool BLEManager::isReadyToSend(uint32_t channelID, bool& noConn)
         return false;
     }
     // Check state of gatt server
-    noConn = !BLEGattServer::isNotificationEnabled();
+    noConn = !_gattServer.isNotificationEnabled();
     if (noConn)
         return false;
     // Check the queue is empty
@@ -1145,7 +1145,7 @@ void BLEManager::setIsConnected(bool isConnected, uint16_t connHandle)
     _bleGapConnHandle = connHandle;
 
     // Set into GATT
-    BLEGattServer::setIsConnected(isConnected, connHandle);
+    _gattServer.setIsConnected(isConnected, connHandle);
     
     // Inform hooks of status change
     if (_pBLEManager)
@@ -1194,7 +1194,7 @@ void BLEManager::handleSendFromOutboundQueue()
             {
                 _outbountMsgInFlightStartMs = millis();
                 _outboundMsgInFlight = true;
-                bool rslt = BLEGattServer::sendToCentral(bleOutMsg.getBuf(), bleOutMsg.getBufLen());
+                bool rslt = _gattServer.sendToCentral(bleOutMsg.getBuf(), bleOutMsg.getBufLen());
                 if (!rslt)
                 {
                     _outboundMsgInFlight = false;
@@ -1295,7 +1295,7 @@ bool BLEManager::nimbleStart()
             _pBLEManager->onSync();
     };
 
-    ble_hs_cfg.gatts_register_cb = BLEGattServer::registrationCallback;
+    ble_hs_cfg.gatts_register_cb = BLEGattServer::registrationCallbackStatic;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
     // Not really explained here
@@ -1303,19 +1303,16 @@ bool BLEManager::nimbleStart()
     ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_KEYBOARD_DISP;
     ble_hs_cfg.sm_sc = 0;
 
-    int rc = BLEGattServer::initServer();
+    int rc = _gattServer.init();
     if (rc == 0)
     {
         // Set the advertising name
         _configuredAdvertisingName = getAdvertisingName();
         rc = ble_svc_gap_device_name_set(_configuredAdvertisingName.c_str());
-     
-        // Set the callback
-        BLEGattServer::setServerAccessCB(gattAccessCallbackStatic);
     }
     else
     {
-        LOG_W(MODULE_PREFIX, "nimbleStart BLEGattServer::initServer() failed rc=%d", rc);
+        LOG_W(MODULE_PREFIX, "nimbleStart _gattServer.initServer() failed rc=%d", rc);
     }
 
     // Start the host task

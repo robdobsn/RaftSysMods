@@ -18,6 +18,7 @@
 #include <ThreadSafeQueue.h>
 #include <ProtocolRawMsg.h>
 #include "BLEManStats.h"
+#include "BLEGattServer.h"
 
 #define USE_TIMED_ADVERTISING_CHECK 1
 
@@ -81,9 +82,12 @@ private:
     static const uint32_t LL_PACKET_TIME = 2120;
     static const uint32_t LL_PACKET_LENGTH = 251;
 
-    // BLE advertising service UUIDs
 #ifdef CONFIG_BT_ENABLED
+    // BLE advertising service UUIDs
     static ble_uuid128_t BLE_RICV2_ADVERTISING_UUID;
+
+    // Gatt server
+    BLEGattServer _gattServer;
 #endif
 
     // ChannelID used to identify this message channel to the CommsChannelManager object

@@ -23,3 +23,6 @@ For ESP IDF based projects the following are provided:
 - Arduino time equivalents (millis(), micros(), etc)
 - Arduino GPIO equivalents (pinMode(), digitialWrite(), etc)
 - Arduino String (WString)
+
+TODO
+- check why BLE doesn't disconnect immediately when terminated from webble

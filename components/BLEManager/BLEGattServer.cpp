@@ -38,6 +38,9 @@
 // Log prefix
 static const char *MODULE_PREFIX = "BLEGattServer";
 
+// Singleton
+BLEGattServer* BLEGattServer::_pThis = NULL;
+
 /**
  * The service consists of the following characteristics:
  *     o motionCommand: used to request motion
@@ -66,12 +69,7 @@ ble_uuid128_t BLEGattServer::GATT_RICV2_MESSAGE_RESPONSE_UUID =
                   0x26, 0x46, 0xfd, 0x9c, 0x7e, 0x67, 0x76, 0xaa}};
 
 // Statics
-uint16_t BLEGattServer::_bleGattMessageResponseHandle = 0;
-bool BLEGattServer::_responseNotifyState = false;
-bool BLEGattServer::_bleIsConnected = false;
-uint16_t BLEGattServer::_bleGapConnHandle = 0;
-uint32_t BLEGattServer::_lastBLEErrorMsgMs = 0;
-uint32_t BLEGattServer::_lastBLEErrorMsgCode = 0;
+uint16_t BLEGattServer::_characteristicValueAttribHandle = 0;
 
 // List of services
 #pragma GCC diagnostic push
@@ -84,28 +82,53 @@ const struct ble_gatt_svc_def BLEGattServer::servicesList[] = {
         .characteristics = (struct ble_gatt_chr_def[]){
             {
                 .uuid = &GATT_RICV2_MESSAGE_COMMAND_UUID.u,
-                .access_cb = commandCharAccess,
+                .access_cb = [](uint16_t conn_handle, uint16_t attr_handle,
+                                          struct ble_gatt_access_ctxt *ctxt,
+                                          void *arg)
+                                {
+                                    if (_pThis)
+                                        return _pThis->commandCharAccess(conn_handle, attr_handle, ctxt, arg);
+                                    return 0;
+                                },
                 .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP
             },
             {
                 .uuid = &GATT_RICV2_MESSAGE_RESPONSE_UUID.u,
-                .access_cb = responseCharAccess,
+                .access_cb = [](uint16_t conn_handle, uint16_t attr_handle,
+                                          struct ble_gatt_access_ctxt *ctxt,
+                                          void *arg)
+                                {
+                                    if (_pThis)
+                                        return _pThis->responseCharAccess(conn_handle, attr_handle, ctxt, arg);
+                                    return 0;
+                                },
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-                .val_handle = &_bleGattMessageResponseHandle
+                .val_handle = &_characteristicValueAttribHandle
             },
             {
                 0, /* No more characteristics in this service. */
             }},
     },
-
     {
         0, /* No more services. */
     },
 };
 #pragma GCC diagnostic pop
 
-// Access callback
-BLEGattServerAccessCBType BLEGattServer::_accessCallback = NULL;
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Constructor and destructor
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+BLEGattServer::BLEGattServer(BLEGattServerAccessCBType callback)
+{
+    _pThis = this;
+    _accessCallback = callback;
+}
+
+BLEGattServer::~BLEGattServer()
+{
+    deinit();
+}
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Get data written (to characteristic) by central
@@ -241,7 +264,7 @@ int BLEGattServer::responseCharAccess(uint16_t conn_handle, uint16_t attr_handle
 // Registration callback
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void BLEGattServer::registrationCallback(struct ble_gatt_register_ctxt *ctxt, void *arg)
+void BLEGattServer::registrationCallbackStatic(struct ble_gatt_register_ctxt *ctxt, void *arg)
 {
     switch (ctxt->op)
     {
@@ -323,7 +346,7 @@ bool BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen)
 #ifdef WARN_ON_BLE_CHAR_WRITE_TAKING_TOO_LONG
     uint64_t nowUS = micros();
 #endif
-    int rc = ble_gatts_notify_custom(BLEGattServer::_bleGapConnHandle, BLEGattServer::_bleGattMessageResponseHandle, om);
+    int rc = ble_gatts_notify_custom(BLEGattServer::_bleGapConnHandle, BLEGattServer::_characteristicValueAttribHandle, om);
 #ifdef WARN_ON_BLE_CHAR_WRITE_TAKING_TOO_LONG
     uint64_t elapsedUs = micros() - nowUS;
     if (elapsedUs > 50000)
@@ -349,7 +372,7 @@ bool BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen)
 // Initialise server
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-int BLEGattServer::initServer()
+int BLEGattServer::init()
 {
     // Initialise GAP and GATT
     ble_svc_gap_init();
@@ -379,9 +402,8 @@ int BLEGattServer::initServer()
 // Deinit server
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void BLEGattServer::deinitServer()
+void BLEGattServer::deinit()
 {
-    
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -390,10 +412,10 @@ void BLEGattServer::deinitServer()
 
 void BLEGattServer::handleSubscription(struct ble_gap_event * pEvent, uint16_t connHandle)
 {
-    if (pEvent->subscribe.attr_handle == _bleGattMessageResponseHandle) {
+    if (pEvent->subscribe.attr_handle == _characteristicValueAttribHandle) {
         _responseNotifyState = pEvent->subscribe.cur_notify != 0;
         // debug_test_nofify_reset();
-    } else if (pEvent->subscribe.attr_handle != _bleGattMessageResponseHandle) {
+    } else if (pEvent->subscribe.attr_handle != _characteristicValueAttribHandle) {
         _responseNotifyState = pEvent->subscribe.cur_notify != 0;
         // debug_test_notify_stop();
     }
