@@ -20,6 +20,7 @@
 #undef min
 #undef max
 
+// Callback types
 typedef std::function<void (const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength)> BLEGattServerAccessCBType;
 
 class BLEGattServer
@@ -35,7 +36,7 @@ public:
     virtual ~BLEGattServer();
 
     // Set connection handle
-    void setIsConnected(bool isConnected, uint16_t connHandle)
+    void setConnState(bool isConnected, uint16_t connHandle)
     {
         _bleIsConnected = isConnected;
         _bleGapConnHandle = connHandle;
