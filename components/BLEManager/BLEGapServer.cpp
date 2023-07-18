@@ -31,32 +31,19 @@
 #define WARN_ON_BLE_INIT_FAILED
 #define WARN_ON_BLE_ADVERTISING_START_FAILURE
 #define WARN_ON_ONSYNC_ADDR_ERROR
+#define WARN_BLE_ON_RESET_EVENT
 
 // Debug
-// #define DEBUG_ONSYNC_ADDR
+#define DEBUG_BLE_SETUP
 #define DEBUG_BLE_ADVERTISING
-// #define DEBUG_BLE_ON_RESET
 // #define DEBUG_BLE_RX_PAYLOAD
 // #define DEBUG_BLE_TX_MSG
 // #define DEBUG_BLE_TX_MSG_SPLIT
 // #define DEBUG_BLE_TX_MSG_DETAIL
 // #define DEBUG_SEND_FROM_OUTBOUND_QUEUE
 // #define DEBUG_BLE_PUBLISH
-// #define DEBUG_BLE_SETUP
-#define DEBUG_LOG_CONNECT
-#define DEBUG_LOG_CONNECT_DETAIL
-#define DEBUG_LOG_DISCONNECT_DETAIL
-#define DEBUG_LOG_CONN_UPDATE_DETAIL
-#define DEBUG_LOG_CONN_UPDATE
-#define DEBUG_LOG_GAP_EVENT
-#define DEBUG_GAP_EVENT_DISC
-// #define DEBUG_BLE_ENC_CHANGE
-// #define DEBUG_BLE_ENC_CHANGE_DETAIL
-#define DEBUG_BLE_EVENT_NOTIFY_RX
-#define DEBUG_BLE_EVENT_NOTIFY_TX
-// #define DEBUG_BLE_EVENT_SUBSCRIBE
-#define DEBUG_BLE_EVENT_MTU
-// #define DEBUG_BLE_TASK_STARTED
+#define DEBUG_BLE_CONNECT
+#define DEBUG_BLE_GAP_EVENT
 // #define DEBUG_RSSI_GET_TIME
 
 static const char* MODULE_PREFIX = "BLEGapServer";
@@ -68,7 +55,8 @@ BLEGapServer* BLEGapServer::_pThis = NULL;
 // Constructor and destructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-BLEGapServer::BLEGapServer() :
+BLEGapServer::BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn, 
+                StatusChangeFnType statusChangeFn) :
       _gattServer([this](const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength)
                     {
                         return gattAccessCallback(characteristicName, readOp, payloadbuffer, payloadlength);
@@ -76,6 +64,8 @@ BLEGapServer::BLEGapServer() :
       _bleFragmentQueue(DEFAULT_OUTBOUND_MSG_QUEUE_SIZE)
 {
     _pThis  = this;
+    _getAdvertisingNameFn = getAdvertisingNameFn;
+    _statusChangeFn = statusChangeFn;
 }
 
 BLEGapServer::~BLEGapServer()
@@ -87,15 +77,11 @@ BLEGapServer::~BLEGapServer()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF,
-                GetAdvertisingNameFnType getAdvertisingNameFnType,
-                StatusChangeFnType statusChangeFn,
                 uint32_t maxPacketLen, 
                 uint32_t outboundQueueSize, bool useTaskForSending,
                 UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize)
 {
     _pCommsCoreIF = pCommsCoreIF;
-    _getAdvertisingNameFn = getAdvertisingNameFnType;
-    _statusChangeFn = statusChangeFn;
     _maxPacketLength = maxPacketLen;
     _bleFragmentQueue.setMaxLen(outboundQueueSize);
 
@@ -187,120 +173,18 @@ void BLEGapServer::service()
     if (!_isInit)
         return;
 
-    // Check if restart in progress
-    switch(_bleRestartState)
-    {
-        case BLERestartState_Idle:
-            break;
-        case BLERestartState_StopRequired:
-            if (Raft::isTimeout(millis(), _bleRestartLastMs, BLE_RESTART_BEFORE_STOP_MS))
-            {
-                // Stop the BLE stack
-                nimbleStop();
-                _bleRestartState = BLERestartState_StartRequired;
-                _bleRestartLastMs = millis();
-            }
-            return;
-        case BLERestartState_StartRequired:
-            if (Raft::isTimeout(millis(), _bleRestartLastMs, BLE_RESTART_BEFORE_START_MS))
-            {
-                // Start the BLE stack
-                nimbleStart();
-                _bleRestartState = BLERestartState_Idle;
-                _bleRestartLastMs = millis();
-            }
-            return;
-    }
+    // Service restart if required
+    if (serviceRestartIfRequired())
+        return;
 
-#ifdef USE_TIMED_ADVERTISING_CHECK
-    // Handle advertising check
-    if ((!_isConnected) && (_advertisingCheckRequired))
-    {
-        if (Raft::isTimeout(millis(), _advertisingCheckMs, ADVERTISING_CHECK_MS))
-        {
-            // Check advertising
-            if (!ble_gap_adv_active())
-            {
-                // Debug
-#ifdef WARN_ON_BLE_ADVERTISING
-                LOG_W(MODULE_PREFIX, "service not conn or adv so start advertising");
-#endif
+    // Service timed advertising check
+    serviceTimedAdvertisingCheck();
 
-                // Start advertising
-                bool startAdvOk = startAdvertising();
+    // Service outbound queue
+    serviceOutboundQueue();
 
-                // Debug
-#ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
-                if (!startAdvOk)
-                {
-                    LOG_W(MODULE_PREFIX, "service started advertising FAILED");
-                    delay(50);
-                }
-#endif
-#ifdef DEBUG_BLE_ADVERTISING
-                if (startAdvOk)
-                {
-                    LOG_W(MODULE_PREFIX, "service started advertising ok");
-                }
-#endif
-            }
-            else
-            {
-#ifdef DEBUG_BLE_ADVERTISING
-                LOG_I(MODULE_PREFIX, "service BLE advertising check ok");
-#endif
-                _advertisingCheckRequired = false;
-            }
-            _advertisingCheckMs = millis();
-        }
-    }
-#endif
-
-#ifndef USE_SEPARATE_THREAD_FOR_BLE_SENDING
-    // Send if not using alternate thread
-    if (!_outboundMsgInFlight)
-    {
-        handleSendFromOutboundQueue();
-    }
-    else
-    {
-        // Check for timeout on in flight message
-        if (Raft::isTimeout(millis(), _outbountMsgInFlightStartMs, BLE_OUTBOUND_MSG_IN_FLIGHT_TIMEOUT_MS))
-        {
-            // Debug
-            LOG_W(MODULE_PREFIX, "service outbound msg timeout");
-
-            // Timeout so send again
-            _outboundMsgInFlight = false;
-            handleSendFromOutboundQueue();
-        }
-    }
-#endif
-
-    // Get RSSI value if connected
-    // Don't set RSSI_CHECK_MS too low as getting RSSI info taked ~2ms
-    if (Raft::isTimeout(millis(), _rssiLastMs, RSSI_CHECK_MS))
-    {
-        _rssiLastMs = millis();
-        _rssi = 0;
-        if (_isConnected)
-        {
-#ifdef DEBUG_RSSI_GET_TIME
-            uint64_t startUs = micros();
-#endif
-            uint32_t rslt = ble_gap_conn_rssi(_bleGapConnHandle, &_rssi);
-#ifdef DEBUG_RSSI_GET_TIME
-            uint64_t endUs = micros();
-            LOG_I(MODULE_PREFIX, "service get RSSI %d us", (int)(endUs - startUs));
-#endif
-            if (rslt != 0)
-            {
-                _rssi = 0;
-                // Debug
-                // LOG_W(MODULE_PREFIX, "service get RSSI failed");
-            }
-        }
-    }
+    // Service getting RSSI value
+    serviceGettingRSSI();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -341,10 +225,9 @@ void BLEGapServer::registerChannel(CommsCoreIF& commsCoreIF)
 
 double BLEGapServer::getRSSI(bool& isValid)
 {
-    isValid = _isConnected;
+    isValid = _isConnected && (_rssi != 0);
     return _rssi;
 }
-
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Get stats
@@ -365,7 +248,9 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm)
         bool gapConn = ble_gap_conn_active();
         bool isAdv = ble_gap_adv_active();
         bool isDisco = ble_gap_disc_active();
-        String connStr = String(R"("s":")") + (_isConnected ? (gapConn ? "actv" : "conn") : (isAdv ? "adv" : (isDisco ? "disco" : "none"))) + R"(")";
+        String connStr = String(R"("s":")") + 
+                (_isConnected ? (gapConn ? "actv" : "conn") : (isAdv ? "adv" : (isDisco ? "disco" : "none"))) + 
+                R"(")";
 
         // Advertising name
         String advNameStr = isAdv ? R"("adv":")" + String(ble_svc_gap_device_name()) + R"(")" : "";
@@ -420,12 +305,11 @@ void BLEGapServer::onSync()
     if (!_isInit)
         return;
 
-    // Validate
-    int rc = ble_hs_util_ensure_addr(0);
-    assert(rc == 0);
+    // Validate address
+    ble_hs_util_ensure_addr(0);
 
     // Figure out address to use while advertising (no privacy for now)
-    rc = ble_hs_id_infer_auto(0, &own_addr_type);
+    int rc = ble_hs_id_infer_auto(0, &_ownAddrType);
     if (rc != 0)
     {
 #ifdef WARN_ON_ONSYNC_ADDR_ERROR
@@ -436,8 +320,8 @@ void BLEGapServer::onSync()
 
     // Debug showing addr
     uint8_t addrVal[6] = {0};
-    rc = ble_hs_id_copy_addr(own_addr_type, addrVal, NULL);
-#ifdef DEBUG_ONSYNC_ADDR
+    rc = ble_hs_id_copy_addr(_ownAddrType, addrVal, NULL);
+#ifdef DEBUG_BLE_CONNECT
     LOG_I(MODULE_PREFIX, "onSync() Device Address: %x:%x:%x:%x:%x:%x",
               addrVal[5], addrVal[4], addrVal[3], addrVal[2], addrVal[1], addrVal[0]);
 #endif
@@ -447,22 +331,22 @@ void BLEGapServer::onSync()
     {
 #ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
         LOG_W(MODULE_PREFIX, "onSync started advertising FAILED");
-        delay(50);
 #endif
     }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // startAdvertising
+// Enables advertising with the following parameters:
+//     o General discoverable mode.
+//     o Undirected connectable mode.
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/**
- * Enables advertising with the following parameters:
- *     o General discoverable mode.
- *     o Undirected connectable mode.
- */
 bool BLEGapServer::startAdvertising()
 {
+    if (!_isInit)
+        return false;
+
     // Check if already advertising
     if (ble_gap_adv_active())
     {
@@ -475,34 +359,23 @@ bool BLEGapServer::startAdvertising()
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields fields;
 
-    /**
-     *  Set the advertisement data included in our advertisements:
-     *     o Flags (indicates advertisement type and other general info).
-     *     o Advertising tx power.
-     *     o Device name.
-     *     o 128 bit UUID
-     */
-
+    // Set advertising data
     memset(&fields, 0, sizeof fields);
 
-    /* Advertise two flags:
-     *     o Discoverability in forthcoming advertisement (general)
-     *     o BLE-only (BR/EDR unsupported).
-     */
+    // Flags: discoverable, BLE-only
     fields.flags = BLE_HS_ADV_F_DISC_GEN |
                    BLE_HS_ADV_F_BREDR_UNSUP;
 
-    /* Indicate that the TX power level field should be included; have the
-     * stack fill this value automatically.  This is done by assigning the
-     * special value BLE_HS_ADV_TX_PWR_LVL_AUTO.
-     */
+    // Include tx power level (filled automatically)
     fields.tx_pwr_lvl_is_present = 1;
     fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
 
+    // 128 bit UUID
     fields.uuids128 = &BLEGattServer::GATT_RICV2_MAIN_SERVICE_UUID;
     fields.num_uuids128 = 1;
     fields.uuids128_is_complete = 1;
 
+    // Set the advertising data
     int rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0)
     {
@@ -522,11 +395,11 @@ bool BLEGapServer::startAdvertising()
         }
     }
 
+    // Set the advertising response data
     const char *name = ble_svc_gap_device_name();
     fields.name = (uint8_t *)name;
-    fields.name_len = strlen(name);
+    fields.name_len = strnlen(name, BLE_GAP_MAX_ADV_NAME_LEN);
     fields.name_is_complete = 1;
-
     rc = ble_gap_adv_rsp_set_fields(&fields);
     if (rc != 0)
     {
@@ -534,11 +407,11 @@ bool BLEGapServer::startAdvertising()
         return false;
     }
 
-    /* Begin advertising. */
+    // Begin advertising
     memset(&adv_params, 0, sizeof adv_params);
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-    rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER,
+    rc = ble_gap_adv_start(_ownAddrType, NULL, BLE_HS_FOREVER,
                            &adv_params,
                            [](struct ble_gap_event *event, void *arg) {
                                  return ((BLEGapServer*)arg)->nimbleGapEvent(event);
@@ -564,53 +437,6 @@ void BLEGapServer::stopAdvertising()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Log information about a connection to the console.
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void BLEGapServer::logConnectionInfo(struct ble_gap_conn_desc *desc)
-{
-    LOG_I(MODULE_PREFIX, "handle=%d our_ota_addr_type=%d our_ota_addr=%02x:%02x:%02x:%02x:%02x:%02x",
-                desc->conn_handle, desc->our_ota_addr.type, 
-                desc->our_ota_addr.val[0],
-				desc->our_ota_addr.val[1],
-				desc->our_ota_addr.val[2],
-				desc->our_ota_addr.val[3],
-				desc->our_ota_addr.val[4],
-				desc->our_ota_addr.val[5]);
-    LOG_I(MODULE_PREFIX, " our_id_addr_type=%d our_id_addr=%02x:%02x:%02x:%02x:%02x:%02x",
-                desc->our_id_addr.type, 
-                desc->our_id_addr.val[0],
-				desc->our_id_addr.val[1],
-				desc->our_id_addr.val[2],
-				desc->our_id_addr.val[3],
-				desc->our_id_addr.val[4],
-				desc->our_id_addr.val[5]);
-    LOG_I(MODULE_PREFIX, " peer_ota_addr_type=%d peer_ota_addr=%02x:%02x:%02x:%02x:%02x:%02x",
-                desc->peer_ota_addr.type, 
-                desc->peer_ota_addr.val[0],
-				desc->peer_ota_addr.val[1],
-				desc->peer_ota_addr.val[2],
-				desc->peer_ota_addr.val[3],
-				desc->peer_ota_addr.val[4],
-				desc->peer_ota_addr.val[5]);
-    LOG_I(MODULE_PREFIX, " peer_id_addr_type=%d peer_id_addr=%02x:%02x:%02x:%02x:%02x:%02x",
-                desc->peer_id_addr.type, 
-                desc->peer_id_addr.val[0],
-				desc->peer_id_addr.val[1],
-				desc->peer_id_addr.val[2],
-				desc->peer_id_addr.val[3],
-				desc->peer_id_addr.val[4],
-				desc->peer_id_addr.val[5]);
-    LOG_I(MODULE_PREFIX, " conn_itvl=%d conn_latency=%d supervision_timeout=%d "
-                      "encrypted=%d authenticated=%d bonded=%d",
-                desc->conn_itvl, desc->conn_latency,
-                desc->supervision_timeout,
-                desc->sec_state.encrypted,
-                desc->sec_state.authenticated,
-                desc->sec_state.bonded);
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // GAP event
 //
 // The nimble host executes this callback when a GAP event occurs.  The
@@ -630,257 +456,64 @@ void BLEGapServer::logConnectionInfo(struct ble_gap_conn_desc *desc)
    
 int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
 {
-    struct ble_gap_conn_desc desc;
+    int connHandle = -1;
+    String statusStr="OK";
+    int errorCode = 0;
 
     switch (event->type)
     {
-        case BLE_GAP_EVENT_CONNECT:
-        {
-            // A new connection was established or a connection attempt failed
-#ifdef DEBUG_LOG_CONNECT
-            LOG_I(MODULE_PREFIX, "GAPEvent conn %s (%d) ",
-                        event->connect.status == 0 ? "established" : "failed",
-                        event->connect.status);
-#endif
-            if (event->connect.status == 0)
-            {
-                int rc = ble_att_set_preferred_mtu(PREFERRED_MTU_VALUE);
-                if (rc != 0) {
-                    LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to set preferred MTU; rc = %d", rc);
-                }
-                rc = ble_hs_hci_util_set_data_len(event->connect.conn_handle,
-                                    LL_PACKET_LENGTH,
-                                    LL_PACKET_TIME);
-                setConnState(true, event->connect.conn_handle);
-                rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
-                assert(rc == 0);
-#ifdef DEBUG_LOG_CONNECT_DETAIL
-                logConnectionInfo(&desc);
-#endif
-
-                // Request an update to the connection parameters to try to ensure minimum connection interval
-                struct ble_gap_upd_params params;
-                memset(&params, 0, sizeof(params));
-                params.itvl_min = 6;
-                params.itvl_max = 6;
-                params.latency = 0;
-                params.supervision_timeout = 1000;
-                params.min_ce_len = 0x0001;
-                params.max_ce_len = 0x0001;
-                rc = ble_gap_update_params(event->connect.conn_handle, &params);
-                if (rc != 0)
-                {
-                    LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to set update params; rc = %d", rc);
-                }
-            }
-            else
-            {
-                setConnState(false);
-                // Connection failed; resume advertising
-                if (!startAdvertising())
-                {
-#ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
-                    LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn start advertising FAILED");
-                    delay(50);
-#endif
-                }
-                else
-                {
-                    LOG_I(MODULE_PREFIX, "GAPEvent conn resumed advertising after connection failure");
-                }
-            }
-            return 0;
-        }
+        case BLE_GAP_EVENT_CONNECT: 
+            errorCode = gapEventConnect(event, statusStr, connHandle);
+            break;
         case BLE_GAP_EVENT_DISCONNECT:
-        {
-            LOG_W(MODULE_PREFIX, "nimbleGapEvent disconnect; reason=%d ", event->disconnect.reason);
-            setConnState(false);
-#ifdef DEBUG_LOG_DISCONNECT_DETAIL
-            logConnectionInfo(&event->disconnect.conn);
-#endif
-
-            // Connection terminated; resume advertising
-            // LOG_W(MODULE_PREFIX, "GAPEvent disconnect - requesting startAdvertising");
-            // startAdvertising();
-            return 0;
-        }
+            errorCode = gapEventDisconnect(event, statusStr, connHandle);
+            break;
         case BLE_GAP_EVENT_CONN_UPDATE:
-        { 
-            // The central has updated the connection parameters
-#ifdef DEBUG_LOG_CONN_UPDATE
-            LOG_I(MODULE_PREFIX, "nimbleGAPEvent connection updated; status=%d ",
-                        event->conn_update.status);
-#endif
-            int rc = ble_gap_conn_find(event->conn_update.conn_handle, &desc);
-            assert(rc == 0);
-#ifdef DEBUG_LOG_CONN_UPDATE_DETAIL
-            logConnectionInfo(&desc);
-#endif
-            return 0;
-        }
-        case BLE_GAP_EVENT_CONN_UPDATE_REQ:
-        {
-#ifdef DEBUG_LOG_CONN_UPDATE
-            LOG_I(MODULE_PREFIX, "nimbleGAPEvent connection update request");
-#endif
-            return 0;
-        }
-        case BLE_GAP_EVENT_L2CAP_UPDATE_REQ:
-        {
-#ifdef DEBUG_LOG_CONN_UPDATE
-            LOG_I(MODULE_PREFIX, "nimbleGAPEvent L2CAP update request");
-#endif
-            return 0;
-        }
-        case BLE_GAP_EVENT_TERM_FAILURE:
-        {
-#ifdef DEBUG_LOG_GAP_EVENT
-            LOG_I(MODULE_PREFIX, "GAPEvent term failure");
-#endif
-            return 0;
-        }
-        case BLE_GAP_EVENT_DISC:
-        {
-#ifdef DEBUG_GAP_EVENT_DISC
-            LOG_I(MODULE_PREFIX, "GAPEvent DISC");
-#endif
-            return 0;
-        }
-        case BLE_GAP_EVENT_DISC_COMPLETE:
-        {
-#ifdef DEBUG_GAP_EVENT_DISC
-            LOG_I(MODULE_PREFIX, "GAPEvent DISC COMPLETE");
-#endif
-            return 0;
-        }
+            statusStr = BLEGattServer::getHSErrorMsg(event->conn_update.status);
+            connHandle = event->conn_update.conn_handle;
+            break;
         case BLE_GAP_EVENT_ADV_COMPLETE:
-        {
-#ifdef DEBUG_BLE_ADVERTISING
-            LOG_I(MODULE_PREFIX, "GAPEvent advertise complete; reason=%d",
-                        event->adv_complete.reason);
-#endif
-            // Connection failed; resume advertising
-            if (!startAdvertising())
-            {
-#ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
-                    LOG_W(MODULE_PREFIX, "nimbleGapEvent started advertising FAILED");
-                    delay(50);
-#endif
-            }
-            return 0;
-        }
+            statusStr = (event->adv_complete.reason == 0 ? String("new-conn") : 
+                                    BLEGattServer::getHSErrorMsg(event->adv_complete.reason));
+            errorCode = startAdvertising();
+            break;
         case BLE_GAP_EVENT_ENC_CHANGE:
-        {
-            // Encryption has been enabled or disabled for this connection
-#ifdef DEBUG_BLE_ENC_CHANGE
-            LOG_I(MODULE_PREFIX, "GAPEvent encryption change; status=%d ",
-                        event->enc_change.status);
-#endif
-            int rc = ble_gap_conn_find(event->enc_change.conn_handle, &desc);
-            assert(rc == 0);
-#ifdef DEBUG_BLE_ENC_CHANGE_DETAIL
-            logConnectionInfo(&desc);
-#endif
-            return 0;
-        }
-        case BLE_GAP_EVENT_PASSKEY_ACTION:
-        {
-#ifdef DEBUG_BLE_ENC_CHANGE_DETAIL
-            LOG_I(MODULE_PREFIX, "GAPEvent PASSKEY action");
-#endif
-            return 0;
-        }
-        case BLE_GAP_EVENT_NOTIFY_RX:
-        {
-#ifdef DEBUG_BLE_EVENT_NOTIFY_RX
-            LOG_I(MODULE_PREFIX, "GAPEvent notify RX");
-#endif
-            return 0;
-        }
+            statusStr = BLEGattServer::getHSErrorMsg(event->enc_change.status);
+            connHandle = event->enc_change.conn_handle; 
+            break;
         case BLE_GAP_EVENT_NOTIFY_TX:
-        {
-#ifdef DEBUG_BLE_EVENT_NOTIFY_TX
-            LOG_I(MODULE_PREFIX, "GAPEvent notify TX");
-#endif
+            statusStr = BLEGattServer::getHSErrorMsg(event->notify_tx.status);
             // No message in flight
             _outboundMsgInFlight = false;
-
-#ifdef SEND_BLE_MESSAGE_FROM_TX_EVENT
-            // Check if more messages to send immediately
-            handleSendFromOutboundQueue();
-#endif
-            return 0;
-        }
+            break;
         case BLE_GAP_EVENT_SUBSCRIBE:
-        {
-#ifdef DEBUG_BLE_EVENT_SUBSCRIBE
-            LOG_I(MODULE_PREFIX, "GAPEvent subscribe conn_handle=%d attr_handle=%d "
-                            "reason=%d prevn=%d curn=%d previ=%d curi=%d",
-                        event->subscribe.conn_handle,
-                        event->subscribe.attr_handle,
-                        event->subscribe.reason,
-                        event->subscribe.prev_notify,
-                        event->subscribe.cur_notify,
-                        event->subscribe.prev_indicate,
-                        event->subscribe.cur_indicate);
-#endif
             // Handle subscription to GATT attr
-            _gattServer.handleSubscription(event, _bleGapConnHandle);
-            return 0;
-        }
+            _gattServer.handleSubscription(event, statusStr);
+            break;
         case BLE_GAP_EVENT_MTU:
-        {
-#ifdef DEBUG_BLE_EVENT_MTU
-            LOG_I(MODULE_PREFIX, "mtu update event; conn_handle=%d cid=%d mtu=%d",
-                        event->mtu.conn_handle,
-                        event->mtu.channel_id,
-                        event->mtu.value);
-#endif
-            return 0;
-        }
-        case BLE_GAP_EVENT_IDENTITY_RESOLVED:
-        {
-#ifdef DEBUG_LOG_GAP_EVENT
-            LOG_I(MODULE_PREFIX, "GAPEvent identity resolved");
-#endif
-            return 0;
-        }
+            statusStr = "mtu:" + String(event->mtu.value) + ",chanID:" + String(event->mtu.channel_id);
+            break;
         case BLE_GAP_EVENT_REPEAT_PAIRING:
-        { 
-#ifdef DEBUG_LOG_GAP_EVENT
-            LOG_I(MODULE_PREFIX, "GAPEvent Repeat Pairing");
-#endif
-            /* We already have a bond with the peer, but it is attempting to
-            * establish a new secure link.  This app sacrifices security for
-            * convenience: just throw away the old bond and accept the new link.
-            */
-
-            // Delete the old bond
-            int rc = ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc);
-            assert(rc == 0);
-            ble_store_util_delete_peer(&desc.peer_id_addr);
-
-            // Return BLE_GAP_REPEAT_PAIRING_RETRY to indicate that the host should
-            // continue with the pairing operation.
-            return BLE_GAP_REPEAT_PAIRING_RETRY;
-        }
-        case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
-        {
-#ifdef DEBUG_LOG_GAP_EVENT
-            LOG_I(MODULE_PREFIX, "GAPEvent PHY update complete");
-#endif
-            return 0;
-        }
-        case BLE_GAP_EVENT_EXT_DISC:
-        {
-#ifdef DEBUG_GAP_EVENT_DISC
-            LOG_I(MODULE_PREFIX, "GAPEvent EXT DISC");
-#endif
-            return 0;
-        }
+            errorCode = gapEventRepeatPairing(event);
+            break;
     }
 
-    return 0;
+#ifdef DEBUG_BLE_GAP_EVENT
+    LOG_I(MODULE_PREFIX, "GAPEv %s connHandle=%s status=%s errorCode=%s",
+                getGapEventName(event->type).c_str(), 
+                connHandle >= 0 ? String(connHandle).c_str() : "N/A", 
+                statusStr.c_str(), 
+                BLEGattServer::getHSErrorMsg(errorCode).c_str());
+    if (connHandle >= 0)
+    {
+        // Log connection info
+        struct ble_gap_conn_desc desc;
+        if (ble_gap_conn_find(connHandle, &desc) == 0)
+            debugLogConnInfo("GAPConnInfo ", &desc);
+    }
+#endif
+
+    return errorCode;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -890,7 +523,7 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
 void BLEGapServer::bleHostTask(void *param)
 {
     // This function will return only when nimble_port_stop() is executed
-#ifdef DEBUG_BLE_TASK_STARTED
+#ifdef DEBUG_BLE_SETUP
     LOG_I(MODULE_PREFIX, "BLE Host Task Started");
 #endif
     nimble_port_run();
@@ -956,15 +589,9 @@ void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readO
         // Debug
         uint32_t sz = payloadlength;
         const uint8_t* pVals = payloadbuffer;
-        char outBuf[400];
-        strcpy(outBuf, "");
-        char tmpBuf[10];
-        for (int i = 0; i < sz; i++)
-        {
-            sprintf(tmpBuf, "%02x ", pVals[i]);
-            strlcat(outBuf, tmpBuf, sizeof(outBuf));
-        }
-        LOG_I(MODULE_PREFIX, "gatt rx payloadLen %d payload %s", sz, outBuf);
+        String outStr;
+        Raft::getHexStrFromBytes(pVals, sz, outStr);
+        LOG_I(MODULE_PREFIX, "gatt rx payloadLen %d payload %s", sz, outStr.c_str());
 #endif
     }
 }
@@ -1104,7 +731,7 @@ bool BLEGapServer::nimbleStart()
 
     // onReset callback
     ble_hs_cfg.reset_cb = [](int reason) {
-#ifdef DEBUG_BLE_ON_RESET            
+#ifdef WARN_BLE_ON_RESET_EVENT            
         LOG_I(MODULE_PREFIX, "onReset() reason=%d", reason);
 #endif
     };
@@ -1188,8 +815,8 @@ void BLEGapServer::handleSendFromOutboundQueue()
     // Handle outbound message queue
     if (_bleFragmentQueue.count() > 0)
     {
-        // if (Raft::isTimeout(millis(), _lastOutboundMsgMs, BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS))
-        // {
+        if (Raft::isTimeout(millis(), _lastOutboundMsgMs, BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS))
+        {
             ProtocolRawMsg bleOutMsg;
             if (_bleFragmentQueue.get(bleOutMsg))
             {
@@ -1207,7 +834,7 @@ void BLEGapServer::handleSendFromOutboundQueue()
                 _bleStats.txMsg(bleOutMsg.getBufLen(), rslt);
             }
             _lastOutboundMsgMs = millis();
-        // }
+        }
     }
 }
 
@@ -1230,6 +857,308 @@ void BLEGapServer::outboundMsgTask()
     // Task has exited
     _outboundMsgTaskHandle = nullptr;
     vTaskDelete(NULL);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Log information about a connection
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void BLEGapServer::debugLogConnInfo(const char* prefix, struct ble_gap_conn_desc *desc)
+{
+    LOG_I(MODULE_PREFIX, "%shdl=%d Itvl %d Latcy %d Timo %d Enc %d Auth %d Bond %d OurOTA(%d) %s OurID(%d) %s PeerOTA(%d) %s PeerID(%d) %s", 
+                    prefix,
+                    desc->conn_handle, 
+                    desc->conn_itvl,
+                    desc->conn_latency,
+                    desc->supervision_timeout,
+                    desc->sec_state.encrypted,
+                    desc->sec_state.authenticated,
+                    desc->sec_state.bonded,
+                    desc->our_ota_addr.type, Raft::formatMACAddr(desc->our_ota_addr.val, ":").c_str(),
+                    desc->our_id_addr.type, Raft::formatMACAddr(desc->our_id_addr.val, ":").c_str(),
+                    desc->peer_ota_addr.type, Raft::formatMACAddr(desc->peer_ota_addr.val, ":").c_str(),
+                    desc->peer_id_addr.type, Raft::formatMACAddr(desc->peer_id_addr.val, ":").c_str());
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Get name of GAP event
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+String BLEGapServer::getGapEventName(int eventType)
+{
+    switch (eventType)
+    {
+        case BLE_GAP_EVENT_CONNECT: return "CONNECT";
+        case BLE_GAP_EVENT_DISCONNECT: return "DISCONNECT";
+        case BLE_GAP_EVENT_CONN_UPDATE: return "CONN_UPDATE";
+        case BLE_GAP_EVENT_CONN_UPDATE_REQ: return "CONN_UPDATE_REQ";
+        case BLE_GAP_EVENT_L2CAP_UPDATE_REQ: return "L2CAP_UPDATE_REQ";
+        case BLE_GAP_EVENT_TERM_FAILURE: return "TERM_FAILURE";
+        case BLE_GAP_EVENT_DISC: return "DISCOVERY";
+        case BLE_GAP_EVENT_DISC_COMPLETE: return "DISCOVERY_COMPLETE";
+        case BLE_GAP_EVENT_ADV_COMPLETE: return "ADV_COMPLETE";
+        case BLE_GAP_EVENT_ENC_CHANGE: return "ENC_CHANGE";
+        case BLE_GAP_EVENT_PASSKEY_ACTION: return "PASSKEY_ACTION";
+        case BLE_GAP_EVENT_NOTIFY_RX: return "NOTIFY_RX";
+        case BLE_GAP_EVENT_NOTIFY_TX: return "NOTIFY_TX";
+        case BLE_GAP_EVENT_SUBSCRIBE: return "SUBSCRIBE";
+        case BLE_GAP_EVENT_MTU: return "MTU";
+        case BLE_GAP_EVENT_IDENTITY_RESOLVED: return "IDENTITY_RESOLVED";
+        case BLE_GAP_EVENT_REPEAT_PAIRING: return "REPEAT_PAIRING";
+        case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE: return "PHY_UPDATE_COMPLETE";
+        case BLE_GAP_EVENT_EXT_DISC: return "EXT_DISC";
+        default: return "UNKNOWN (" + String(eventType) + ")";
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Handle GAP connect event
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr, int& connHandle)
+{
+    // A new connection was established or a connection attempt failed
+    int rc = 0;
+    if (event->connect.status == 0)
+    {
+        // Return values
+        statusStr = "conn-ok";
+        connHandle = event->connect.conn_handle;
+        
+        // Request preferred MTU
+        rc = ble_att_set_preferred_mtu(PREFERRED_MTU_VALUE);
+        if (rc != 0) 
+        {
+            LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to set preferred MTU; rc = %d", rc);
+        }
+
+        // Upgrade data length (DLE)
+        rc = ble_hs_hci_util_set_data_len(event->connect.conn_handle,
+                            LL_PACKET_LENGTH,
+                            LL_PACKET_TIME);
+
+        // Request an update to the connection parameters to try to ensure minimum connection interval
+        struct ble_gap_upd_params params;
+        memset(&params, 0, sizeof(params));
+        params.itvl_min = 6;
+        params.itvl_max = 6;
+        params.latency = 0;
+        params.supervision_timeout = 1000;
+        params.min_ce_len = 0x0001;
+        params.max_ce_len = 0x0001;
+        rc = ble_gap_update_params(event->connect.conn_handle, &params);
+        if (rc != 0)
+        {
+            LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to set update params; rc = %d", rc);
+        }
+
+        // Now connected
+        setConnState(true, event->connect.conn_handle);
+    }
+    else
+    {
+        // Return values
+        statusStr = "conn-fail";
+
+        // Not connected
+        setConnState(false);
+
+        // Connection failed; resume advertising
+        if (!startAdvertising())
+        {
+#ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
+            LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn start advertising FAILED");
+#endif
+        }
+        else
+        {
+            LOG_I(MODULE_PREFIX, "GAPEvent conn resumed advertising after connection failure");
+        }
+    }
+    return rc;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Handle GAP disconnect event
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int BLEGapServer::gapEventDisconnect(struct ble_gap_event *event, String& statusStr, int& connHandle)
+{
+    // Return values
+    statusStr = "disconn reason " + BLEGattServer::getHSErrorMsg(event->disconnect.reason);
+    connHandle = event->disconnect.conn.conn_handle;
+
+    // Connection terminated
+    setConnState(false);
+
+    // Note that if USE_TIMED_ADVERTISING_CHECK is defined then
+    // advertising will restart due to check in service()
+#ifndef USE_TIMED_ADVERTISING_CHECK
+    // Restart advertising
+    startAdvertising();
+#endif
+    return 0;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Handle GAP repeat pairing event
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int BLEGapServer::gapEventRepeatPairing(struct ble_gap_event *event)
+{
+    // We already have a bond with the peer, but it is attempting to
+    // establish a new secure link.  This app sacrifices security for
+    // convenience: just throw away the old bond and accept the new link.
+    struct ble_gap_conn_desc desc;
+    if (ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc) == 0)
+        ble_store_util_delete_peer(&desc.peer_id_addr);
+
+    // Return BLE_GAP_REPEAT_PAIRING_RETRY to indicate that the host should
+    // continue with the pairing operation.
+    return BLE_GAP_REPEAT_PAIRING_RETRY;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Service restart if required
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool BLEGapServer::serviceRestartIfRequired()
+{
+    // Check if restart in progress
+    switch(_bleRestartState)
+    {
+        case BLERestartState_Idle:
+            break;
+        case BLERestartState_StopRequired:
+            if (Raft::isTimeout(millis(), _bleRestartLastMs, BLE_RESTART_BEFORE_STOP_MS))
+            {
+                // Stop the BLE stack
+                nimbleStop();
+                _bleRestartState = BLERestartState_StartRequired;
+                _bleRestartLastMs = millis();
+            }
+            break;
+        case BLERestartState_StartRequired:
+            if (Raft::isTimeout(millis(), _bleRestartLastMs, BLE_RESTART_BEFORE_START_MS))
+            {
+                // Start the BLE stack
+                nimbleStart();
+                _bleRestartState = BLERestartState_Idle;
+                _bleRestartLastMs = millis();
+            }
+            return true;
+    }
+    return false;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Service timed advertising check
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void BLEGapServer::serviceTimedAdvertisingCheck()
+{
+#ifdef USE_TIMED_ADVERTISING_CHECK
+    // Handle advertising check
+    if ((!_isConnected) && (_advertisingCheckRequired))
+    {
+        if (Raft::isTimeout(millis(), _advertisingCheckMs, ADVERTISING_CHECK_MS))
+        {
+            _advertisingCheckMs = millis();
+            // Check advertising
+            if (!ble_gap_adv_active())
+            {
+                // Debug
+#ifdef WARN_ON_BLE_ADVERTISING
+                LOG_W(MODULE_PREFIX, "service not conn or adv so start advertising");
+#endif
+
+                // Start advertising
+                bool startAdvOk = startAdvertising();
+
+                // Debug
+#ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
+                if (!startAdvOk)
+                {
+                    LOG_W(MODULE_PREFIX, "service started advertising FAILED");
+                }
+#endif
+#ifdef DEBUG_BLE_ADVERTISING
+                if (startAdvOk)
+                {
+                    LOG_W(MODULE_PREFIX, "service started advertising ok");
+                }
+#endif
+            }
+            else
+            {
+#ifdef DEBUG_BLE_ADVERTISING
+                LOG_I(MODULE_PREFIX, "service BLE already advertising");
+#endif
+                _advertisingCheckRequired = false;
+            }
+        }
+    }
+#endif
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Service outbound queue
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void BLEGapServer::serviceOutboundQueue()
+{
+    // Send if not using alternate thread
+    if (_outboundMsgTaskHandle == nullptr)
+    {
+        if (!_outboundMsgInFlight)
+        {
+            handleSendFromOutboundQueue();
+        }
+        else
+        {
+            // Check for timeout on in flight message
+            if (Raft::isTimeout(millis(), _outbountMsgInFlightStartMs, BLE_OUTBOUND_MSG_IN_FLIGHT_TIMEOUT_MS))
+            {
+                // Debug
+                LOG_W(MODULE_PREFIX, "service outbound msg timeout");
+
+                // Timeout so send again
+                _outboundMsgInFlight = false;
+                handleSendFromOutboundQueue();
+            }
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Service getting RSSI
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void BLEGapServer::serviceGettingRSSI()
+{
+    // Get RSSI value if connected - not too often as getting RSSI info can take ~2ms
+    if (Raft::isTimeout(millis(), _rssiLastMs, RSSI_CHECK_MS))
+    {
+        _rssiLastMs = millis();
+        _rssi = 0;
+        if (_isConnected)
+        {
+#ifdef DEBUG_RSSI_GET_TIME
+            uint64_t startUs = micros();
+#endif
+            uint32_t rslt = ble_gap_conn_rssi(_bleGapConnHandle, &_rssi);
+#ifdef DEBUG_RSSI_GET_TIME
+            uint64_t endUs = micros();
+            LOG_I(MODULE_PREFIX, "service get RSSI %d us", (int)(endUs - startUs));
+#endif
+            if (rslt != 0)
+            {
+                _rssi = 0;
+                // Debug
+                // LOG_W(MODULE_PREFIX, "service get RSSI failed");
+            }
+        }
+    }
 }
 
 #endif // CONFIG_BT_ENABLED

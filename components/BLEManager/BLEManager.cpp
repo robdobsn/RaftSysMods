@@ -21,7 +21,13 @@ static const char *MODULE_PREFIX = "BLEMan";
 
 BLEManager::BLEManager(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, 
                 ConfigBase *pMutableConfig, const char* defaultAdvName)
-    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig),
+        _gapServer([this](){
+                        return getAdvertisingName();
+                    },
+                    [this](bool isConnected){
+                        executeStatusChangeCBs(isConnected);
+                    })
 {
     // BLE interface
     _defaultAdvName = defaultAdvName;
@@ -55,12 +61,6 @@ void BLEManager::setup()
 
         // Setup outbound queue
         bool isOk = _gapServer.setup(getCommsCore(),
-                    [this](){
-                        return getAdvertisingName();
-                    },
-                    [this](bool isConnected){
-                        executeStatusChangeCBs(isConnected);
-                    },
                     maxPacketLength, outboundQueueSize, 
                     useTaskForSending, taskCore, taskPriority, taskStackSize);
 

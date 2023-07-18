@@ -359,7 +359,7 @@ bool BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen)
         if (Raft::isTimeout(millis(), _lastBLEErrorMsgMs, MIN_TIME_BETWEEN_ERROR_MSGS_MS) || 
                     (_lastBLEErrorMsgCode != rc))
         {
-            LOG_W(MODULE_PREFIX, "sendToCentral failed %s (%d) bufLen %d", getHSErrorMsg(rc), rc, bufLen);
+            LOG_W(MODULE_PREFIX, "sendToCentral failed %s (%d) bufLen %d", getHSErrorMsg(rc).c_str(), rc, bufLen);
             _lastBLEErrorMsgCode = rc;
             _lastBLEErrorMsgMs = millis();
         }
@@ -410,7 +410,7 @@ void BLEGattServer::deinit()
 // Handle subscription
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void BLEGattServer::handleSubscription(struct ble_gap_event * pEvent, uint16_t connHandle)
+void BLEGattServer::handleSubscription(struct ble_gap_event * pEvent, String& statusStr)
 {
     if (pEvent->subscribe.attr_handle == _characteristicValueAttribHandle) {
         _responseNotifyState = pEvent->subscribe.cur_notify != 0;
@@ -419,6 +419,12 @@ void BLEGattServer::handleSubscription(struct ble_gap_event * pEvent, uint16_t c
         _responseNotifyState = pEvent->subscribe.cur_notify != 0;
         // debug_test_notify_stop();
     }
+    statusStr = "subscribe attr_handle=" + String(pEvent->subscribe.attr_handle) + 
+                " reason=" + getHSErrorMsg(pEvent->subscribe.reason) +
+                " prevNotify=" + String(pEvent->subscribe.prev_notify) +
+                " curNotify=" + String(pEvent->subscribe.cur_notify) +
+                " prevInd=" + String(pEvent->subscribe.prev_indicate) +
+                " curInd=" + String(pEvent->subscribe.cur_indicate);
 #ifdef DEBUG_RESP_SUBSCRIPTION
     LOG_W(MODULE_PREFIX, "handleSubscription notify enabled %s", _responseNotifyState ? "YES" : "NO");
 #endif
@@ -428,7 +434,7 @@ void BLEGattServer::handleSubscription(struct ble_gap_event * pEvent, uint16_t c
 // Get HS error message
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const char* BLEGattServer::getHSErrorMsg(int errorCode)
+String BLEGattServer::getHSErrorMsg(int errorCode)
 {
     switch(errorCode)
     {
@@ -461,7 +467,7 @@ const char* BLEGattServer::getHSErrorMsg(int errorCode)
         case BLE_HS_EENCRYPT_KEY_SZ: return "EncryptKeySz";
         case BLE_HS_ESTORE_CAP: return "StoreCap";
         case BLE_HS_ESTORE_FAIL: return "StoreFail";
-        default: return "Unknown";
+        default: return "Unknown (" + String(errorCode) + ")";
     }
 }
 

@@ -41,13 +41,12 @@ public:
 #ifdef CONFIG_BT_ENABLED
 
     // Constructor
-    BLEGapServer();
+    BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn, 
+                StatusChangeFnType statusChangeFn);
     virtual ~BLEGapServer();
 
     // Setup
     bool setup(CommsCoreIF* pCommsCoreIF,
-                GetAdvertisingNameFnType getAdvertisingNameFn, 
-                StatusChangeFnType statusChangeFn,
                 uint32_t maxPacketLen, 
                 uint32_t outboundQueueSize, bool useTaskForSending,
                 UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize);
@@ -80,12 +79,14 @@ private:
 
     // Get advertising name function
     GetAdvertisingNameFnType _getAdvertisingNameFn = nullptr;
+    static const uint32_t BLE_GAP_MAX_ADV_NAME_LEN = 31;
 
     // Status change function
     StatusChangeFnType _statusChangeFn = nullptr;
     
-    // Addr type
-    uint8_t own_addr_type = 0;
+    // Addr type - this is discovered using ble_hs_id_infer_auto() and somehow
+    // relates to bonding
+    uint8_t _ownAddrType = 0;
 
     // Preferred connection params
     static const uint32_t PREFERRED_MTU_VALUE = 512;
@@ -101,10 +102,10 @@ private:
     // Status
     bool _isConnected = false;
     uint16_t _bleGapConnHandle = 0;
+
+    // RSSI - updated regularly
     int8_t _rssi = 0;
     uint32_t _rssiLastMs = 0;
-
-    // RSSI check interval
     static const uint32_t RSSI_CHECK_MS = 2000;
 
     // Max packet length - seems to be OS dependent (iOS seems to truncate at 182?)
@@ -116,7 +117,7 @@ private:
     // Min time between adjacent outbound messages
     uint32_t _lastOutboundMsgMs = 0;
 
-    // Task that runs the outbound queue - if selected by #define in cpp file
+    // Task that runs the outbound queue (if enabled)
     volatile TaskHandle_t _outboundMsgTaskHandle = nullptr;
 
     // Outbound message in flight
@@ -153,7 +154,8 @@ private:
 
     // Advertising
     bool startAdvertising();
-    void stopAdvertising();    
+    void stopAdvertising();
+    void serviceTimedAdvertisingCheck();
     
     // Callbacks
     void onSync();
@@ -165,13 +167,28 @@ private:
     // GATT access callback
     void gattAccessCallback(const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength);
 
-    // Task
-    static void bleHostTask(void *param);
-    static void logConnectionInfo(struct ble_gap_conn_desc *desc);
-    static void print_addr(const uint8_t *addr);
-    bool isReadyToSend(uint32_t channelID, bool& noConn);
+    // Service handling
+    bool serviceRestartIfRequired();
+
+    // Outbound queue
+    void serviceOutboundQueue();
     bool sendBLEMsg(CommsChannelMsg& msg);
     void handleSendFromOutboundQueue();
+
+    // RSSI value
+    void serviceGettingRSSI();
+
+    // GAP event helpers
+    String getGapEventName(int eventType);
+    int gapEventConnect(struct ble_gap_event *event, String& statusStr, int& connHandle);
+    int gapEventDisconnect(struct ble_gap_event *event, String& statusStr, int& connHandle);
+    int gapEventRepeatPairing(struct ble_gap_event *event);
+    static void debugLogConnInfo(const char* prefix, struct ble_gap_conn_desc *desc);
+
+    // Task
+    static void bleHostTask(void *param);
+    static void print_addr(const uint8_t *addr);
+    bool isReadyToSend(uint32_t channelID, bool& noConn);
     // static void outboundMsgTaskStatic(void* pvParameters);
     void outboundMsgTask();
     bool nimbleStart();

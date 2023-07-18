@@ -46,7 +46,7 @@ public:
     static void registrationCallbackStatic(struct ble_gatt_register_ctxt *ctxt, void *arg);
 
     // Subscription
-    void handleSubscription(struct ble_gap_event * pEvent, uint16_t connHandle);
+    void handleSubscription(struct ble_gap_event * pEvent, String& statusStr);
 
     // Send to central (using notification)
     bool sendToCentral(const uint8_t* pBuf, uint32_t bufLen);
@@ -60,6 +60,9 @@ public:
     // Init and deinit
     int init();
     void deinit();
+
+    // Get HS error message
+    static String getHSErrorMsg(int errorCode);
 
 private:
 
@@ -104,7 +107,5 @@ private:
     uint32_t _lastBLEErrorMsgMs;
     uint32_t _lastBLEErrorMsgCode;
 
-    // Get HS error message
-    const char* getHSErrorMsg(int errorCode);
 };
 #endif // CONFIG_BT_ENABLED
