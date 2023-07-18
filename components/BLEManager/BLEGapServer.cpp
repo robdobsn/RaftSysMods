@@ -40,7 +40,6 @@
 // #define DEBUG_BLE_TX_MSG
 // #define DEBUG_BLE_TX_MSG_SPLIT
 // #define DEBUG_BLE_TX_MSG_DETAIL
-// #define DEBUG_SEND_FROM_OUTBOUND_QUEUE
 // #define DEBUG_BLE_PUBLISH
 #define DEBUG_BLE_CONNECT
 #define DEBUG_BLE_GAP_EVENT
@@ -60,8 +59,8 @@ BLEGapServer::BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn,
       _gattServer([this](const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength)
                     {
                         return gattAccessCallback(characteristicName, readOp, payloadbuffer, payloadlength);
-                    }),
-      _bleFragmentQueue(DEFAULT_OUTBOUND_MSG_QUEUE_SIZE)
+                    },
+                    _bleStats)
 {
     _pThis  = this;
     _getAdvertisingNameFn = getAdvertisingNameFn;
@@ -81,10 +80,14 @@ bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF,
                 uint32_t outboundQueueSize, bool useTaskForSending,
                 UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize)
 {
+    // Settings
     _pCommsCoreIF = pCommsCoreIF;
     _maxPacketLength = maxPacketLen;
-    _bleFragmentQueue.setMaxLen(outboundQueueSize);
 
+    // Setup GATT server
+    _gattServer.setup(maxPacketLen, outboundQueueSize, useTaskForSending,
+                taskCore, taskPriority, taskStackSize);
+    
     // Start NimBLE if not already started
     if (!_isInit)
     {
@@ -96,27 +99,6 @@ bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF,
 
     // Currently disconnected
     setConnState(false);
-
-    // Check if a thread should be started for sending
-    if (useTaskForSending)
-    {
-        // Start the worker task
-        BaseType_t retc = pdPASS;
-        if (_outboundMsgTaskHandle == nullptr)
-        {
-            retc = xTaskCreatePinnedToCore(
-                        [](void* pArg){
-                            ((BLEGapServer*)pArg)->outboundMsgTask();
-                        },
-                        "BLEOutQ",                              // task name
-                        taskStackSize,                          // stack size of task
-                        this,                                   // parameter passed to task on execute
-                        taskPriority,                           // priority
-                        (TaskHandle_t*)&_outboundMsgTaskHandle, // task handle
-                        taskCore);                              // pin task to core N
-            return retc == pdPASS;
-        }
-    }
     return true;
 }
 
@@ -133,16 +115,8 @@ void BLEGapServer::teardown()
     // Stop advertising
     stopAdvertising();
 
-    // Shutdown task if started
-    if (_outboundMsgTaskHandle)
-    {
-        // Shutdown task
-        xTaskNotifyGive(_outboundMsgTaskHandle);
-        _outboundMsgTaskHandle = nullptr;
-    }
-
-    // Deinit GATTServer
-    _gattServer.deinit();
+    // Stop GATTServer
+    _gattServer.stop();
 
     // Remove callbacks etc
     ble_hs_cfg.store_status_cb = NULL;
@@ -180,8 +154,8 @@ void BLEGapServer::service()
     // Service timed advertising check
     serviceTimedAdvertisingCheck();
 
-    // Service outbound queue
-    serviceOutboundQueue();
+    // Service GATT server
+    _gattServer.service();
 
     // Service getting RSSI value
     serviceGettingRSSI();
@@ -483,8 +457,7 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
             break;
         case BLE_GAP_EVENT_NOTIFY_TX:
             statusStr = BLEGattServer::getHSErrorMsg(event->notify_tx.status);
-            // No message in flight
-            _outboundMsgInFlight = false;
+            _gattServer.getOutbound().notifyTxComplete();
             break;
         case BLE_GAP_EVENT_SUBSCRIBE:
             // Handle subscription to GATT attr
@@ -602,21 +575,13 @@ void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readO
 
 bool BLEGapServer::isReadyToSend(uint32_t channelID, bool& noConn)
 {
-    // Check for connection
     noConn = false;
-    if (!_isConnected)
+    if (!_isInit || !_isConnected)
     {
         noConn = true;
         return false;
     }
-    // Check state of gatt server
-    noConn = !_gattServer.isNotificationEnabled();
-    if (noConn)
-        return false;
-    // Check the queue is empty
-    if (_outboundMsgInFlight || (_bleFragmentQueue.count() > 0))
-        return false;
-    return true;
+    return _gattServer.isReadyToSend(channelID, noConn);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -627,60 +592,7 @@ bool BLEGapServer::sendBLEMsg(CommsChannelMsg& msg)
 {
     if (!_isInit)
         return false;
-
-#ifdef DEBUG_BLE_TX_MSG
-#ifndef DEBUG_BLE_PUBLISH
-    if (msg.getMsgTypeCode() != MSG_TYPE_PUBLISH) 
-    {
-#endif
-        LOG_I(MODULE_PREFIX, "sendBLEMsg channelID %d, msgType %s msgNum %d, len %d msg %s",
-            msg.getChannelID(), msg.getMsgTypeAsString(msg.getMsgTypeCode()), msg.getMsgNumber(), msg.getBufLen(), msg.getBuf());
-#ifndef DEBUG_BLE_PUBLISH
-    }
-#endif
-#endif
-
-    // Check if publish message and only add if outbound queue is empty
-    if ((msg.getMsgTypeCode() == MSG_TYPE_PUBLISH) && (_bleFragmentQueue.count() != 0))
-        return false;
-
-    // Split into multiple messages if required
-    const uint8_t* pMsgPtr = msg.getBuf();
-    uint32_t remainingLen = msg.getBufLen();
-    for (int msgIdx = 0; msgIdx < _bleFragmentQueue.maxLen(); msgIdx++)
-    {
-        uint32_t msgLen = _maxPacketLength;
-        if (msgLen > remainingLen)
-            msgLen = remainingLen;
-
-        // Send to the queue
-        ProtocolRawMsg bleOutMsg(pMsgPtr, msgLen);
-        bool putOk = _bleFragmentQueue.put(bleOutMsg);
-
-#ifdef DEBUG_BLE_TX_MSG_SPLIT
-        if (msg.getBufLen() > _maxPacketLength) {
-            const char* pDebugHex = nullptr;
-#ifdef DEBUG_BLE_TX_MSG_DETAIL
-            String hexStr;
-            Raft::getHexStrFromBytes(pMsgPtr, msgLen, hexStr);
-            pDebugHex = hexStr.c_str();
-#endif
-            LOG_W(MODULE_PREFIX, "sendBLEMsg msgIdx %d partOffset %d partLen %d totalLen %d remainLen %d putOk %d %s", 
-                    msgIdx, pMsgPtr-msg.getBuf(), msgLen, msg.getBufLen(), remainingLen, putOk,
-                    pDebugHex ? pDebugHex : "");
-        }
-#endif
-        // Check ok
-        if (!putOk)
-            break;
-
-        // Calculate remaining
-        remainingLen -= msgLen;
-        pMsgPtr += msgLen;
-        if (remainingLen == 0)
-            break;
-    }
-    return true;
+    return _gattServer.sendMsg(msg);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -750,7 +662,7 @@ bool BLEGapServer::nimbleStart()
     ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_KEYBOARD_DISP;
     ble_hs_cfg.sm_sc = 0;
 
-    int rc = _gattServer.init();
+    int rc = _gattServer.start();
     if (rc == 0)
     {
         // Set the advertising name
@@ -804,59 +716,6 @@ uint32_t BLEGapServer::parkmiller_next(uint32_t seed) const
     if (lo > 0x7fffffff)
         lo -= 0x7fffffff;
     return lo;
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Handle sending from outbound queue
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void BLEGapServer::handleSendFromOutboundQueue()
-{
-    // Handle outbound message queue
-    if (_bleFragmentQueue.count() > 0)
-    {
-        if (Raft::isTimeout(millis(), _lastOutboundMsgMs, BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS))
-        {
-            ProtocolRawMsg bleOutMsg;
-            if (_bleFragmentQueue.get(bleOutMsg))
-            {
-                _outbountMsgInFlightStartMs = millis();
-                _outboundMsgInFlight = true;
-                bool rslt = _gattServer.sendToCentral(bleOutMsg.getBuf(), bleOutMsg.getBufLen());
-                if (!rslt)
-                {
-                    _outboundMsgInFlight = false;
-                }
-#ifdef DEBUG_SEND_FROM_OUTBOUND_QUEUE
-                LOG_I(MODULE_PREFIX, "handleSendFromOutboundQueue len %d sendOk %d inFlight %d leftInQueue %d", 
-                            bleOutMsg.getBufLen(), rslt, _outboundMsgInFlight, _bleFragmentQueue.count());
-#endif
-                _bleStats.txMsg(bleOutMsg.getBufLen(), rslt);
-            }
-            _lastOutboundMsgMs = millis();
-        }
-    }
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Task worker for outbound messages
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void BLEGapServer::outboundMsgTask()
-{
-    // Run the task until asked to stop
-    while (ulTaskNotifyTake(pdTRUE, 0) == 0)
-    {        
-        // Handle queue
-        handleSendFromOutboundQueue();
-
-        // Yield
-        vTaskDelay(1);
-    }
-
-    // Task has exited
-    _outboundMsgTaskHandle = nullptr;
-    vTaskDelete(NULL);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1099,35 +958,6 @@ void BLEGapServer::serviceTimedAdvertisingCheck()
         }
     }
 #endif
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service outbound queue
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void BLEGapServer::serviceOutboundQueue()
-{
-    // Send if not using alternate thread
-    if (_outboundMsgTaskHandle == nullptr)
-    {
-        if (!_outboundMsgInFlight)
-        {
-            handleSendFromOutboundQueue();
-        }
-        else
-        {
-            // Check for timeout on in flight message
-            if (Raft::isTimeout(millis(), _outbountMsgInFlightStartMs, BLE_OUTBOUND_MSG_IN_FLIGHT_TIMEOUT_MS))
-            {
-                // Debug
-                LOG_W(MODULE_PREFIX, "service outbound msg timeout");
-
-                // Timeout so send again
-                _outboundMsgInFlight = false;
-                handleSendFromOutboundQueue();
-            }
-        }
-    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

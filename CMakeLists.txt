@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 idf_component_register(
   SRCS
     "components/BLEManager/BLEGapServer.cpp"
+    "components/BLEManager/BLEGattOutbound.cpp"
     "components/BLEManager/BLEGattServer.cpp"
     "components/BLEManager/BLEManager.cpp"
     "components/CommandFile/CommandFile.cpp"

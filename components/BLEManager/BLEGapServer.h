@@ -13,8 +13,6 @@
 #ifdef CONFIG_BT_ENABLED
 #include "host/ble_uuid.h"
 #endif
-#include <ThreadSafeQueue.h>
-#include <ProtocolRawMsg.h>
 #include "BLEManStats.h"
 #include "BLEGattServer.h"
 #include <CommsCoreIF.h>
@@ -28,15 +26,6 @@ typedef std::function<void(bool isConnected)> StatusChangeFnType;
 class BLEGapServer
 {
 public:
-
-    // Defaults
-    static const int DEFAULT_OUTBOUND_MSG_QUEUE_SIZE = 30;
-    static const uint32_t MAX_BLE_PACKET_LEN_DEFAULT = 450;
-    static const bool DEFAULT_USE_TASK_FOR_SENDING = false;
-    static const int DEFAULT_TASK_CORE = 0;
-    static const int DEFAULT_TASK_PRIORITY = 1;
-    static const int DEFAULT_TASK_SIZE_BYTES = 4000;
-    static const uint32_t BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS = 25;
 
 #ifdef CONFIG_BT_ENABLED
 
@@ -109,21 +98,7 @@ private:
     static const uint32_t RSSI_CHECK_MS = 2000;
 
     // Max packet length - seems to be OS dependent (iOS seems to truncate at 182?)
-    uint32_t _maxPacketLength = MAX_BLE_PACKET_LEN_DEFAULT;
-    
-    // Outbound queue for fragments of messages
-    ThreadSafeQueue<ProtocolRawMsg> _bleFragmentQueue;
-
-    // Min time between adjacent outbound messages
-    uint32_t _lastOutboundMsgMs = 0;
-
-    // Task that runs the outbound queue (if enabled)
-    volatile TaskHandle_t _outboundMsgTaskHandle = nullptr;
-
-    // Outbound message in flight
-    volatile bool _outboundMsgInFlight = false;
-    uint32_t _outbountMsgInFlightStartMs = 0;
-    static const uint32_t BLE_OUTBOUND_MSG_IN_FLIGHT_TIMEOUT_MS = 1000;
+    uint32_t _maxPacketLength = BLEGattOutbound::MAX_BLE_PACKET_LEN_DEFAULT;
 
     // Stats
     BLEManStats _bleStats;
@@ -170,11 +145,6 @@ private:
     // Service handling
     bool serviceRestartIfRequired();
 
-    // Outbound queue
-    void serviceOutboundQueue();
-    bool sendBLEMsg(CommsChannelMsg& msg);
-    void handleSendFromOutboundQueue();
-
     // RSSI value
     void serviceGettingRSSI();
 
@@ -185,12 +155,13 @@ private:
     int gapEventRepeatPairing(struct ble_gap_event *event);
     static void debugLogConnInfo(const char* prefix, struct ble_gap_conn_desc *desc);
 
+    // Message sending
+    bool isReadyToSend(uint32_t channelID, bool& noConn);
+    bool sendBLEMsg(CommsChannelMsg& msg);
+
     // Task
     static void bleHostTask(void *param);
     static void print_addr(const uint8_t *addr);
-    bool isReadyToSend(uint32_t channelID, bool& noConn);
-    // static void outboundMsgTaskStatic(void* pvParameters);
-    void outboundMsgTask();
     bool nimbleStart();
     bool nimbleStop();
     uint32_t parkmiller_next(uint32_t seed) const;

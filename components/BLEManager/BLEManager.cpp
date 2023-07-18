@@ -11,6 +11,7 @@
 #include "BLEManager.h"
 #include <RestAPIEndpointManager.h>
 #include <SysManager.h>
+#include "BLEGattOutbound.h"
 
 // Log prefix
 static const char *MODULE_PREFIX = "BLEMan";
@@ -50,16 +51,16 @@ void BLEManager::setup()
     if (_enableBLE)
     {
         // Settings
-        uint32_t maxPacketLength = configGetLong("maxPktLen", BLEGapServer::MAX_BLE_PACKET_LEN_DEFAULT);
-        uint32_t outboundQueueSize = configGetLong("outQSize", BLEGapServer::DEFAULT_OUTBOUND_MSG_QUEUE_SIZE);
+        uint32_t maxPacketLength = configGetLong("maxPktLen", BLEGattOutbound::MAX_BLE_PACKET_LEN_DEFAULT);
+        uint32_t outboundQueueSize = configGetLong("outQSize", BLEGattOutbound::DEFAULT_OUTBOUND_MSG_QUEUE_SIZE);
 
         // Separate task for sending
-        bool useTaskForSending = configGetBool("taskEnable", BLEGapServer::DEFAULT_USE_TASK_FOR_SENDING);
-        UBaseType_t taskCore = configGetLong("taskCore", BLEGapServer::DEFAULT_TASK_CORE);
-        BaseType_t taskPriority = configGetLong("taskPriority", BLEGapServer::DEFAULT_TASK_PRIORITY);
-        int taskStackSize = configGetLong("taskStack", BLEGapServer::DEFAULT_TASK_SIZE_BYTES);
+        bool useTaskForSending = configGetBool("taskEnable", BLEGattOutbound::DEFAULT_USE_TASK_FOR_SENDING);
+        UBaseType_t taskCore = configGetLong("taskCore", BLEGattOutbound::DEFAULT_TASK_CORE);
+        BaseType_t taskPriority = configGetLong("taskPriority", BLEGattOutbound::DEFAULT_TASK_PRIORITY);
+        int taskStackSize = configGetLong("taskStack", BLEGattOutbound::DEFAULT_TASK_SIZE_BYTES);
 
-        // Setup outbound queue
+        // Setup BLE GAP
         bool isOk = _gapServer.setup(getCommsCore(),
                     maxPacketLength, outboundQueueSize, 
                     useTaskForSending, taskCore, taskPriority, taskStackSize);
@@ -76,14 +77,14 @@ void BLEManager::setup()
                         isOk ? "OK" : "FAILED",
                         taskCore, taskPriority, taskStackSize,
                         outboundQueueSize,
-                        BLEGapServer::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS);
+                        BLEGattOutbound::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS);
         }
         else
         {
             LOG_I(MODULE_PREFIX, "setup maxPktLen %d using service loop outQSlots %d minMsBetweenSends %d",
                         maxPacketLength,
                         outboundQueueSize,
-                        BLEGapServer::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS);
+                        BLEGattOutbound::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS);
         }
     }
     else

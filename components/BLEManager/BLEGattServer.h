@@ -13,6 +13,8 @@
 
 #ifdef CONFIG_BT_ENABLED
 
+#include "BLEGattOutbound.h"
+
 #include <functional>
 #undef min
 #undef max
@@ -32,8 +34,19 @@ public:
     static ble_uuid128_t GATT_RICV2_MESSAGE_RESPONSE_UUID;
 
     // Constructor
-    BLEGattServer(BLEGattServerAccessCBType callback);
+    BLEGattServer(BLEGattServerAccessCBType callback, BLEManStats& bleStats);
     virtual ~BLEGattServer();
+
+    // Setup
+    bool setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, bool useTaskForSending,
+                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize);
+
+    // Service
+    void service();
+
+    // Sending
+    bool isReadyToSend(uint32_t channelID, bool& noConn);
+    bool sendMsg(CommsChannelMsg& msg);
 
     // Set connection handle
     void setConnState(bool isConnected, uint16_t connHandle)
@@ -57,12 +70,18 @@ public:
         return _responseNotifyState;
     }
     
-    // Init and deinit
-    int init();
-    void deinit();
+    // Start and stop
+    int start();
+    void stop();
 
     // Get HS error message
     static String getHSErrorMsg(int errorCode);
+
+    // Outbound
+    BLEGattOutbound& getOutbound()
+    {
+        return _bleOutbound;
+    }
 
 private:
 
@@ -91,7 +110,7 @@ private:
     // Services list
     static const struct ble_gatt_svc_def servicesList[];
 
-    // Get data that has been written to characteristic (sent by central)
+    // Get data that has been written to characteristic (sent by central/client)
     int getDataWrittenToCharacteristic(struct os_mbuf *om, uint16_t min_len, uint16_t max_len,
                    void *dst, uint16_t *len);
 
@@ -106,6 +125,9 @@ private:
     const uint32_t MIN_TIME_BETWEEN_ERROR_MSGS_MS = 500;
     uint32_t _lastBLEErrorMsgMs;
     uint32_t _lastBLEErrorMsgCode;
+
+    // Outbound handler
+    BLEGattOutbound _bleOutbound;
 
 };
 #endif // CONFIG_BT_ENABLED
