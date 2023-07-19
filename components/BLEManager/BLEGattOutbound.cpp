@@ -14,18 +14,23 @@
 #include "BLEManStats.h"
 
 // #define DEBUG_SEND_FROM_OUTBOUND_QUEUE
+// #define DEBUG_BLE_TX_MSG
+// #define DEBUG_BLE_PUBLISH
 
 static const char* MODULE_PREFIX = "BLEOut";
 
 BLEGattOutbound::BLEGattOutbound(BLEGattServer& gattServer, BLEManStats& bleStats) :
         _gattServer(gattServer),
         _bleStats(bleStats),
-        _bleFragmentQueue(DEFAULT_OUTBOUND_MSG_QUEUE_SIZE)
+        _outboundQueue(DEFAULT_OUTBOUND_MSG_QUEUE_SIZE)
 {
+    _inFlightMutex = xSemaphoreCreateMutex();
 }
 
 BLEGattOutbound::~BLEGattOutbound()
 {
+    if (_inFlightMutex)
+        vSemaphoreDelete(_inFlightMutex);
 }
 
 // Setup
@@ -36,7 +41,7 @@ bool BLEGattOutbound::setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, b
     _maxPacketLen = maxPacketLen;
 
     // Setup queue
-    _bleFragmentQueue.setMaxLen(outboundQueueSize);
+    _outboundQueue.setMaxLen(outboundQueueSize);
 
     // Check if a thread should be started for sending
     if (useTaskForSending)
@@ -89,25 +94,7 @@ void BLEGattOutbound::serviceOutboundQueue()
 {
     // Send if not using alternate thread
     if (_outboundMsgTaskHandle == nullptr)
-    {
-        if (!_outboundMsgInFlight)
-        {
-            handleSendFromOutboundQueue();
-        }
-        else
-        {
-            // Check for timeout on in flight message
-            if (Raft::isTimeout(millis(), _outbountMsgInFlightStartMs, BLE_OUTBOUND_MSG_IN_FLIGHT_TIMEOUT_MS))
-            {
-                // Debug
-                LOG_W(MODULE_PREFIX, "service outbound msg timeout");
-
-                // Timeout so send again
-                _outboundMsgInFlight = false;
-                handleSendFromOutboundQueue();
-            }
-        }
-    }
+        handleSendFromOutboundQueue();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -116,10 +103,12 @@ void BLEGattOutbound::serviceOutboundQueue()
 
 bool BLEGattOutbound::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn)
 {
+    // Only send PUBLISH messages if nothing else pending
+    if (msgType == MSG_TYPE_PUBLISH)
+        return (_outboundMsgsInFlight == 0) && (_outboundQueue.count() == 0);
+
     // Check the queue is empty
-    if (_outboundMsgInFlight || (_bleFragmentQueue.count() > 0))
-        return false;
-    return true;
+    return _outboundQueue.count() < _outboundQueue.maxLen();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -140,79 +129,98 @@ bool BLEGattOutbound::sendMsg(CommsChannelMsg& msg)
 #endif
 #endif
 
-    // Check if publish message and only add if outbound queue is empty
-    if ((msg.getMsgTypeCode() == MSG_TYPE_PUBLISH) && (_bleFragmentQueue.count() != 0))
-        return false;
-
-    // Split into multiple messages if required
-    const uint8_t* pMsgPtr = msg.getBuf();
-    uint32_t remainingLen = msg.getBufLen();
-    for (int msgIdx = 0; msgIdx < _bleFragmentQueue.maxLen(); msgIdx++)
+    // Add to the queue
+    ProtocolRawMsg bleOutMsg(msg.getBuf(), msg.getBufLen());
+    bool putOk = _outboundQueue.put(bleOutMsg);
+    if (!putOk)
     {
-        uint32_t msgLen = _maxPacketLen;
-        if (msgLen > remainingLen)
-            msgLen = remainingLen;
-
-        // Send to the queue
-        ProtocolRawMsg bleOutMsg(pMsgPtr, msgLen);
-        bool putOk = _bleFragmentQueue.put(bleOutMsg);
-
-#ifdef DEBUG_BLE_TX_MSG_SPLIT
-        if (msg.getBufLen() > _maxPacketLen) {
-            const char* pDebugHex = nullptr;
-#ifdef DEBUG_BLE_TX_MSG_DETAIL
-            String hexStr;
-            Raft::getHexStrFromBytes(pMsgPtr, msgLen, hexStr);
-            pDebugHex = hexStr.c_str();
-#endif
-            LOG_W(MODULE_PREFIX, "sendBLEMsg msgIdx %d partOffset %d partLen %d totalLen %d remainLen %d putOk %d %s", 
-                    msgIdx, pMsgPtr-msg.getBuf(), msgLen, msg.getBufLen(), remainingLen, putOk,
-                    pDebugHex ? pDebugHex : "");
-        }
-#endif
-        // Check ok
-        if (!putOk)
-            break;
-
-        // Calculate remaining
-        remainingLen -= msgLen;
-        pMsgPtr += msgLen;
-        if (remainingLen == 0)
-            break;
+        LOG_W(MODULE_PREFIX, "sendBLEMsg FAILEDTOSEND totalLen %d", msg.getBufLen());
     }
-    return true;
+    return putOk;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Handle sending from outbound queue
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void BLEGattOutbound::handleSendFromOutboundQueue()
+bool BLEGattOutbound::handleSendFromOutboundQueue()
 {
-    // Handle outbound message queue
-    if (_bleFragmentQueue.count() > 0)
+    // Check if less than the max number of messages in flight
+    if (_outboundMsgsInFlight >= _outboundMsgsInFlightMax)
     {
-        if (Raft::isTimeout(millis(), _lastOutboundMsgMs, BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS))
+        // Check for timeout on in flight messages
+        if (Raft::isTimeout(millis(), _outbountMsgInFlightLastMs, BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS))
         {
-            ProtocolRawMsg bleOutMsg;
-            if (_bleFragmentQueue.get(bleOutMsg))
-            {
-                _outbountMsgInFlightStartMs = millis();
-                _outboundMsgInFlight = true;
-                bool rslt = _gattServer.sendToCentral(bleOutMsg.getBuf(), bleOutMsg.getBufLen());
-                if (!rslt)
-                {
-                    _outboundMsgInFlight = false;
-                }
-#ifdef DEBUG_SEND_FROM_OUTBOUND_QUEUE
-                LOG_I(MODULE_PREFIX, "handleSendFromOutboundQueue len %d sendOk %d inFlight %d leftInQueue %d", 
-                            bleOutMsg.getBufLen(), rslt, _outboundMsgInFlight, _bleFragmentQueue.count());
-#endif
-                _bleStats.txMsg(bleOutMsg.getBufLen(), rslt);
-            }
+            // Debug
+            LOG_W(MODULE_PREFIX, "service outbound msg timeout");
+
+            // Timeout so clear the in flight count
+            _outboundMsgsInFlight = 0;
+        }
+        return false;
+    }
+
+    // Peek next message in queue
+    ProtocolRawMsg bleOutMsg;
+    if (!_outboundQueue.peek(bleOutMsg))
+        return false;
+
+    // Extract next section of message to send
+    uint32_t toSendLen = 0;
+    bool removeFromQueue = true;
+    if (bleOutMsg.getBufLen() > _outboundMsgPos)
+        toSendLen = bleOutMsg.getBufLen() - _outboundMsgPos;
+    if (toSendLen > _maxPacketLen)
+        toSendLen = _maxPacketLen;
+    if (bleOutMsg.getBufLen() > _outboundMsgPos + toSendLen)
+        removeFromQueue = false;
+    bool rslt = false;
+    if (toSendLen != 0)
+    {
+        // Send to central
+        _outbountMsgInFlightLastMs = millis();
+        if (xSemaphoreTake(_inFlightMutex, pdMS_TO_TICKS(WAIT_FOR_INFLIGHT_MUTEX_MAX_MS)) == pdTRUE)
+        {
+            _outboundMsgsInFlight = _outboundMsgsInFlight + 1;
+            xSemaphoreGive(_inFlightMutex);
+        }
+        rslt = _gattServer.sendToCentral(bleOutMsg.getBuf() + _outboundMsgPos, toSendLen);
+        if (rslt)
+        {
+            _bleStats.txMsg(bleOutMsg.getBufLen(), rslt);
             _lastOutboundMsgMs = millis();
+            _outboundMsgPos += toSendLen;
+        }
+        else
+        {
+            removeFromQueue = true;
+            if (xSemaphoreTake(_inFlightMutex, pdMS_TO_TICKS(WAIT_FOR_INFLIGHT_MUTEX_MAX_MS)) == pdTRUE)
+            {
+                _outboundMsgsInFlight = _outboundMsgsInFlight - 1;
+                xSemaphoreGive(_inFlightMutex);
+            }
         }
     }
+
+    // Remove from queue if required
+    if (removeFromQueue)
+    {
+        _outboundQueue.get(bleOutMsg);
+        _outboundMsgPos = 0;
+    }
+
+#ifdef DEBUG_SEND_FROM_OUTBOUND_QUEUE
+    uint32_t msgsInFlight = 0;
+    if (xSemaphoreTake(_inFlightMutex, pdMS_TO_TICKS(WAIT_FOR_INFLIGHT_MUTEX_MAX_MS)) == pdTRUE)
+    {
+        msgsInFlight = _outboundMsgsInFlight;
+        xSemaphoreGive(_inFlightMutex);
+    }
+    LOG_I(MODULE_PREFIX, "handleSendFromOutboundQueue sendLen %d totalLen %d msgPos %d sendOk %d inFlight %d leftInQueue %d removeFromQ %d", 
+            toSendLen, bleOutMsg.getBufLen(), _outboundMsgPos, rslt, msgsInFlight, _outboundQueue.count(), removeFromQueue);
+#endif
+
+    return rslt;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -236,3 +244,27 @@ void BLEGattOutbound::outboundMsgTask()
     vTaskDelete(NULL);
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Notify tx complete
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void BLEGattOutbound::notifyTxComplete(int statusBLEHSCode)
+{
+    uint32_t msgsInFlight = 0;
+    if (xSemaphoreTake(_inFlightMutex, pdMS_TO_TICKS(WAIT_FOR_INFLIGHT_MUTEX_MAX_MS)) == pdTRUE)
+    {
+        // Decrement messages in flight
+        if (_outboundMsgsInFlight != 0)
+        {
+            // Decrement the in flight count
+            _outboundMsgsInFlight = _outboundMsgsInFlight - 1;
+        }
+        msgsInFlight = _outboundMsgsInFlight;
+        xSemaphoreGive(_inFlightMutex);
+    }
+    _outbountMsgInFlightLastMs = millis();
+#ifdef DEBUG_SEND_FROM_OUTBOUND_QUEUE
+    LOG_I(MODULE_PREFIX, "notifyTxComplete status %s msgsInFlight %d", 
+                BLEGattServer::getHSErrorMsg(statusBLEHSCode), msgsInFlight);
+#endif
+}

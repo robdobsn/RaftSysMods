@@ -44,11 +44,7 @@ public:
     void stop();
 
     // Tx complete
-    void notifyTxComplete()
-    {
-        // No message in flight
-        _outboundMsgInFlight = false;
-    }
+    void notifyTxComplete(int statusBLEHSCode);
 
     // Message sending
     bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
@@ -61,8 +57,11 @@ private:
     // Stats
     BLEManStats& _bleStats;
 
-    // Outbound queue for fragments of messages
-    ThreadSafeQueue<ProtocolRawMsg> _bleFragmentQueue;
+    // Outbound queue of messages
+    ThreadSafeQueue<ProtocolRawMsg> _outboundQueue;
+
+    // Position in current message being sent
+    uint32_t _outboundMsgPos = 0;
 
     // Min time between adjacent outbound messages
     uint32_t _lastOutboundMsgMs = 0;
@@ -70,17 +69,22 @@ private:
     // Task that runs the outbound queue (if enabled)
     volatile TaskHandle_t _outboundMsgTaskHandle = nullptr;
 
-    // Outbound message in flight
-    volatile bool _outboundMsgInFlight = false;
-    uint32_t _outbountMsgInFlightStartMs = 0;
-    static const uint32_t BLE_OUTBOUND_MSG_IN_FLIGHT_TIMEOUT_MS = 1000;
+    // Outbound messages in flight
+    volatile uint32_t _outboundMsgsInFlight = 0;
+    uint32_t _outboundMsgsInFlightMax = 6;
+    uint32_t _outbountMsgInFlightLastMs = 0;
+    static const uint32_t BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS = 1000;
+
+    // Mutex for queue
+    SemaphoreHandle_t _inFlightMutex = nullptr;
+    static const uint32_t WAIT_FOR_INFLIGHT_MUTEX_MAX_MS = 2;
 
     // Max packet len
     uint32_t _maxPacketLen = MAX_BLE_PACKET_LEN_DEFAULT;
 
     // Outbound queue
     void serviceOutboundQueue();
-    void handleSendFromOutboundQueue();
+    bool handleSendFromOutboundQueue();
     void outboundMsgTask();
 
 };

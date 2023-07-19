@@ -37,10 +37,6 @@
 #define DEBUG_BLE_SETUP
 #define DEBUG_BLE_ADVERTISING
 // #define DEBUG_BLE_RX_PAYLOAD
-// #define DEBUG_BLE_TX_MSG
-// #define DEBUG_BLE_TX_MSG_SPLIT
-// #define DEBUG_BLE_TX_MSG_DETAIL
-// #define DEBUG_BLE_PUBLISH
 #define DEBUG_BLE_CONNECT
 #define DEBUG_BLE_GAP_EVENT
 // #define DEBUG_RSSI_GET_TIME
@@ -457,7 +453,7 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
             break;
         case BLE_GAP_EVENT_NOTIFY_TX:
             statusStr = BLEGattServer::getHSErrorMsg(event->notify_tx.status);
-            _gattServer.getOutbound().notifyTxComplete();
+            _gattServer.getOutbound().notifyTxComplete(event->notify_tx.status);
             break;
         case BLE_GAP_EVENT_SUBSCRIBE:
             // Handle subscription to GATT attr
