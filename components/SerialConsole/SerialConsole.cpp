@@ -140,7 +140,7 @@ void SerialConsole::addCommsChannels(CommsCoreIF& commsCoreIF)
             modName(),
             modName(),
             std::bind(&SerialConsole::sendMsg, this, std::placeholders::_1),
-            [this](uint32_t channelID, bool& noConn) {
+            [this](uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn) {
                 return true;
             },
             &commsChannelSettings);
@@ -332,7 +332,7 @@ void SerialConsole::processReceivedData(std::vector<uint8_t, SpiramAwareAllocato
     if (rxData.size() == 0)
         return;
     if (getCommsCore())
-        getCommsCore()->handleInboundMessage(_commsChannelID, rxData.data(), rxData.size());
+        getCommsCore()->inboundHandleMsg(_commsChannelID, rxData.data(), rxData.size());
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

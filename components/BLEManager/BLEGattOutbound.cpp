@@ -114,7 +114,7 @@ void BLEGattOutbound::serviceOutboundQueue()
 // Check ready to send
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool BLEGattOutbound::isReadyToSend(uint32_t channelID, bool& noConn)
+bool BLEGattOutbound::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn)
 {
     // Check the queue is empty
     if (_outboundMsgInFlight || (_bleFragmentQueue.count() > 0))

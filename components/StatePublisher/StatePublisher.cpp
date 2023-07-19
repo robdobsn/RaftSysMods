@@ -223,28 +223,25 @@ void StatePublisher::service()
                 continue;
 
             // Check for time to publish
-            bool publishDueToTimeout = (rateRec._rateHz != 0) && Raft::isTimeout(millis(), rateRec._lastPublishMs, 
-                                    reducePublishingRate ? REDUCED_PUB_RATE_WHEN_BUSY_MS : rateRec._betweenPubsMs);
+            bool publishTimePending = rateRec._isPending || 
+                                ((rateRec._rateHz != 0) && Raft::isTimeout(millis(), rateRec._lastPublishMs, 
+                                    reducePublishingRate ? REDUCED_PUB_RATE_WHEN_BUSY_MS : rateRec._betweenPubsMs));
 
 #ifdef DEBUG_PUBLISHING_REASON
             if (publishDueToStateChange)
             {
                 LOG_I(MODULE_PREFIX, "service publish due to state change for %s", pubRec._name.c_str());
             }
-            else if (rateRec._forceMsgGen)
+            else if (publishTimePending)
             {
-                LOG_I(MODULE_PREFIX, "service publish due to forceMsgGen for %s", pubRec._name.c_str());
-            }
-            else if (publishDueToTimeout)
-            {
-                LOG_I(MODULE_PREFIX, "service publish due to timeout for %s", pubRec._name.c_str());
+                LOG_I(MODULE_PREFIX, "service publish due to timeout/pending for %s", pubRec._name.c_str());
             }
 #endif
             // Check for publish required
-            if (publishDueToStateChange || rateRec._forceMsgGen || publishDueToTimeout)
+            if (publishDueToStateChange || publishTimePending)
             {
-                rateRec._lastPublishMs = millis();
-                rateRec._forceMsgGen = false;
+                // Publish is pending
+                rateRec._isPending = true;
 
                 // Check if channelID is defined
                 if (rateRec._channelID == PUBLISHING_HANDLE_UNDEFINED)
@@ -265,7 +262,7 @@ void StatePublisher::service()
 
                 // Check if interface can accept messages
                 bool noConn = false;
-                if (getCommsCore()->canAcceptOutbound(rateRec._channelID, noConn))
+                if (getCommsCore()->outboundCanAccept(rateRec._channelID, MSG_TYPE_PUBLISH, noConn))
                 {
 
 #ifdef DEBUG_REDUCED_PUBLISHING_RATE_WHEN_BUSY
@@ -295,7 +292,15 @@ void StatePublisher::service()
 
                     // Check for no connection
                     if (publishRetc == COMMS_CORE_RET_NO_CONN)
+                    {
                         noConn = true;
+                    }
+                    else if (publishRetc == COMMS_CORE_RET_OK)
+                    {
+                        // Publish no longer pending
+                        rateRec._isPending = false;
+                        rateRec._lastPublishMs = millis();
+                    }
                 }
                 else
                 {
@@ -420,7 +425,7 @@ CommsCoreRetCode StatePublisher::publishData(StatePublisher::PubRec& pubRec, Int
 #endif
 
     // Send message
-    CommsCoreRetCode retc = getCommsCore()->handleOutboundMessage(endpointMsg);
+    CommsCoreRetCode retc = getCommsCore()->outboundHandleMsg(endpointMsg);
 
 #ifdef DEBUG_PUBLISHING_MESSAGE
 #ifdef DEBUG_ONLY_THIS_MSG_ID
@@ -521,7 +526,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                     {
                         interfaceRateFound = true;
                         rateRec.setRateHz(pubRateHz);
-                        rateRec._forceMsgGen = true;
+                        rateRec._isPending = true;
                         rateRec._lastPublishMs = millis();
 #ifdef DEBUG_PUBLISH_SUPPRESS_RESTART
                         if (rateRec._isSuppressed)
@@ -544,7 +549,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                     ifRateRec._channelID = channelID;
                     ifRateRec.setRateHz(pubRateHz);
                     ifRateRec._lastPublishMs = millis();
-                    ifRateRec._forceMsgGen = true;
+                    ifRateRec._isPending = true;
                     ifRateRec._isSuppressed = false;
                     pubRec._interfaceRates.push_back(ifRateRec);
 #ifdef DEBUG_API_SUBSCRIPTION

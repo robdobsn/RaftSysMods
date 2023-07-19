@@ -155,13 +155,13 @@ void BLEGattServer::service()
 // Check ready to send
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool BLEGattServer::isReadyToSend(uint32_t channelID, bool& noConn)
+bool BLEGattServer::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn)
 {
     // Check state of gatt server
     noConn = !isNotificationEnabled();
     if (noConn)
         return false;
-    return _bleOutbound.isReadyToSend(channelID, noConn);
+    return _bleOutbound.isReadyToSend(channelID, msgType, noConn);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

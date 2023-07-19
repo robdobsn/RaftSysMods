@@ -149,7 +149,7 @@ void CommandSocket::addCommsChannels(CommsCoreIF &commsCore)
             modName(),
             modName(),
             std::bind(&CommandSocket::sendMsg, this, std::placeholders::_1),
-            [this](uint32_t channelID, bool& noConn) {
+            [this](uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn) {
                 return true;
             },
             &commsChannelSettings);
@@ -242,7 +242,7 @@ void CommandSocket::addClient(AsyncClient* pClient)
 
             // Send the message to the CommsChannelManager
             if (getCommsChannelManager())
-                getCommsChannelManager()->handleInboundMessage(this->_commsChannelID, pRxData, len);
+                getCommsChannelManager()->inboundHandleMsg(this->_commsChannelID, pRxData, len);
 
             // Handle the data
             // handleData(buf, len);

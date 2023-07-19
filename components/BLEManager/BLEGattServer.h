@@ -14,6 +14,7 @@
 #ifdef CONFIG_BT_ENABLED
 
 #include "BLEGattOutbound.h"
+#include <CommsChannelMsg.h>
 
 #include <functional>
 #undef min
@@ -45,7 +46,7 @@ public:
     void service();
 
     // Sending
-    bool isReadyToSend(uint32_t channelID, bool& noConn);
+    bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
     bool sendMsg(CommsChannelMsg& msg);
 
     // Set connection handle

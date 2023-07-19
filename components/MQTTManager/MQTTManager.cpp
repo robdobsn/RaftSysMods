@@ -142,7 +142,7 @@ void MQTTManager::addCommsChannels(CommsCoreIF& commsCoreIF)
                 "MQTT",
                 topicName.c_str(),
                 [this, topicName](CommsChannelMsg& msg) { return sendMQTTMsg(topicName, msg); },
-                std::bind(&MQTTManager::readyToSend, this, std::placeholders::_1),
+                std::bind(&MQTTManager::readyToSend, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
                 &commsChannelSettings);
     }
 }
@@ -167,7 +167,7 @@ bool MQTTManager::sendMQTTMsg(const String& topicName, CommsChannelMsg& msg)
 // Check if ready to message over MQTT
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool MQTTManager::readyToSend(uint32_t channelID)
+bool MQTTManager::readyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn)
 {
     return true;
 }

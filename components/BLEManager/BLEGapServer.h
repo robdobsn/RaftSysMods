@@ -156,7 +156,7 @@ private:
     static void debugLogConnInfo(const char* prefix, struct ble_gap_conn_desc *desc);
 
     // Message sending
-    bool isReadyToSend(uint32_t channelID, bool& noConn);
+    bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
     bool sendBLEMsg(CommsChannelMsg& msg);
 
     // Task

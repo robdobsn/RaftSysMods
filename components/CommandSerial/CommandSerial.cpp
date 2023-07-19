@@ -83,7 +83,7 @@ void CommandSerial::service()
             if (charBuf.size() > 0)
             {
                 // Send to comms channel
-                _pCommsCoreIF->handleInboundMessage(serialPort.getChannelID(), charBuf.data(), charBuf.size());
+                _pCommsCoreIF->inboundHandleMsg(serialPort.getChannelID(), charBuf.data(), charBuf.size());
 
 #ifdef DEBUG_COMMAND_SERIAL_RX
                 // Debug
@@ -126,7 +126,7 @@ void CommandSerial::addCommsChannels(CommsCoreIF& commsCoreIF)
                 modName(),
                 serialPort.getName().c_str(),
                 std::bind(&CommandSerial::sendMsg, this, std::placeholders::_1),
-                [this](uint32_t channelID, bool& noConn) {
+                [this](uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn) {
                     return true;
                 },
                 &commsChannelSettings);

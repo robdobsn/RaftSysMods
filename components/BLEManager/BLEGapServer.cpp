@@ -189,7 +189,7 @@ void BLEGapServer::registerChannel(CommsCoreIF& commsCoreIF)
             "BLE",
             "BLE",
             std::bind(&BLEGapServer::sendBLEMsg, this, std::placeholders::_1),
-            std::bind(&BLEGapServer::isReadyToSend, this, std::placeholders::_1, std::placeholders::_2),
+            std::bind(&BLEGapServer::isReadyToSend, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
             &commsChannelSettings);
 }
 
@@ -556,7 +556,7 @@ void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readO
     {
         // Send the message to the comms channel if this is a write to the characteristic
         if (_pCommsCoreIF)
-            _pCommsCoreIF->handleInboundMessage(_commsChannelID, payloadbuffer, payloadlength);
+            _pCommsCoreIF->inboundHandleMsg(_commsChannelID, payloadbuffer, payloadlength);
 
 #ifdef DEBUG_BLE_RX_PAYLOAD
         // Debug
@@ -573,7 +573,7 @@ void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readO
 // Check ready to send
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool BLEGapServer::isReadyToSend(uint32_t channelID, bool& noConn)
+bool BLEGapServer::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn)
 {
     noConn = false;
     if (!_isInit || !_isConnected)
@@ -581,7 +581,7 @@ bool BLEGapServer::isReadyToSend(uint32_t channelID, bool& noConn)
         noConn = true;
         return false;
     }
-    return _gattServer.isReadyToSend(channelID, noConn);
+    return _gattServer.isReadyToSend(channelID, msgType, noConn);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

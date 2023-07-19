@@ -87,9 +87,20 @@ private:
         uint32_t _betweenPubsMs = 0;
         uint32_t _lastPublishMs = 0;
         int32_t _channelID = PUBLISHING_HANDLE_UNDEFINED;
-        bool _forceMsgGen = false;
+
+        // Indicates that the subscription for this channel/rate was created at setup
+        // time (and not with a dynamic subscription API call) - persistent channels
+        // are not suppressed (see below)
         bool _isPersistent = false;
+
+        // Publishing is suppressed when the comms channel that is used for publishing
+        // has indicated that it is disconnected - publishing remains suppressed until
+        // the a new subscription is received
         bool _isSuppressed = false;
+
+        // Indicates that the criteria for publishing has been met but the publishing
+        // event has not occurred due to the channel being busy, etc
+        bool _isPending = false;
     };
 
     // Publication records

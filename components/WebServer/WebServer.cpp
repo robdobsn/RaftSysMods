@@ -234,9 +234,9 @@ void WebServer::webSocketSetup()
 
         // Setup WebHandler for Websockets    
         RaftWebHandlerWS* pHandler = new RaftWebHandlerWS(jsonConfig, 
-                std::bind(&CommsCoreIF::canAcceptInbound, pCommsCore, 
+                std::bind(&CommsCoreIF::inboundCanAccept, pCommsCore, 
                         std::placeholders::_1),
-                std::bind(&CommsCoreIF::handleInboundMessage, pCommsCore, 
+                std::bind(&CommsCoreIF::inboundHandleMsg, pCommsCore, 
                         std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)
                 );
         if (!pHandler)
@@ -265,8 +265,8 @@ void WebServer::webSocketSetup()
                         return _raftWebServer.sendBufferOnChannel(msg.getBuf(), msg.getBufLen(), 
                                 msg.getChannelID());
                     },
-                    [this](uint32_t channelID, bool& noConn) {
-                        return _raftWebServer.canSendBufferOnChannel(channelID, noConn); 
+                    [this](uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn) {
+                        return _raftWebServer.canSendBufferOnChannel(channelID, msgType, noConn); 
                     },
                     &commsChannelSettings);
 

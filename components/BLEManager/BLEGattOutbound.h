@@ -11,6 +11,7 @@
 
 #include <ThreadSafeQueue.h>
 #include <ProtocolRawMsg.h>
+#include <CommsChannelMsg.h>
 
 class CommsChannelMsg;
 class BLEGattServer;
@@ -50,7 +51,7 @@ public:
     }
 
     // Message sending
-    bool isReadyToSend(uint32_t channelID, bool& noConn);
+    bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
     bool sendMsg(CommsChannelMsg& msg);
 
 private:
@@ -83,4 +84,3 @@ private:
     void outboundMsgTask();
 
 };
-
