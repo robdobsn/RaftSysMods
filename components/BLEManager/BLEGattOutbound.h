@@ -32,6 +32,9 @@ public:
     static const uint32_t DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX = 10;
     static const uint32_t BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS = 500;
 
+#include <sdkconfig.h>
+#ifdef CONFIG_BT_ENABLED
+
     // Constructor
     BLEGattOutbound(BLEGattServer& gattServer, BLEManStats& bleStats);
     virtual ~BLEGattOutbound();
@@ -104,5 +107,7 @@ private:
     void serviceOutboundQueue();
     bool handleSendFromOutboundQueue();
     void outboundMsgTask();
-
+    
+#endif // CONFIG_BT_ENABLED
 };
+

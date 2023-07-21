@@ -10,7 +10,6 @@
 #pragma once
 
 #include <sdkconfig.h>
-
 #ifdef CONFIG_BT_ENABLED
 
 #include "BLEGattOutbound.h"

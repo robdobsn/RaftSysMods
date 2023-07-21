@@ -56,8 +56,8 @@ void BLEManager::setup()
 
         // Separate task for sending
         bool useTaskForSending = configGetBool("taskEnable", BLEGattOutbound::DEFAULT_USE_TASK_FOR_SENDING);
-        UBaseType_t taskCore = configGetLong("taskCore", BLEGattOutbound::DEFAULT_TASK_CORE);
-        BaseType_t taskPriority = configGetLong("taskPriority", BLEGattOutbound::DEFAULT_TASK_PRIORITY);
+        uint32_t taskCore = configGetLong("taskCore", BLEGattOutbound::DEFAULT_TASK_CORE);
+        int32_t taskPriority = configGetLong("taskPriority", BLEGattOutbound::DEFAULT_TASK_PRIORITY);
         int taskStackSize = configGetLong("taskStack", BLEGattOutbound::DEFAULT_TASK_SIZE_BYTES);
 
         // Send using indication

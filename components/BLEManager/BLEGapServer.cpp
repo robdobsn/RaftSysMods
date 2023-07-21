@@ -9,6 +9,7 @@
 
 #include <sdkconfig.h>
 #ifdef CONFIG_BT_ENABLED
+
 #include "BLEGapServer.h"
 #include <CommsCoreIF.h>
 #include <CommsChannelMsg.h>
@@ -75,7 +76,7 @@ BLEGapServer::~BLEGapServer()
 bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF,
                 uint32_t maxPacketLen, 
                 uint32_t outboundQueueSize, bool useTaskForSending,
-                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize,
+                uint32_t taskCore, int32_t taskPriority, int taskStackSize,
                 bool sendUsingIndication)
 {
     // Settings
@@ -84,7 +85,7 @@ bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF,
 
     // Setup GATT server
     _gattServer.setup(maxPacketLen, outboundQueueSize, useTaskForSending,
-                taskCore, taskPriority, taskStackSize, sendUsingIndication);
+                (UBaseType_t)taskCore, (BaseType_t)taskPriority, taskStackSize, sendUsingIndication);
     
     // Start NimBLE if not already started
     if (!_isInit)

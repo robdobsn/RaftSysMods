@@ -6,6 +6,9 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#include <sdkconfig.h>
+#ifdef CONFIG_BT_ENABLED
+
 #include "BLEGattOutbound.h"
 #include <CommsChannelMsg.h>
 #include <Logger.h>
@@ -13,6 +16,7 @@
 #include "BLEGattServer.h"
 #include "BLEManStats.h"
 
+// Debug
 // #define DEBUG_SEND_FROM_OUTBOUND_QUEUE
 // #define DEBUG_BLE_TX_MSG
 // #define DEBUG_BLE_PUBLISH
@@ -324,3 +328,5 @@ void BLEGattOutbound::notifyTxComplete(int statusBLEHSCode)
         }
     }
 }
+
+#endif // CONFIG_BT_ENABLED

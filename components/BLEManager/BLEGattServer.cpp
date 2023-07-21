@@ -16,14 +16,16 @@
 #include <RaftUtils.h>
 #include <ArduinoOrAlt.h>
 #include "BLEGattServer.h"
-// #include "host/ble_uuid.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
+// Warn
 #define WARN_ON_BLE_CHAR_WRITE_FAIL
 #define WARN_ON_BLE_CHAR_READ_UNEXPECTED
 #define WARN_ON_BLE_CHAR_WRITE_UNEXPECTED
 #define WARN_ON_BLE_CHAR_WRITE_TAKING_TOO_LONG
+
+// Debug
 // #define DEBUG_CMD_CHARACTERISTIC
 // #define DEBUG_RESP_CHARACTERISTIC
 // #define DEBUG_RESP_SUBSCRIPTION

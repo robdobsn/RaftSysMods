@@ -11,6 +11,7 @@
 
 #include <sdkconfig.h>
 #ifdef CONFIG_BT_ENABLED
+
 #include "host/ble_uuid.h"
 #endif
 #include "BLEManStats.h"
@@ -38,7 +39,7 @@ public:
     bool setup(CommsCoreIF* pCommsCoreIF,
                 uint32_t maxPacketLen, 
                 uint32_t outboundQueueSize, bool useTaskForSending,
-                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize,
+                uint32_t taskCore, int32_t taskPriority, int taskStackSize,
                 bool sendUsingIndication);
     void teardown();
 
@@ -170,11 +171,15 @@ private:
 
 public:
     // Constructor
-    BLEGapServer() {}
+    BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn, 
+                StatusChangeFnType statusChangeFn) {}
 
     // Setup
-    bool setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, bool useTaskForSending,
-                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize)
+    bool setup(CommsCoreIF* pCommsCoreIF,
+                uint32_t maxPacketLen, 
+                uint32_t outboundQueueSize, bool useTaskForSending,
+                uint32_t taskCore, int32_t taskPriority, int taskStackSize,
+                bool sendUsingIndication)
     {
         return false;
     }
@@ -187,6 +192,19 @@ public:
     String getStatusJSON(bool includeBraces, bool shortForm)
     {
         return R"({"rslt":"failDisabled"})";
+    }
+
+    // Restart
+    void restart() {}
+
+    // Get max packet len
+    void registerChannel(CommsCoreIF& commsCoreIF) {}
+
+    // Get RSSI
+    double getRSSI(bool& isValid)
+    {
+        isValid = false;
+        return 0;
     }
 
 #endif // CONFIG_BT_ENABLED
