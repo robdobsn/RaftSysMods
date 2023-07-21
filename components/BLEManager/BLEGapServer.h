@@ -38,7 +38,8 @@ public:
     bool setup(CommsCoreIF* pCommsCoreIF,
                 uint32_t maxPacketLen, 
                 uint32_t outboundQueueSize, bool useTaskForSending,
-                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize);
+                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize,
+                bool sendUsingIndication);
     void teardown();
 
     // Service

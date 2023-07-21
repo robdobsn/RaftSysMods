@@ -34,12 +34,13 @@
 #define WARN_BLE_ON_RESET_EVENT
 
 // Debug
-#define DEBUG_BLE_SETUP
-#define DEBUG_BLE_ADVERTISING
+// #define DEBUG_BLE_SETUP
+// #define DEBUG_BLE_ADVERTISING
 // #define DEBUG_BLE_RX_PAYLOAD
-#define DEBUG_BLE_CONNECT
-#define DEBUG_BLE_GAP_EVENT
+// #define DEBUG_BLE_CONNECT
+// #define DEBUG_BLE_GAP_EVENT
 // #define DEBUG_RSSI_GET_TIME
+// #define DEBUG_BLE_GAP_EVENT_RX_TX
 
 static const char* MODULE_PREFIX = "BLEGapServer";
 
@@ -74,7 +75,8 @@ BLEGapServer::~BLEGapServer()
 bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF,
                 uint32_t maxPacketLen, 
                 uint32_t outboundQueueSize, bool useTaskForSending,
-                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize)
+                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize,
+                bool sendUsingIndication)
 {
     // Settings
     _pCommsCoreIF = pCommsCoreIF;
@@ -82,7 +84,7 @@ bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF,
 
     // Setup GATT server
     _gattServer.setup(maxPacketLen, outboundQueueSize, useTaskForSending,
-                taskCore, taskPriority, taskStackSize);
+                taskCore, taskPriority, taskStackSize, sendUsingIndication);
     
     // Start NimBLE if not already started
     if (!_isInit)
@@ -468,6 +470,9 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
     }
 
 #ifdef DEBUG_BLE_GAP_EVENT
+#ifndef DEBUG_BLE_GAP_EVENT_RX_TX
+    if ((event->type != BLE_GAP_EVENT_NOTIFY_TX) && (event->type != BLE_GAP_EVENT_NOTIFY_RX)) {
+#endif
     LOG_I(MODULE_PREFIX, "GAPEv %s connHandle=%s status=%s errorCode=%s",
                 getGapEventName(event->type).c_str(), 
                 connHandle >= 0 ? String(connHandle).c_str() : "N/A", 
@@ -480,6 +485,9 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
         if (ble_gap_conn_find(connHandle, &desc) == 0)
             debugLogConnInfo("GAPConnInfo ", &desc);
     }
+#ifndef DEBUG_BLE_GAP_EVENT_RX_TX
+    }
+#endif
 #endif
 
     return errorCode;

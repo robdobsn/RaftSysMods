@@ -60,10 +60,14 @@ void BLEManager::setup()
         BaseType_t taskPriority = configGetLong("taskPriority", BLEGattOutbound::DEFAULT_TASK_PRIORITY);
         int taskStackSize = configGetLong("taskStack", BLEGattOutbound::DEFAULT_TASK_SIZE_BYTES);
 
+        // Send using indication
+        bool sendUsingIndication = configGetBool("sendUseInd", true);
+
         // Setup BLE GAP
         bool isOk = _gapServer.setup(getCommsCore(),
                     maxPacketLength, outboundQueueSize, 
-                    useTaskForSending, taskCore, taskPriority, taskStackSize);
+                    useTaskForSending, taskCore, taskPriority, taskStackSize,
+                    sendUsingIndication);
 
         // Log level
         String nimbleLogLevel = configGetString("nimLogLev", "");

@@ -24,7 +24,16 @@
 #undef max
 
 // Callback types
-typedef std::function<void (const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength)> BLEGattServerAccessCBType;
+typedef std::function<void (const char* characteristicName, bool readOp, 
+                const uint8_t *payloadbuffer, int payloadlength)> BLEGattServerAccessCBType;
+
+// Send result
+enum BLEGattServerSendResult
+{
+    BLEGATT_SERVER_SEND_RESULT_OK,
+    BLEGATT_SERVER_SEND_RESULT_FAIL,
+    BLEGATT_SERVER_SEND_RESULT_TRY_AGAIN
+};
 
 class BLEGattServer
 {
@@ -40,7 +49,8 @@ public:
 
     // Setup
     bool setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, bool useTaskForSending,
-                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize);
+                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize,
+                bool sendUsingIndication);
 
     // Service
     void service();
@@ -63,7 +73,7 @@ public:
     void handleSubscription(struct ble_gap_event * pEvent, String& statusStr);
 
     // Send to central (using notification)
-    bool sendToCentral(const uint8_t* pBuf, uint32_t bufLen);
+    BLEGattServerSendResult sendToCentral(const uint8_t* pBuf, uint32_t bufLen);
 
     // Check if notification is enabled
     bool isNotificationEnabled()
@@ -95,8 +105,8 @@ private:
     // Max size of packet that can be received from NimBLE
     static const int BLE_MAX_RX_PACKET_SIZE = 512;
 
-    // ?????
-    uint8_t gatt_svr_sec_test_static_val;
+    // Send using indication
+    bool _sendUsingIndication = false;
 
     // Access callback
     BLEGattServerAccessCBType _accessCallback = nullptr;

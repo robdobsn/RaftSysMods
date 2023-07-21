@@ -1,7 +1,7 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
-// BLEGattCmdResp
-// Handles BLE GATT CmdReso
+// BLEGattServer
+// Handles BLE GATT
 //
 // Rob Dobson 2020-23
 //
@@ -102,7 +102,7 @@ const struct ble_gatt_svc_def BLEGattServer::servicesList[] = {
                                         return _pThis->responseCharAccess(conn_handle, attr_handle, ctxt, arg);
                                     return 0;
                                 },
-                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_INDICATE,
                 .val_handle = &_characteristicValueAttribHandle
             },
             {
@@ -136,9 +136,12 @@ BLEGattServer::~BLEGattServer()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 bool BLEGattServer::setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, bool useTaskForSending,
-                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize)
+                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize, bool sendUsingIndication)
 {
-    return _bleOutbound.setup(maxPacketLen, outboundQueueSize, useTaskForSending, taskCore, taskPriority, taskStackSize);
+    _sendUsingIndication = sendUsingIndication;
+    return _bleOutbound.setup(maxPacketLen, outboundQueueSize, 
+                useTaskForSending, taskCore, taskPriority, taskStackSize,
+                sendUsingIndication);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -354,20 +357,20 @@ void BLEGattServer::registrationCallbackStatic(struct ble_gatt_register_ctxt *ct
 // Send message to central
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen)
+BLEGattServerSendResult BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen)
 {
     // Check connected
     if (!BLEGattServer::_bleIsConnected)
     {
         LOG_W(MODULE_PREFIX, "sendToCentral failed as not connected");
-        return false;
+        return BLEGATT_SERVER_SEND_RESULT_FAIL;
     }
 
     // Check if we are in notify state
     if (!BLEGattServer::_responseNotifyState) 
     {
         LOG_W(MODULE_PREFIX, "sendToCentral failed as client has not subscribed");
-        return false;
+        return BLEGATT_SERVER_SEND_RESULT_FAIL;
     }
 
     // Form buffer to send
@@ -378,7 +381,18 @@ bool BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen)
 #ifdef WARN_ON_BLE_CHAR_WRITE_TAKING_TOO_LONG
     uint64_t nowUS = micros();
 #endif
-    int rc = ble_gatts_notify_custom(BLEGattServer::_bleGapConnHandle, BLEGattServer::_characteristicValueAttribHandle, om);
+
+    // Send
+    int rc = 0;
+    if (_sendUsingIndication)
+    {
+        rc = ble_gatts_indicate_custom(BLEGattServer::_bleGapConnHandle, BLEGattServer::_characteristicValueAttribHandle, om);
+    }
+    else
+    {
+        rc = ble_gatts_notify_custom(BLEGattServer::_bleGapConnHandle, BLEGattServer::_characteristicValueAttribHandle, om);
+    }
+
 #ifdef WARN_ON_BLE_CHAR_WRITE_TAKING_TOO_LONG
     uint64_t elapsedUs = micros() - nowUS;
     if (elapsedUs > 50000)
@@ -386,18 +400,20 @@ bool BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen)
         LOG_W(MODULE_PREFIX, "sendToCentral SLOW took %llduS", elapsedUs);
     }
 #endif
-    if (rc != 0)
+    if (rc == 0)
+        return BLEGATT_SERVER_SEND_RESULT_OK;
+    if ((rc == BLE_HS_EAGAIN) || (rc == BLE_HS_ENOMEM))
+        return BLEGATT_SERVER_SEND_RESULT_TRY_AGAIN;
+
+    // Send failure
+    if (Raft::isTimeout(millis(), _lastBLEErrorMsgMs, MIN_TIME_BETWEEN_ERROR_MSGS_MS) || 
+                (_lastBLEErrorMsgCode != rc))
     {
-        if (Raft::isTimeout(millis(), _lastBLEErrorMsgMs, MIN_TIME_BETWEEN_ERROR_MSGS_MS) || 
-                    (_lastBLEErrorMsgCode != rc))
-        {
-            LOG_W(MODULE_PREFIX, "sendToCentral failed %s (%d) bufLen %d", getHSErrorMsg(rc).c_str(), rc, bufLen);
-            _lastBLEErrorMsgCode = rc;
-            _lastBLEErrorMsgMs = millis();
-        }
-        return false;
+        LOG_W(MODULE_PREFIX, "sendToCentral failed %s (%d) bufLen %d", getHSErrorMsg(rc).c_str(), rc, bufLen);
+        _lastBLEErrorMsgCode = rc;
+        _lastBLEErrorMsgMs = millis();
     }
-    return true;
+    return BLEGATT_SERVER_SEND_RESULT_FAIL;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
