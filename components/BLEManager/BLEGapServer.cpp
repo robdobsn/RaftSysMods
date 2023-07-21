@@ -53,9 +53,9 @@ BLEGapServer* BLEGapServer::_pThis = NULL;
 
 BLEGapServer::BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn, 
                 StatusChangeFnType statusChangeFn) :
-      _gattServer([this](const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength)
+      _gattServer([this](const char* characteristicName, bool readOp, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg)
                     {
-                        return gattAccessCallback(characteristicName, readOp, payloadbuffer, payloadlength);
+                        return gattAccessCallback(characteristicName, readOp, rxMsg.data(), rxMsg.size());
                     },
                     _bleStats)
 {
@@ -463,6 +463,7 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
             break;
         case BLE_GAP_EVENT_MTU:
             statusStr = "mtu:" + String(event->mtu.value) + ",chanID:" + String(event->mtu.channel_id);
+            _gattServer.getOutbound().onMTUSizeInfo(event->mtu.value);
             break;
         case BLE_GAP_EVENT_REPEAT_PAIRING:
             errorCode = gapEventRepeatPairing(event);
@@ -789,7 +790,7 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
         connHandle = event->connect.conn_handle;
         
         // Request preferred MTU
-        rc = ble_att_set_preferred_mtu(PREFERRED_MTU_VALUE);
+        rc = ble_att_set_preferred_mtu(BLEGattOutbound::PREFERRED_MTU_VALUE);
         if (rc != 0) 
         {
             LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to set preferred MTU; rc = %d", rc);

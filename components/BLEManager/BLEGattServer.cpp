@@ -30,6 +30,7 @@
 // #define DEBUG_BLE_REG_SERVICES
 // #define DEBUG_BLE_REG_CHARACTERISTIC
 // #define DEBUG_BLE_REG_DESCRIPTOR
+// #define DEBUG_BLE_GATT_TRY_AGAIN
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Statics, etc
@@ -180,25 +181,15 @@ bool BLEGattServer::sendMsg(CommsChannelMsg& msg)
 // Get data written (to characteristic) by central
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-int BLEGattServer::getDataWrittenToCharacteristic(struct os_mbuf *om, uint16_t min_len, uint16_t max_len,
-                                       void *dst, uint16_t *len)
+int BLEGattServer::getDataWrittenToCharacteristic(struct os_mbuf *om, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>>& rxMsg)
 {
-    uint16_t om_len;
-    int rc;
-
-    om_len = OS_MBUF_PKTLEN(om);
-    if (om_len < min_len || om_len > max_len)
-    {
+    uint16_t om_len = OS_MBUF_PKTLEN(om);
+    if (om_len == 0)
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
-    }
-
-    rc = ble_hs_mbuf_to_flat(om, dst, max_len, len);
-    if (rc != 0)
-    {
-        return BLE_ATT_ERR_UNLIKELY;
-    }
-
-    return 0;
+    rxMsg.resize(om_len);
+    uint16_t len = 0;
+    int rc = ble_hs_mbuf_to_flat(om, rxMsg.data(), rxMsg.size(), &len);
+    return (rc == 0) ? 0 : BLE_ATT_ERR_UNLIKELY;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -218,33 +209,28 @@ int BLEGattServer::commandCharAccess(uint16_t conn_handle, uint16_t attr_handle,
         case BLE_GATT_ACCESS_OP_WRITE_CHR:
         {
             // Get the written data
-            uint16_t rxMsgLen;
-            uint8_t rxMsg[BLE_MAX_RX_PACKET_SIZE];
-            int rc = getDataWrittenToCharacteristic(ctxt->om,
-                                        1,
-                                        sizeof rxMsg,
-                                        rxMsg, 
-                                        &rxMsgLen);
+            std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg;
+            int nimbleRetCode = getDataWrittenToCharacteristic(ctxt->om, rxMsg);
 
             // Debug
-            if (rc == 0)
+            if (nimbleRetCode == 0)
             {
 #ifdef DEBUG_CMD_CHARACTERISTIC
-                LOG_W(MODULE_PREFIX, "cmdCharCB opWrite rxFromCentral len %d", rxMsgLen);
+                LOG_W(MODULE_PREFIX, "cmdCharCB opWrite rxFromCentral nimbleRetCode %d len %d", nimbleRetCode, rxMsg.size());
 #endif
             }
             else
             {
 #ifdef WARN_ON_BLE_CHAR_WRITE_FAIL
-                LOG_W(MODULE_PREFIX, "cmdCharCB opWrite rxFromCentral failed to get mbuf rc=%d", rc);
+                LOG_W(MODULE_PREFIX, "cmdCharCB opWrite rxFromCentral failed to get mbuf nimbleRetCode=%d", nimbleRetCode);
 #endif
             }
 
             // Callback with data
-            if (_accessCallback)
-                _accessCallback("cmdmsg", false, rxMsg, rxMsgLen);
+            if (_accessCallback && (nimbleRetCode==0) && (rxMsg.size() > 0))
+                _accessCallback("cmdmsg", false, rxMsg);
 
-            return rc;
+            return nimbleRetCode;
         }
         case BLE_GATT_ACCESS_OP_READ_CHR:
         {
@@ -403,7 +389,12 @@ BLEGattServerSendResult BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32
     if (rc == 0)
         return BLEGATT_SERVER_SEND_RESULT_OK;
     if ((rc == BLE_HS_EAGAIN) || (rc == BLE_HS_ENOMEM))
+    {
+#ifdef DEBUG_BLE_GATT_TRY_AGAIN
+        LOG_I(MODULE_PREFIX, "sendToCentral failed %s (%d) bufLen %d", getHSErrorMsg(rc).c_str(), rc, bufLen);
+#endif
         return BLEGATT_SERVER_SEND_RESULT_TRY_AGAIN;
+    }
 
     // Send failure
     if (Raft::isTimeout(millis(), _lastBLEErrorMsgMs, MIN_TIME_BETWEEN_ERROR_MSGS_MS) || 

@@ -27,7 +27,10 @@ public:
     static const int DEFAULT_TASK_SIZE_BYTES = 4000;
     static const int DEFAULT_OUTBOUND_MSG_QUEUE_SIZE = 30;
     static const uint32_t BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS = 50;
-    static const uint32_t MAX_BLE_PACKET_LEN_DEFAULT = 450;
+    static const uint32_t MAX_BLE_PACKET_LEN_DEFAULT = 500;
+    static const uint32_t PREFERRED_MTU_VALUE = 512;
+    static const uint32_t DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX = 10;
+    static const uint32_t BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS = 500;
 
     // Constructor
     BLEGattOutbound(BLEGattServer& gattServer, BLEManStats& bleStats);
@@ -50,6 +53,12 @@ public:
     // Message sending
     bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
     bool sendMsg(CommsChannelMsg& msg);
+
+    // Inform of MTU size
+    void onMTUSizeInfo(uint32_t mtuSize)
+    {
+        _mtuSize = mtuSize;
+    }
 
 private:
     // GATT server
@@ -75,9 +84,8 @@ private:
 
     // Outbound messages in flight
     volatile uint32_t _outboundMsgsInFlight = 0;
-    uint32_t _outboundMsgsInFlightMax = 6;
+    uint32_t _outboundMsgsInFlightMax = DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX;
     uint32_t _outbountMsgInFlightLastMs = 0;
-    static const uint32_t BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS = 1000;
 
     // Mutex for in flight variable
     SemaphoreHandle_t _inFlightMutex = nullptr;
@@ -85,6 +93,12 @@ private:
 
     // Max packet len
     uint32_t _maxPacketLen = MAX_BLE_PACKET_LEN_DEFAULT;
+
+    // MTU size
+    uint32_t _mtuSize = PREFERRED_MTU_VALUE;
+
+    // Reduce send packet size from MTU by this amount
+    static const uint32_t MTU_SIZE_REDUCTION = 12;
 
     // Outbound queue
     void serviceOutboundQueue();

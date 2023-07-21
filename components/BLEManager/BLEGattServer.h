@@ -25,7 +25,7 @@
 
 // Callback types
 typedef std::function<void (const char* characteristicName, bool readOp, 
-                const uint8_t *payloadbuffer, int payloadlength)> BLEGattServerAccessCBType;
+                std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg)> BLEGattServerAccessCBType;
 
 // Send result
 enum BLEGattServerSendResult
@@ -102,9 +102,6 @@ private:
     // At registration time this is filled with the charactteristic's value attribute handle
     static uint16_t _characteristicValueAttribHandle;
 
-    // Max size of packet that can be received from NimBLE
-    static const int BLE_MAX_RX_PACKET_SIZE = 512;
-
     // Send using indication
     bool _sendUsingIndication = false;
 
@@ -122,8 +119,7 @@ private:
     static const struct ble_gatt_svc_def servicesList[];
 
     // Get data that has been written to characteristic (sent by central/client)
-    int getDataWrittenToCharacteristic(struct os_mbuf *om, uint16_t min_len, uint16_t max_len,
-                   void *dst, uint16_t *len);
+    int getDataWrittenToCharacteristic(struct os_mbuf *om, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>>& rxMsg);
 
     // Callback on access to characteristics
     int commandCharAccess(uint16_t conn_handle, uint16_t attr_handle,

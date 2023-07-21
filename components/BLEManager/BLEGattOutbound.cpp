@@ -186,8 +186,9 @@ bool BLEGattOutbound::handleSendFromOutboundQueue()
     bool removeFromQueue = true;
     if (bleOutMsg.getBufLen() > _outboundMsgPos)
         toSendLen = bleOutMsg.getBufLen() - _outboundMsgPos;
-    if (toSendLen > _maxPacketLen)
-        toSendLen = _maxPacketLen;
+    uint32_t maxLen = ((_mtuSize != 0) && (_mtuSize > MTU_SIZE_REDUCTION+1)) ? _mtuSize - MTU_SIZE_REDUCTION : _maxPacketLen;
+    if (toSendLen > maxLen)
+        toSendLen = maxLen;
     if (bleOutMsg.getBufLen() > _outboundMsgPos + toSendLen)
         removeFromQueue = false;
     BLEGattServerSendResult rslt = BLEGATT_SERVER_SEND_RESULT_TRY_AGAIN;
@@ -218,10 +219,6 @@ bool BLEGattOutbound::handleSendFromOutboundQueue()
         {
             // Try again later
             removeFromQueue = false;
-
-            // TODO
-            LOG_I(MODULE_PREFIX, "handleSendFromOutboundQueue TRYAGAIN sendLen %d totalLen %d msgPos %d sendOk %d", 
-                    toSendLen, bleOutMsg.getBufLen(), _outboundMsgPos, rslt);
         }
 
         // Check if failed
@@ -262,12 +259,14 @@ bool BLEGattOutbound::handleSendFromOutboundQueue()
     }
     else
     {
-        LOG_I(MODULE_PREFIX, "handleSendFromOutboundQueue sendLen %d totalLen %d msgPos %d sendOk %d leftInQueue %d removeFromQ %d", 
-            toSendLen, bleOutMsg.getBufLen(), _outboundMsgPos, rslt, _outboundQueue.count(), removeFromQueue);
+        LOG_I(MODULE_PREFIX, "handleSendFromOutboundQueue sendLen %d totalLen %d msgPos %d sendOk %s leftInQueue %d removeFromQ %d", 
+            toSendLen, bleOutMsg.getBufLen(), _outboundMsgPos, 
+            rslt == BLEGATT_SERVER_SEND_RESULT_OK ? "OK" : rslt == BLEGATT_SERVER_SEND_RESULT_FAIL ? "FAIL" : "TRYAGAIN", 
+            _outboundQueue.count(), removeFromQueue);
     }
 #endif
 
-    return rslt;
+    return rslt == BLEGATT_SERVER_SEND_RESULT_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
