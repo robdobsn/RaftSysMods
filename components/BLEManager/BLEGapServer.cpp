@@ -242,10 +242,10 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm)
         String advNameStr = advertisingActive ? R"("advName":")" + String(ble_svc_gap_device_name()) : "";
 
         // Discovery active
-        String isDiscoveryStr = R"(isDisc":)" + String(ble_gap_disc_active() ? 1 : 0);
+        String isDiscoveryStr = R"("isDisc":)" + String(ble_gap_disc_active() ? 1 : 0);
 
         // Connection active
-        String connStr = R"(isConn":)" + String(ble_gap_conn_active() ? 1 : 0);
+        String connStr = R"("isConn":)" + String(ble_gap_conn_active() ? 1 : 0);
 
         // BLE MAC address
         String bleMACStr = R"("BLEMAC":")" + getSystemMACAddressStr(ESP_MAC_BT, ":") + R"(")";

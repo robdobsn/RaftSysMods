@@ -158,7 +158,7 @@ void BLEManager::addCommsChannels(CommsCoreIF& commsCoreIF)
 
 String BLEManager::getStatusJSON()
 {
-    return _gapServer.getStatusJSON(true, false);
+    return R"({"rslt":"ok",)" + _gapServer.getStatusJSON(false, false) + "}";
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
