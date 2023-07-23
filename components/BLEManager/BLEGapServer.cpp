@@ -22,6 +22,10 @@
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
 
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
+#include "esp_nimble_hci.h"
+#endif
+
 // Use a separate thread to send over BLE
 // #define USE_SEPARATE_THREAD_FOR_BLE_SENDING
 

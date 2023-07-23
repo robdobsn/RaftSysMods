@@ -275,14 +275,11 @@ void WebServer::webSocketSetup()
 
             // Debug
 #ifdef DEBUG_WEBSERVER_WEBSOCKETS
-            LOG_I(MODULE_PREFIX, "webSocketSetup prefix %s wsName %s protocol %s maxConn %d maxPacketSize %ld maxTxQueued %ld pingMs %ld channelID %d", 
+            LOG_I(MODULE_PREFIX, "webSocketSetup prefix %s wsName %s protocol %s maxConn channelID %d", 
                         interfaceName.c_str(), 
                         wsName.c_str(),
                         protocol.c_str(), 
                         maxConn, 
-                        jsonConfig.getLong("pktMaxBytes", 5000),
-                        jsonConfig.getLong("txQueueMax", 2),
-                        jsonConfig.getLong("pingMs", 2000),
                         wsChanID);
 #endif
         }

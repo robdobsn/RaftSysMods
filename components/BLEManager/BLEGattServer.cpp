@@ -41,9 +41,6 @@
 // Log prefix
 static const char *MODULE_PREFIX = "BLEGattServer";
 
-// Singleton
-BLEGattServer* BLEGattServer::_pThis = NULL;
-
 /**
  * The service consists of the following characteristics:
  *     o motionCommand: used to request motion
@@ -71,53 +68,6 @@ ble_uuid128_t BLEGattServer::GATT_RICV2_MESSAGE_RESPONSE_UUID =
         .value = {0x8f, 0x7c, 0xe5, 0x5b, 0x30, 0x0d, 0x10, 0xa5,
                   0x26, 0x46, 0xfd, 0x9c, 0x7e, 0x67, 0x76, 0xaa}};
 
-// Statics
-uint16_t BLEGattServer::_characteristicValueAttribHandle = 0;
-
-// List of services
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-const struct ble_gatt_svc_def BLEGattServer::servicesList[] = {
-    {
-        /*** Service: Security test. */
-        .type = BLE_GATT_SVC_TYPE_PRIMARY,
-        .uuid = &GATT_RICV2_MAIN_SERVICE_UUID.u,
-        .characteristics = (struct ble_gatt_chr_def[]){
-            {
-                .uuid = &GATT_RICV2_MESSAGE_COMMAND_UUID.u,
-                .access_cb = [](uint16_t conn_handle, uint16_t attr_handle,
-                                          struct ble_gatt_access_ctxt *ctxt,
-                                          void *arg)
-                                {
-                                    if (_pThis)
-                                        return _pThis->commandCharAccess(conn_handle, attr_handle, ctxt, arg);
-                                    return 0;
-                                },
-                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP
-            },
-            {
-                .uuid = &GATT_RICV2_MESSAGE_RESPONSE_UUID.u,
-                .access_cb = [](uint16_t conn_handle, uint16_t attr_handle,
-                                          struct ble_gatt_access_ctxt *ctxt,
-                                          void *arg)
-                                {
-                                    if (_pThis)
-                                        return _pThis->responseCharAccess(conn_handle, attr_handle, ctxt, arg);
-                                    return 0;
-                                },
-                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_INDICATE,
-                .val_handle = &_characteristicValueAttribHandle
-            },
-            {
-                0, /* No more characteristics in this service. */
-            }},
-    },
-    {
-        0, /* No more services. */
-    },
-};
-#pragma GCC diagnostic pop
-
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constructor and destructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -125,7 +75,6 @@ const struct ble_gatt_svc_def BLEGattServer::servicesList[] = {
 BLEGattServer::BLEGattServer(BLEGattServerAccessCBType callback, BLEManStats& bleStats) :
     _bleOutbound(*this, bleStats)
 {
-    _pThis = this;
     _accessCallback = callback;
 }
 
@@ -345,6 +294,11 @@ void BLEGattServer::registrationCallbackStatic(struct ble_gatt_register_ctxt *ct
 // Send message to central
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
+#define ble_gatts_indicate_custom ble_gattc_indicate_custom
+#define ble_gatts_notify_custom ble_gattc_notify_custom
+#endif
+
 BLEGattServerSendResult BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen)
 {
     // Check connected
@@ -415,17 +369,56 @@ BLEGattServerSendResult BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32
 
 int BLEGattServer::start()
 {
+    // Characteristics (zero all entries initially, the last entry must remain all zeros)
+    mainServiceCharList.resize(3);
+    memset(mainServiceCharList.data(), 0, sizeof(struct ble_gatt_chr_def) * mainServiceCharList.size());
+
+    // Command characteristic
+    mainServiceCharList[0].uuid = &GATT_RICV2_MESSAGE_COMMAND_UUID.u;
+    mainServiceCharList[0].access_cb = [](uint16_t conn_handle, uint16_t attr_handle,
+                                              struct ble_gatt_access_ctxt *ctxt,
+                                              void *arg)
+    {
+        if (arg)
+            ((BLEGattServer*)arg)->commandCharAccess(conn_handle, attr_handle, ctxt, arg);
+        return 0;
+    };
+    mainServiceCharList[0].arg = this;
+    mainServiceCharList[0].flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP;
+
+    // Response characteristic
+    mainServiceCharList[1].uuid = &GATT_RICV2_MESSAGE_RESPONSE_UUID.u;
+    mainServiceCharList[1].access_cb = [](uint16_t conn_handle, uint16_t attr_handle,
+                                              struct ble_gatt_access_ctxt *ctxt,
+                                              void *arg)
+    {
+        if (arg)
+            ((BLEGattServer*)arg)->responseCharAccess(conn_handle, attr_handle, ctxt, arg);
+        return 0;
+    };
+    mainServiceCharList[1].arg = this;
+    mainServiceCharList[1].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_INDICATE;
+
+    // Services list (zero all entries initially, the last entry must remain all zeros)
+    servicesList.resize(2);
+    memset(servicesList.data(), 0, sizeof(struct ble_gatt_svc_def) * servicesList.size());
+    
+    // Main service
+    servicesList[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
+    servicesList[0].uuid = &GATT_RICV2_MAIN_SERVICE_UUID.u;
+    servicesList[0].characteristics = mainServiceCharList.data();
+
     // Initialise GAP and GATT
     ble_svc_gap_init();
     ble_svc_gatt_init();
 
     // Prepare for services to be added
-    int rc = ble_gatts_count_cfg(servicesList);
+    int rc = ble_gatts_count_cfg(servicesList.data());
     if (rc != 0)
         return rc;
 
     // Add services
-    rc = ble_gatts_add_svcs(servicesList);
+    rc = ble_gatts_add_svcs(servicesList.data());
     if (rc != 0)
         return rc;
 

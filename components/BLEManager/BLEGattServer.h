@@ -14,6 +14,7 @@
 
 #include "BLEGattOutbound.h"
 #include <CommsChannelMsg.h>
+#include <vector>
 
 #include <functional>
 #undef min
@@ -95,11 +96,8 @@ public:
 
 private:
 
-    // Singleton
-    static BLEGattServer* _pThis;
-
     // At registration time this is filled with the charactteristic's value attribute handle
-    static uint16_t _characteristicValueAttribHandle;
+    uint16_t _characteristicValueAttribHandle = 0;
 
     // Send using indication
     bool _sendUsingIndication = false;
@@ -114,8 +112,9 @@ private:
     // State of notify (send from peripheral)
     bool _responseNotifyState;
 
-    // Services list
-    static const struct ble_gatt_svc_def servicesList[];
+    // Services and characteristics lists
+    std::vector<struct ble_gatt_svc_def> servicesList;
+    std::vector<struct ble_gatt_chr_def> mainServiceCharList;
 
     // Get data that has been written to characteristic (sent by central/client)
     int getDataWrittenToCharacteristic(struct os_mbuf *om, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>>& rxMsg);
@@ -128,7 +127,7 @@ private:
                              struct ble_gatt_access_ctxt *ctxt,
                              void *arg);
 
-    const uint32_t MIN_TIME_BETWEEN_ERROR_MSGS_MS = 500;
+    static const uint32_t MIN_TIME_BETWEEN_ERROR_MSGS_MS = 500;
     uint32_t _lastBLEErrorMsgMs;
     uint32_t _lastBLEErrorMsgCode;
 
