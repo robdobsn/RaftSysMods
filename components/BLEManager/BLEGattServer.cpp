@@ -398,6 +398,7 @@ int BLEGattServer::start()
     };
     mainServiceCharList[1].arg = this;
     mainServiceCharList[1].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_INDICATE;
+    mainServiceCharList[1].val_handle = &_characteristicValueAttribHandle;
 
     // Services list (zero all entries initially, the last entry must remain all zeros)
     servicesList.resize(2);
