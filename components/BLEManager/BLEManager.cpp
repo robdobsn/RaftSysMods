@@ -191,12 +191,10 @@ String BLEManager::getAdvertisingName()
 {
     // Name
     String adName = configGetString("adName", "");
-    bool friendlyNameIsSet = false;
     if (adName.length() == 0)
     {
-        String friendlyName = getFriendlyName(friendlyNameIsSet);
-        if (friendlyNameIsSet)
-            adName = friendlyName;
+        bool friendlyNameIsSet = false;
+        adName = getFriendlyName(friendlyNameIsSet);
     }
     if (adName.length() == 0)
         adName = _defaultAdvName;

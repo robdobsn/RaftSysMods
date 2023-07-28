@@ -8,15 +8,15 @@
 
 #pragma once
 
-#include <ArduinoOrAlt.h>
-#include <APISourceInfo.h>
-#include <SysModBase.h>
-#include <CommsCoreIF.h>
 #include <list>
 #include <vector>
+#include "RaftArduino.h"
+#include "APISourceInfo.h"
+#include "SysModBase.h"
 
 class ConfigBase;
 class RobotController;
+class CommsCoreIF;
 
 // #define DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS 1
 
@@ -47,7 +47,7 @@ protected:
     virtual void addRestAPIEndpoints(RestAPIEndpointManager& endpointManager) override final;
     
     // Add comms channels
-    virtual void addCommsChannels(CommsCoreIF& commsCoreIF) override final
+    virtual void addCommsChannels(CommsCoreIF& commsCore) override final
     {
     }
 

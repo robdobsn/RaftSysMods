@@ -150,7 +150,7 @@ RaftRetCode CommandFile::apiFileRun(const String &reqStr, String& respStr, const
 bool CommandFile::handleAPIFile(String& fileName)
 {
     // Read contents
-    char* pAPICode = fileSystem.getFileContents("", fileName.c_str(), MAX_API_FILE_LENGTH);
+    char* pAPICode = (char*)fileSystem.getFileContents("", fileName.c_str(), MAX_API_FILE_LENGTH);
     if (!pAPICode)
     {
         LOG_W(MODULE_PREFIX, "handleAPIFile unable to read file %s", fileName.c_str());

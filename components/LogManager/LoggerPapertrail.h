@@ -9,7 +9,7 @@
 #pragma once
 
 #include <LoggerBase.h>
-#include <ArduinoOrAlt.h>
+#include <RaftArduino.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>

@@ -63,5 +63,7 @@ private:
 
     // Helpers
     String getAdvertisingName();
+
+    // Restart API
     RaftRetCode apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
 };

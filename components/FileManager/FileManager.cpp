@@ -178,7 +178,7 @@ RaftRetCode FileManager::apiFileRead(const String &reqStr, String& respStr, cons
     if (extraPath.length() > 0)
         fileNameStr += "/" + extraPath;
     fileNameStr.replace("~", "/");
-    char* pFileContents = fileSystem.getFileContents(fileSystemStr, fileNameStr);
+    char* pFileContents = (char*)fileSystem.getFileContents(fileSystemStr, fileNameStr);
     if (!pFileContents)
     {
         respStr = "";
@@ -235,7 +235,7 @@ RaftRetCode FileManager::apiUploadFileBlock(const String& req, FileStreamBlock& 
     if (_pProtocolExchange)
         return _pProtocolExchange->handleFileUploadBlock(req, fileStreamBlock, sourceInfo, 
                     FileStreamBase::FILE_STREAM_CONTENT_TYPE_FILE, "");
-    return RaftRetCode::RAFT_INVALID_OPERATION;
+    return RAFT_INVALID_OPERATION;
 }
 
 // /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

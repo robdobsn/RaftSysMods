@@ -12,7 +12,7 @@
 #include <LoggerCore.h>
 #include <LoggerPapertrail.h>
 
-#define DEBUG_LOG_MANAGER
+// #define DEBUG_LOG_MANAGER
 
 // Log prefix
 #ifdef DEBUG_LOG_MANAGER

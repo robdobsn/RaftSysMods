@@ -7,12 +7,12 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <Logger.h>
-#include <NetworkManager.h>
-#include <RaftUtils.h>
-#include <ConfigNVS.h>
-#include <RestAPIEndpointManager.h>
-#include <SysManager.h>
+#include "Logger.h"
+#include "NetworkManager.h"
+#include "RaftUtils.h"
+#include "ConfigNVS.h"
+#include "RestAPIEndpointManager.h"
+#include "SysManager.h"
 
 // Log prefix
 static const char *MODULE_PREFIX = "NetMan";
@@ -264,7 +264,7 @@ RaftRetCode NetworkManager::apiWifiClear(const String &reqStr, String &respStr, 
         // Request a system restart
         if (sysRestart && getSysManager())
             getSysManager()->systemRestart();
-        return RaftRetCode::RAFT_OK;
+        return RAFT_OK;
     }
     return Raft::setJsonErrorResult(reqStr.c_str(), respStr, esp_err_to_name(err));
 }

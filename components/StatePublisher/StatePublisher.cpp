@@ -8,7 +8,7 @@
 
 #include "StatePublisher.h"
 #include <Logger.h>
-#include <ArduinoOrAlt.h>
+#include <RaftArduino.h>
 #include <RaftUtils.h>
 #include <CommsCoreIF.h>
 #include <CommsChannelMsg.h>
@@ -111,7 +111,7 @@ void StatePublisher::setup()
 
             // Check for interfaces
             int numRatesAndInterfaces = 0;
-            if (RdJson::getType(numRatesAndInterfaces, ratesJSON.c_str()) == RD_JSMN_ARRAY)
+            if (RaftJson::getType(numRatesAndInterfaces, ratesJSON.c_str()) == RD_JSMN_ARRAY)
             {
                 // Iterate rates and interfaces
                 for (int rateIdx = 0; rateIdx < numRatesAndInterfaces; rateIdx++)
@@ -119,7 +119,7 @@ void StatePublisher::setup()
                     // TODO refactor to use JSON paths
 
                     // Get the rate and interface info
-                    ConfigBase rateAndInterfaceInfo = RdJson::getString(("["+String(rateIdx)+"]").c_str(), "{}", ratesJSON.c_str());
+                    ConfigBase rateAndInterfaceInfo = RaftJson::getString(("["+String(rateIdx)+"]").c_str(), "{}", ratesJSON.c_str());
                     String interface = rateAndInterfaceInfo.getString("if", "");
                     String protocol = rateAndInterfaceInfo.getString("protocol", "");
                     double rateHz = rateAndInterfaceInfo.getDouble("rateHz", 1.0);
@@ -452,7 +452,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
 
     // Extract params
     std::vector<String> params;
-    std::vector<RdJson::NameValuePair> nameValues;
+    std::vector<RaftJson::NameValuePair> nameValues;
     RestAPIEndpointManager::getParamsAndNameValues(reqStr.c_str(), params, nameValues);
 
     // Can't use the full request as the reqStr in the response as it won't be valid json
@@ -461,12 +461,12 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
         cmdName = params[0];
 
     // JSON params and channelID
-    JSONParams jsonParams = RdJson::getJSONFromNVPairs(nameValues, true); 
+    JSONParams jsonParams = RaftJson::getJSONFromNVPairs(nameValues, true); 
     uint32_t channelID = sourceInfo.channelID;
 
     // Debug
 #ifdef DEBUG_API_SUBSCRIPTION
-    for (RdJson::NameValuePair& nvp : nameValues)
+    for (RaftJson::NameValuePair& nvp : nameValues)
     {
         LOG_I(MODULE_PREFIX, "apiSubscription %s = %s", nvp.name.c_str(), nvp.value.c_str());
     }

@@ -192,16 +192,16 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
     // Check valid
     if (!_pCommsCoreIF)
     {
-        Raft::setJsonErrorResult(reqStr.c_str(), respStr, "noCommsChannelManager");
-        LOG_W(MODULE_PREFIX, "apiCommandSerial noCommsChannelManager");
+        Raft::setJsonErrorResult(reqStr.c_str(), respStr, "noCommsCore");
+        LOG_W(MODULE_PREFIX, "apiCommandSerial noCommsCore");
         return RaftRetCode::RAFT_INVALID_OBJECT;
     }
 
     // Extract parameters
     std::vector<String> params;
-    std::vector<RdJson::NameValuePair> nameValues;
+    std::vector<RaftJson::NameValuePair> nameValues;
     RestAPIEndpointManager::getParamsAndNameValues(reqStr.c_str(), params, nameValues);
-    JSONParams nvJson = RdJson::getJSONFromNVPairs(nameValues, true);
+    JSONParams nvJson = RaftJson::getJSONFromNVPairs(nameValues, true);
 
     // Check valid
     if (params.size() < 3)

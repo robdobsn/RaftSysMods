@@ -36,7 +36,7 @@ protected:
     virtual void addRestAPIEndpoints(RestAPIEndpointManager &endpointManager) override final;
 
     // Add comms channels
-    virtual void addCommsChannels(CommsCoreIF& commsCoreIF) override final;
+    virtual void addCommsChannels(CommsCoreIF& commsCore) override final;
 
 private:
 
@@ -46,7 +46,7 @@ private:
     // Comms core IF
     CommsCoreIF* _pCommsCoreIF = nullptr;
 
-    // EndpointID used to identify this message channel to the CommsChannelManager object
+    // EndpointID used to identify this message channel to the CommsCoreIF
     uint32_t _commsChannelID = CommsCoreIF::CHANNEL_ID_UNDEFINED;
     uint32_t _bridgeID = COMMS_BRIDGE_ID_COM_SERIAL_0;
 

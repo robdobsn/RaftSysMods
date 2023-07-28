@@ -8,10 +8,10 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "ESPOTAUpdate.h"
-#include <Logger.h>
-#include <ArduinoOrAlt.h>
-#include <RestAPIEndpointManager.h>
-#include <esp_system.h>
+#include "RestAPIEndpointManager.h"
+#include "Logger.h"
+#include "esp_system.h"
+#include "RaftArduino.h"
 
 static const char* MODULE_PREFIX = "ESPOTAUpdate";
 
@@ -168,7 +168,7 @@ RaftRetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
     {
         if (!fileStreamStart(fileStreamBlock.filename, 
                     fileStreamBlock.fileLenValid ? fileStreamBlock.fileLen : fileStreamBlock.contentLen))
-            return RaftRetCode::RAFT_INVALID_OPERATION;
+            return RAFT_INVALID_OPERATION;
     }
 
     // Check if in progress
@@ -183,7 +183,7 @@ RaftRetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
         {
             _otaDirectInProgress = false;
             LOG_E(MODULE_PREFIX, "esp_ota_write failed! err=0x%x", err);
-            return RaftRetCode::RAFT_INVALID_DATA;
+            return RAFT_OTHER_FAILURE;
         }
     }
 
@@ -191,10 +191,10 @@ RaftRetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
     if (fileStreamBlock.finalBlock)
     {
         if (!firmwareUpdateEnd())
-            return RaftRetCode::RAFT_INVALID_DATA;
+            return RAFT_INVALID_DATA;
     }
 
-    return RaftRetCode::RAFT_OK;
+    return RAFT_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

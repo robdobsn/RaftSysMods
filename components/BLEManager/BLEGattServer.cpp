@@ -14,7 +14,7 @@
 #include <string.h>
 #include <Logger.h>
 #include <RaftUtils.h>
-#include <ArduinoOrAlt.h>
+#include <RaftArduino.h>
 #include "BLEGattServer.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"

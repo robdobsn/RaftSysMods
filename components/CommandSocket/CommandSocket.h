@@ -53,7 +53,7 @@ private:
     bool _begun;
     String _protocol;
 
-    // EndpointID used to identify this message channel to the CommsChannelManager object
+    // EndpointID used to identify this message channel to the CommsCoreIF
     uint32_t _commsChannelID;
 
 #ifdef USE_ASYNC_SOCKET_FOR_COMMAND_SOCKET

@@ -9,14 +9,14 @@
 
 #include <Logger.h>
 #include "SerialConsole.h"
-#include <RaftUtils.h>
-#include <CommsCoreIF.h>
-#include <CommsChannelMsg.h>
-#include <CommsChannelSettings.h>
 #include <RestAPIEndpointManager.h>
 #include <ConfigBase.h>
-#include <JSONParams.h>
 #include <driver/uart.h>
+#include "CommsChannelSettings.h"
+#include "CommsCoreIF.h"
+#include <RaftUtils.h>
+#include <CommsChannelMsg.h>
+#include <JSONParams.h>
 
 // Log prefix
 static const char *MODULE_PREFIX = "SerialConsole";
@@ -130,13 +130,13 @@ void SerialConsole::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager)
 // Comms channels
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void SerialConsole::addCommsChannels(CommsCoreIF& commsCoreIF)
+void SerialConsole::addCommsChannels(CommsCoreIF& commsCore)
 {
     // Comms channel
     static CommsChannelSettings commsChannelSettings;
 
     // Register as a channel of protocol messages
-    _commsChannelID = commsCoreIF.registerChannel(_protocol.c_str(),
+    _commsChannelID = commsCore.registerChannel(_protocol.c_str(),
             modName(),
             modName(),
             std::bind(&SerialConsole::sendMsg, this, std::placeholders::_1),
@@ -415,7 +415,7 @@ RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
             if (err != ESP_OK)
             {
                 LOG_E(MODULE_PREFIX, "receiveCmdJson FAILED to remove uart driver from port %d, err %d", _uartNum, err);
-                return RaftRetCode::RAFT_INVALID_DATA;
+                return RAFT_INVALID_DATA;
             }
 
             // Install uart driver            
@@ -423,12 +423,12 @@ RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
             if (err != ESP_OK)
             {
                 LOG_E(MODULE_PREFIX, "receiveCmdJson FAILED to install uart driver to port %d, err %d", _uartNum, err);
-                return RaftRetCode::RAFT_INVALID_DATA;
+                return RAFT_INVALID_DATA;
             }
         }
-        return RaftRetCode::RAFT_OK;
+        return RAFT_OK;
     }
-    return RaftRetCode::RAFT_INVALID_OPERATION;
+    return RAFT_INVALID_OPERATION;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -439,9 +439,9 @@ RaftRetCode SerialConsole::apiConsole(const String &reqStr, String& respStr, con
 {
     // Extract parameters
     std::vector<String> params;
-    std::vector<RdJson::NameValuePair> nameValues;
+    std::vector<RaftJson::NameValuePair> nameValues;
     RestAPIEndpointManager::getParamsAndNameValues(reqStr.c_str(), params, nameValues);
-    JSONParams nvJson = RdJson::getJSONFromNVPairs(nameValues, true);
+    JSONParams nvJson = RaftJson::getJSONFromNVPairs(nameValues, true);
 
     // Check valid
     if (params.size() < 2)

@@ -51,7 +51,7 @@ protected:
     virtual void addRestAPIEndpoints(RestAPIEndpointManager& endpointManager) override final;
     
     // Add comms channels
-    virtual void addCommsChannels(CommsCoreIF& commsCoreIF) override final;
+    virtual void addCommsChannels(CommsCoreIF& commsCore) override final;
 
     // Handle JSON command
     virtual RaftRetCode receiveCmdJSON(const char* cmdJSON) override final;
@@ -102,7 +102,7 @@ private:
     // Cur state (XON/XOFF etc)
     CommandRxState _cmdRxState;
 
-    // EndpointID used to identify this message channel to the CommsChannelManager object
+    // EndpointID used to identify this message channel to the CommsCoreIF
     uint32_t _commsChannelID;
 
     // ProtocolOverAscii to handle comms through this serial port with MSB set

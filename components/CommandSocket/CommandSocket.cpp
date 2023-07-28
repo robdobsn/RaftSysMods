@@ -10,10 +10,10 @@
 #include <CommandSocket.h>
 #include <RaftUtils.h>
 #include <RestAPIEndpointManager.h>
+#include <NetworkSystem.h>
+#include "CommsChannelSettings.h"
 #include <CommsCoreIF.h>
 #include <CommsChannelMsg.h>
-#include <CommsChannelSettings.h>
-#include <NetworkSystem.h>
 
 static const char *MODULE_PREFIX = "CommandSocket";
 
@@ -240,9 +240,9 @@ void CommandSocket::addClient(AsyncClient* pClient)
             // }
             // LOG_I(MODULE_PREFIX, "onData RX len %d %s", len, outBuf);
 
-            // Send the message to the CommsChannelManager
-            if (getCommsChannelManager())
-                getCommsChannelManager()->inboundHandleMsg(this->_commsChannelID, pRxData, len);
+            // Send the message to the CommsCoreIF
+            if (getCommsCore())
+                getCommsCore()->inboundHandleMsg(this->_commsChannelID, pRxData, len);
 
             // Handle the data
             // handleData(buf, len);

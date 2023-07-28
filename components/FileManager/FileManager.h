@@ -9,14 +9,14 @@
 
 #pragma once
 
-#include <RaftUtils.h>
 #include <ConfigBase.h>
 #include <SysModBase.h>
-#include <ProtocolExchange.h>
-#include <FileStreamBlock.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#include <freertos/semphr.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "RaftUtils.h"
+#include "FileStreamBlock.h"
+#include "ProtocolExchange.h"
 
 class RestAPIEndpointManager;
 class APISourceInfo;

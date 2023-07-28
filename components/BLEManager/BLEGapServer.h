@@ -86,7 +86,7 @@ private:
     // Gatt server
     BLEGattServer _gattServer;
 
-    // ChannelID used to identify this message channel to the CommsChannelManager object
+    // ChannelID used to identify this message channel to the CommsCoreIF
     uint32_t _commsChannelID = CommsCoreIF::CHANNEL_ID_UNDEFINED;
 
     // Status

@@ -46,7 +46,7 @@ private:
     // MQTT client
     RaftMQTTClient _mqttClient;
 
-    // EndpointID used to identify this message channel to the CommsChannelManager object
+    // EndpointID used to identify this message channel to the CommsCoreIF object
     uint32_t _commsChannelID;
 
     // Helpers
