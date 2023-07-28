@@ -13,10 +13,10 @@
 #include "RaftArduino.h"
 #include "APISourceInfo.h"
 #include "SysModBase.h"
+#include "CommsCoreIF.h"
 
 class ConfigBase;
 class RobotController;
-class CommsCoreIF;
 
 // #define DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS 1
 

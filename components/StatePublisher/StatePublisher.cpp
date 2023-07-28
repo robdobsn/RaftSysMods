@@ -111,7 +111,7 @@ void StatePublisher::setup()
 
             // Check for interfaces
             int numRatesAndInterfaces = 0;
-            if (RaftJson::getType(numRatesAndInterfaces, ratesJSON.c_str()) == RD_JSMN_ARRAY)
+            if (RaftJson::getType(numRatesAndInterfaces, ratesJSON.c_str()) == JSMN_ARRAY)
             {
                 // Iterate rates and interfaces
                 for (int rateIdx = 0; rateIdx < numRatesAndInterfaces; rateIdx++)
