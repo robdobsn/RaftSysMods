@@ -47,7 +47,7 @@ void NetworkManager::setup()
     String friendlyName = getSysManager()->getFriendlyName(friendlyNameSet);
     if (!friendlyName.isEmpty())
         networkSystem.setHostname(friendlyName.c_str());
-    
+
     // Setup network system
     bool setupOk = networkSystem.setup(networkSettings);
 

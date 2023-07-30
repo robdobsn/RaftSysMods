@@ -83,6 +83,11 @@ private:
     static const uint32_t LL_PACKET_TIME = 2120;
     static const uint32_t LL_PACKET_LENGTH = 251;
 
+    // Preferred connection interval
+    static const uint16_t PREF_CONN_INTERVAL = 6; // 7.5ms
+    static const uint16_t PREF_CONN_LATENCY = 0;
+    static const uint16_t PREF_SUPERVISORY_TIMEOUT = 1000; // 10s
+
     // Gatt server
     BLEGattServer _gattServer;
 
@@ -128,6 +133,11 @@ private:
     static const uint32_t ADVERTISING_CHECK_MS = 3000;
 #endif
 
+    // Check connection interval some time after connection
+    bool _connIntervalCheckPending = false;
+    uint32_t _connIntervalCheckPendingStartMs = 0;
+    static const uint32_t CONN_INTERVAL_CHECK_MS = 200;
+
     // Advertising
     bool startAdvertising();
     void stopAdvertising();
@@ -153,6 +163,7 @@ private:
     String getGapEventName(int eventType);
     int gapEventConnect(struct ble_gap_event *event, String& statusStr, int& connHandle);
     int gapEventDisconnect(struct ble_gap_event *event, String& statusStr, int& connHandle);
+    int gapEventConnUpdate(struct ble_gap_event *event, String& statusStr, int& connHandle);
     int gapEventRepeatPairing(struct ble_gap_event *event);
     static void debugLogConnInfo(const char* prefix, struct ble_gap_conn_desc *desc);
 
@@ -166,6 +177,7 @@ private:
     bool nimbleStart();
     bool nimbleStop();
     uint32_t parkmiller_next(uint32_t seed) const;
+    void requestConnInterval();
 
 #else // CONFIG_BT_ENABLED
 

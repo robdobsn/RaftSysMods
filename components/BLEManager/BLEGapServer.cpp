@@ -46,8 +46,10 @@
 // #define DEBUG_BLE_GAP_EVENT
 // #define DEBUG_RSSI_GET_TIME
 // #define DEBUG_BLE_GAP_EVENT_RX_TX
+// #define DEBUG_BLE_PERF_CALC_MIN
+// #define DEBUG_BLE_PERF_CALC_FULL_MAY_AFFECT_MEASUREMENT
 
-static const char* MODULE_PREFIX = "BLEGapServer";
+static const char* MODULE_PREFIX = "BLEGap";
 
 // Singleton
 BLEGapServer* BLEGapServer::_pThis = NULL;
@@ -162,6 +164,15 @@ void BLEGapServer::service()
 
     // Service getting RSSI value
     serviceGettingRSSI();
+
+    // Check connection interval some time after connection
+    if (_connIntervalCheckPending && 
+            Raft::isTimeout(millis(), _connIntervalCheckPendingStartMs, CONN_INTERVAL_CHECK_MS))
+    {
+        // Request conn interval we want
+        requestConnInterval();
+        _connIntervalCheckPending = false;
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -446,8 +457,7 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
             errorCode = gapEventDisconnect(event, statusStr, connHandle);
             break;
         case BLE_GAP_EVENT_CONN_UPDATE:
-            statusStr = BLEGattServer::getHSErrorMsg(event->conn_update.status);
-            connHandle = event->conn_update.conn_handle;
+            errorCode = gapEventConnUpdate(event, statusStr, connHandle);
             break;
         case BLE_GAP_EVENT_ADV_COMPLETE:
             statusStr = (event->adv_complete.reason == 0 ? String("new-conn") : 
@@ -549,14 +559,20 @@ void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readO
         // Update test stats
         _bleStats.rxTestFrame(payloadlength, isSeqOk, isDataOk);
 
-        // Message
+        // Debug
+#if defined(DEBUG_BLE_PERF_CALC_FULL_MAY_AFFECT_MEASUREMENT)
         LOG_I(MODULE_PREFIX, "%s inMsgCount %4d rate %8.1fBytesPS seqErrs %4d dataErrs %6d  len %4d", 
                     isFirst ? "FIRST  " : (isSeqOk & isDataOk) ? "OK     " : !isSeqOk ? "SEQERR " : "DATERR ",
-                    inMsgCount,
+                    inMsgCount+1,
                     _bleStats.getTestRate(),
                     _bleStats.getTestSeqErrCount(),
                     _bleStats.getTestDataErrCount(),
-                    payloadlength);        
+                    payloadlength);
+#elif defined(DEBUG_BLE_PERF_CALC_MIN)
+        LOG_I(MODULE_PREFIX, "%s %.1fBPS", 
+                    isFirst ? "F" : (isSeqOk & isDataOk) ? "K" : !isSeqOk ? "Q" : "D",
+                    _bleStats.getTestRate());
+#endif
     }
     else
     {
@@ -801,26 +817,39 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
             LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to set preferred MTU; rc = %d", rc);
         }
 
-        // Upgrade data length (DLE)
-        rc = ble_hs_hci_util_set_data_len(event->connect.conn_handle,
-                            LL_PACKET_LENGTH,
-                            LL_PACKET_TIME);
+        // Preferred PHY (if supported)
+#if IDF_TARGET_ESP32S3
+#pragma message "TODO: set preferred PHY for ESP32-S3"
+        ble_gap_set_prefered_default_le_phy(BLE_GAP_LE_PHY_2M_MASK, BLE_GAP_LE_PHY_2M_MASK);
+#else
+#pragma message "TODO: set preferred PHY for ESP32"
+#endif
 
-        // Request an update to the connection parameters to try to ensure minimum connection interval
-        struct ble_gap_upd_params params;
-        memset(&params, 0, sizeof(params));
-        params.itvl_min = 6;
-        params.itvl_max = 6;
-        params.latency = 0;
-        params.supervision_timeout = 1000;
-        params.min_ce_len = 0x0001;
-        params.max_ce_len = 0x0001;
-        rc = ble_gap_update_params(event->connect.conn_handle, &params);
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+        // Suggested DLE
+        ble_hs_hci_util_write_sugg_def_data_len(LL_PACKET_LENGTH, LL_PACKET_TIME);
+
+        // Suggested values for read DLE
+        uint16_t out_sugg_max_tx_octets = 0, out_sugg_max_tx_time = 0;
+        rc = ble_hs_hci_util_read_sugg_def_data_len(&out_sugg_max_tx_octets, &out_sugg_max_tx_time);
         if (rc != 0)
         {
-            LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to set update params; rc = %d", rc);
+            LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to read suggested data len; rc = %d", rc);
         }
-
+        else
+        {
+            LOG_I(MODULE_PREFIX, "nimbleGAPEvent conn suggested data len tx %d time %d", out_sugg_max_tx_octets, out_sugg_max_tx_time);
+        }
+#else
+        // Old way of setting DLE
+        ble_hs_hci_util_set_data_len(event->connect.conn_handle,
+                            LL_PACKET_LENGTH,
+                            LL_PACKET_TIME);
+#endif
+        // Conn interval check pending
+        _connIntervalCheckPending = true;
+        _connIntervalCheckPendingStartMs = millis();
+        
         // Now connected
         setConnState(true, event->connect.conn_handle);
     }
@@ -866,6 +895,27 @@ int BLEGapServer::gapEventDisconnect(struct ble_gap_event *event, String& status
     // Restart advertising
     startAdvertising();
 #endif
+    return 0;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Handle GAP connection update event
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int BLEGapServer::gapEventConnUpdate(struct ble_gap_event *event, String& statusStr, int& connHandle)
+{
+    // Status
+    statusStr = BLEGattServer::getHSErrorMsg(event->conn_update.status);
+    // Check if conn interval is the greater than the one we want
+    connHandle = event->conn_update.conn_handle;
+    struct ble_gap_conn_desc desc;
+    int rc = ble_gap_conn_find(event->conn_update.conn_handle, &desc);
+    if ((rc == 0) && _connIntervalCheckPending && (desc.conn_itvl > LL_PACKET_LENGTH))
+    {
+        // Request conn interval we want
+        requestConnInterval();
+    }
+    _connIntervalCheckPending = false;
     return 0;
 }
 
@@ -998,6 +1048,27 @@ void BLEGapServer::serviceGettingRSSI()
                 // LOG_W(MODULE_PREFIX, "service get RSSI failed");
             }
         }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Request connection interval
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void BLEGapServer::requestConnInterval()
+{
+    struct ble_gap_upd_params params;
+    memset(&params, 0, sizeof(params));
+    params.itvl_min = PREF_CONN_INTERVAL;
+    params.itvl_max = PREF_CONN_INTERVAL;
+    params.latency = PREF_CONN_LATENCY;
+    params.supervision_timeout = PREF_SUPERVISORY_TIMEOUT;
+    params.min_ce_len = 0x0001;
+    params.max_ce_len = 0x0001;
+    int rc = ble_gap_update_params(_bleGapConnHandle, &params);
+    if (rc != 0)
+    {
+        LOG_W(MODULE_PREFIX, "requestConnInterval FAILED rc = %d", rc);
     }
 }
 

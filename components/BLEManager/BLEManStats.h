@@ -137,6 +137,6 @@ private:
     uint32_t _rxTestFrameBytes = 0;
     uint32_t _rxTestSeqErrs = 0;
     uint32_t _rxTestDataErrs = 0;
-    #define TEST_FRAME_WINDOW_SIZE 5
+    #define TEST_FRAME_WINDOW_SIZE 40
     MovingRate<TEST_FRAME_WINDOW_SIZE> _rxTestFrameRate;
 };
