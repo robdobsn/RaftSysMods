@@ -57,7 +57,7 @@ protected:
     virtual void addRestAPIEndpoints(RestAPIEndpointManager& endpointManager) override final;
 
     // Add comms channels
-    virtual void addCommsChannels(CommsCoreIF& commsCoreIF) override final
+    virtual void addCommsChannels(CommsCoreIF& commsCore) override final
     {
     }
     
