@@ -80,7 +80,7 @@ private:
     uint8_t _ownAddrType = 0;
 
     // Preferred connection params
-    static const uint32_t LL_PACKET_TIME = 2120;
+    static const uint32_t LL_PACKET_TIME = 2500;
     static const uint32_t LL_PACKET_LENGTH = 251;
 
     // Preferred connection interval
