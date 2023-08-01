@@ -819,10 +819,7 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
 
         // Preferred PHY (if supported)
 #if IDF_TARGET_ESP32S3
-#pragma message "TODO: set preferred PHY for ESP32-S3"
         ble_gap_set_prefered_default_le_phy(BLE_GAP_LE_PHY_2M_MASK, BLE_GAP_LE_PHY_2M_MASK);
-#else
-#pragma message "TODO: set preferred PHY for ESP32"
 #endif
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
