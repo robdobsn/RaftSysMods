@@ -817,7 +817,7 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
             LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to set preferred MTU; rc = %d", rc);
         }
 
-        // Preferred PHY (if supported)
+        // Preferred PHY (2M if supported)
 #if IDF_TARGET_ESP32S3
         ble_gap_set_prefered_default_le_phy(BLE_GAP_LE_PHY_2M_MASK, BLE_GAP_LE_PHY_2M_MASK);
 #endif
@@ -903,11 +903,11 @@ int BLEGapServer::gapEventConnUpdate(struct ble_gap_event *event, String& status
 {
     // Status
     statusStr = BLEGattServer::getHSErrorMsg(event->conn_update.status);
-    // Check if conn interval is the greater than the one we want
+    // Check if conn interval is greater than the one we want
     connHandle = event->conn_update.conn_handle;
     struct ble_gap_conn_desc desc;
     int rc = ble_gap_conn_find(event->conn_update.conn_handle, &desc);
-    if ((rc == 0) && _connIntervalCheckPending && (desc.conn_itvl > LL_PACKET_LENGTH))
+    if ((rc == 0) && _connIntervalCheckPending && (desc.conn_itvl > PREF_CONN_INTERVAL))
     {
         // Request conn interval we want
         requestConnInterval();
