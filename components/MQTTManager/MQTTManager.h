@@ -13,10 +13,12 @@
 
 #include <SysModBase.h>
 #include <RaftMQTTClient.h>
+#include <CommsChannelMsg.h>
 
 class ConfigBase;
 class RestAPIEndpointManager;
 class APISourceInfo;
+
 class MQTTManager : public SysModBase
 {
 public:

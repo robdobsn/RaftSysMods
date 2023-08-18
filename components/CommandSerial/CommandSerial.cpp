@@ -102,7 +102,7 @@ void CommandSerial::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager)
 {
     endpointManager.addEndpoint("commandserial", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET, 
                     std::bind(&CommandSerial::apiCommandSerial, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3), 
-                    "commandserial API e.g. commandserial/bridge/setup?port=Serial1&name=Bridge1 or commandserial/bridge/remove?id=1&force=0");
+                    "commandserial API e.g. commandserial/bridge/setup?port=Serial1&name=Bridge1&idleCloseSecs=10 or commandserial/bridge/remove?id=1&force=0");
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -236,8 +236,12 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
                     // Get bridge name
                     String bridgeName = nvJson.getString("name", "Bridge_" + serialPort.getName());
 
+                    // Get idle close time (0 = default)
+                    uint32_t idleCloseSecs = nvJson.getLong("idleCloseSecs", 0);
+
                     // Register the bridge channel
-                    uint32_t bridgeID = _pCommsCoreIF->bridgeRegister(bridgeName.c_str(), sourceInfo.channelID, serialPort.getChannelID());
+                    uint32_t bridgeID = _pCommsCoreIF->bridgeRegister(bridgeName.c_str(), sourceInfo.channelID, 
+                            serialPort.getChannelID(), idleCloseSecs);
 
                     // Set the bridge ID
                     serialPort.setBridgeID(bridgeID);

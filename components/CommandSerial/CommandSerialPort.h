@@ -55,7 +55,7 @@ private:
 
     // Serial details
     int _uartNum = 0;
-    int _baudRate = 912600;
+    int _baudRate = 921600;
     int _txPin = 0;
     int _rxPin = 0;
     uint32_t _rxBufSize = 1024;

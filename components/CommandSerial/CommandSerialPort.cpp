@@ -48,7 +48,7 @@ void CommandSerialPort::setup(ConfigBase& config, const char* pModName)
     _uartNum = config.getLong("uartNum", 80);
 
     // Baud
-    _baudRate = config.getLong("baudRate", 912600);
+    _baudRate = config.getLong("baudRate", 921600);
 
     // Protocol
     _protocol = config.getString("protocol", "");
@@ -136,7 +136,7 @@ bool CommandSerialPort::getData(std::vector<uint8_t, SpiramAwareAllocator<uint8_
         return false;
 
     // Check anything available
-    static const int MAX_BYTES_PER_CALL = 500;
+    static const int MAX_BYTES_PER_CALL = 2000;
     size_t numCharsAvailable = 0;
     esp_err_t err = uart_get_buffered_data_len((uart_port_t)_uartNum, &numCharsAvailable);
     if ((err == ESP_OK) && (numCharsAvailable > 0))
