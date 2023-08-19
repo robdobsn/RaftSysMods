@@ -40,7 +40,7 @@ void NetworkManager::setup()
 {
     // Network settings
     NetworkSettings networkSettings;
-    networkSettings.setFromConfig(configGetConfig(), _defaultHostname.c_str());
+    networkSettings.setFromConfig(configGetConfig(), "");
 
     // Check if we have a friendly name
     bool friendlyNameSet = false;

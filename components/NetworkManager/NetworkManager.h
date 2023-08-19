@@ -45,9 +45,6 @@ private:
     // Singleton NetworkManager
     static NetworkManager* _pNetworkManager;
 
-    // Default hostname
-    String _defaultHostname;
-    
     // Last connection status
     bool _prevConnectedWithIP = false;
     

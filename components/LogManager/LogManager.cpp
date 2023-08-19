@@ -56,7 +56,7 @@ void LogManager::setup()
         if (logDestType.equalsIgnoreCase("Papertrail"))
         {
             // Construct papertrail logger
-            LoggerPapertrail *pLogger = new LoggerPapertrail(logDestConfig);
+            LoggerPapertrail *pLogger = new LoggerPapertrail(logDestConfig, getSystemUniqueString());
             loggerCore.addLogger(pLogger);
             // LOG_I(MODULE_PREFIX, "Added Papertrail logger");
         }

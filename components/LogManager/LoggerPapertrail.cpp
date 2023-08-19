@@ -24,7 +24,7 @@ static const char *MODULE_PREFIX = "LogPapertrail";
 // Constructor / destructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-LoggerPapertrail::LoggerPapertrail(const ConfigBase& logDestConfig)
+LoggerPapertrail::LoggerPapertrail(const ConfigBase& logDestConfig, const String& systemUniqueString)
     : LoggerBase(logDestConfig)
 {
     // Get config
@@ -33,7 +33,7 @@ LoggerPapertrail::LoggerPapertrail(const ConfigBase& logDestConfig)
     _dnsLookupDone = false;
     _port = logDestConfig.getLong("port", 0);
     _sysName = logDestConfig.getString("sysName", "");
-    _sysName += "_" + getSystemMACAddressStr(ESP_MAC_WIFI_STA, "");
+    _sysName += "_" + systemUniqueString;
 }
 
 LoggerPapertrail::~LoggerPapertrail()

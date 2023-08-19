@@ -19,7 +19,7 @@ class ConfigBase;
 class LoggerPapertrail : public LoggerBase
 {
 public:
-    LoggerPapertrail(const ConfigBase& logDestConfig);
+    LoggerPapertrail(const ConfigBase& logDestConfig, const String& systemUniqueString);
     virtual ~LoggerPapertrail();
     virtual void log(esp_log_level_t level, const char *tag, const char* msg) override final;
 

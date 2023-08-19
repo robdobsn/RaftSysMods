@@ -55,7 +55,7 @@ void MQTTManager::setup()
     String mqttClientID = configGetString("clientID", "");
 
     // Form unique client ID
-    mqttClientID += getSystemMACAddressStr(ESP_MAC_WIFI_STA, ":");
+    mqttClientID += getSystemUniqueString();
 
     // Setup client
     _mqttClient.setup(isMQTTEnabled, brokerHostname.c_str(), brokerPort, mqttClientID.c_str());
