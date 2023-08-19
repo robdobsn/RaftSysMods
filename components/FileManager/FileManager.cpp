@@ -234,7 +234,7 @@ RaftRetCode FileManager::apiUploadFileBlock(const String& req, FileStreamBlock& 
 {
     if (_pProtocolExchange)
         return _pProtocolExchange->handleFileUploadBlock(req, fileStreamBlock, sourceInfo, 
-                    FileStreamBase::FILE_STREAM_CONTENT_TYPE_FILE, "");
+                    FileStreamBase::FILE_STREAM_CONTENT_TYPE_FILE, "fileupload");
     return RAFT_INVALID_OPERATION;
 }
 
