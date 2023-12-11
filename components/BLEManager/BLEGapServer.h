@@ -36,11 +36,19 @@ public:
     virtual ~BLEGapServer();
 
     // Setup
+    // passing 0 for advertisingIntervalMs will use the default
     bool setup(CommsCoreIF* pCommsCoreIF,
                 uint32_t maxPacketLen, 
                 uint32_t outboundQueueSize, bool useTaskForSending,
                 uint32_t taskCore, int32_t taskPriority, int taskStackSize,
-                bool sendUsingIndication);
+                bool sendUsingIndication,
+                uint32_t advertisingIntervalMs = 0,
+                const String& uuidCmdRespService = "",
+                const String& uuidCmdRespCommand = "",
+                const String& uuidCmdRespResponse = "",
+                bool batteryService = false,
+                bool deviceInfoService = false,
+                bool heartRate = false);
     void teardown();
 
     // Service
@@ -125,6 +133,10 @@ private:
     static const uint32_t BLE_RESTART_BEFORE_STOP_MS = 200;
     static const uint32_t BLE_RESTART_BEFORE_START_MS = 200;
     uint32_t _bleRestartLastMs = 0;
+
+    // Advertising interval
+    bool _useSpecifiedAdvertisingInterval = false;
+    uint32_t _advertisingIntervalMs = 1000;
 
 #ifdef USE_TIMED_ADVERTISING_CHECK
     // Advertising check timeout

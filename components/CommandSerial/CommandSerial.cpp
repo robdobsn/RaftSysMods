@@ -282,7 +282,7 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
                 }
             }
 
-            // If we get here the port name isn't found
+            // If we get here the bridge name isn't found
             return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "bridgeIDNotFound");
         }
 

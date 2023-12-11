@@ -63,11 +63,37 @@ void BLEManager::setup()
         // Send using indication
         bool sendUsingIndication = configGetBool("sendUseInd", true);
 
+        // Check if advertising interval is specified (0 if not which sets default)
+        uint32_t advertisingIntervalMs = configGetLong("advIntervalMs", 0);
+
+        // Get UUIDs for cmd/resp service
+        String uuidCmdRespService = configGetString("uuidCmdRespService", "");
+        String uuidCmdRespCommand = configGetString("uuidCmdRespCommand", "");
+        String uuidCmdRespResponse = configGetString("uuidCmdRespResponse", "");
+
+        // Check for stdServices (such as Battery, Device Info, etc)
+        std::vector<String> stdServices;
+        configGetArrayElems("stdServices", stdServices);
+        bool batteryService = false;
+        bool deviceInfoService = false;
+        bool heartRate = false;
+        for (auto it = stdServices.begin(); it != stdServices.end(); ++it)
+        {
+            if ((*it).equalsIgnoreCase("battery"))
+                batteryService = true;
+            else if ((*it).equalsIgnoreCase("devInfo"))
+                deviceInfoService = true;
+            else if ((*it).equalsIgnoreCase("heartRate"))
+                heartRate = true;
+        }
+
         // Setup BLE GAP
         bool isOk = _gapServer.setup(getCommsCore(),
                     maxPacketLength, outboundQueueSize, 
                     useTaskForSending, taskCore, taskPriority, taskStackSize,
-                    sendUsingIndication);
+                    sendUsingIndication, advertisingIntervalMs,
+                    uuidCmdRespService, uuidCmdRespCommand, uuidCmdRespResponse,
+                    batteryService, deviceInfoService, heartRate);
 
         // Log level
         String nimbleLogLevel = configGetString("nimLogLev", "");
@@ -76,19 +102,26 @@ void BLEManager::setup()
         // Debug
         if (useTaskForSending)
         {
-            LOG_I(MODULE_PREFIX, "setup maxPktLen %d task %s core %d priority %d stack %d outQSlots %d minMsBetweenSends %d",
+            LOG_I(MODULE_PREFIX, "setup maxPktLen %d task %s core %d priority %d stack %d outQSlots %d minMsBetweenSends %d advIntervalMs %d",
                         maxPacketLength,
                         isOk ? "OK" : "FAILED",
                         taskCore, taskPriority, taskStackSize,
                         outboundQueueSize,
-                        BLEGattOutbound::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS);
+                        BLEGattOutbound::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS,
+                        (int)advertisingIntervalMs);
         }
         else
         {
-            LOG_I(MODULE_PREFIX, "setup maxPktLen %d using service loop outQSlots %d minMsBetweenSends %d",
+            LOG_I(MODULE_PREFIX, "setup maxPktLen %d using service loop outQSlots %d minMsBetweenSends %d advIntervalMs %d",
                         maxPacketLength,
                         outboundQueueSize,
-                        BLEGattOutbound::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS);
+                        BLEGattOutbound::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS,
+                        (int)advertisingIntervalMs);
+        }
+        if (!uuidCmdRespService.isEmpty())
+        {
+            LOG_I(MODULE_PREFIX, "setup uuidCmdRespService %s uuidCmdRespCommand %s uuidCmdRespResponse %s",
+                        uuidCmdRespService.c_str(), uuidCmdRespCommand.c_str(), uuidCmdRespResponse.c_str());
         }
     }
     else

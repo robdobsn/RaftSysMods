@@ -33,6 +33,7 @@
 // #define DEBUG_BLE_REG_CHARACTERISTIC
 // #define DEBUG_BLE_REG_DESCRIPTOR
 // #define DEBUG_BLE_GATT_TRY_AGAIN
+// #define DEBUG_UUID_CONVERSION_FROM_STR
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Statics, etc
@@ -48,21 +49,21 @@ static const char *MODULE_PREFIX = "BLEGattServer";
  */
 
 // aa76677e-9cfd-4626-a510-0d305be57c8d
-ble_uuid128_t BLEGattServer::GATT_RICV2_MAIN_SERVICE_UUID =
+ble_uuid128_t BLEGattServer::DEFAULT_MAIN_SERVICE_UUID =
     {
         .u = {.type = BLE_UUID_TYPE_128},
         .value = {0x8d, 0x7c, 0xe5, 0x5b, 0x30, 0x0d, 0x10, 0xa5,
                   0x26, 0x46, 0xfd, 0x9c, 0x7e, 0x67, 0x76, 0xaa}};
 
 // aa76677e-9cfd-4626-a510-0d305be57c8e
-ble_uuid128_t BLEGattServer::GATT_RICV2_MESSAGE_COMMAND_UUID =
+ble_uuid128_t BLEGattServer::DEFAULT_MESSAGE_COMMAND_UUID =
     {
         .u = {.type = BLE_UUID_TYPE_128},
         .value = {0x8e, 0x7c, 0xe5, 0x5b, 0x30, 0x0d, 0x10, 0xa5,
                   0x26, 0x46, 0xfd, 0x9c, 0x7e, 0x67, 0x76, 0xaa}};
 
 // aa76677e-9cfd-4626-a510-0d305be57c8f
-ble_uuid128_t BLEGattServer::GATT_RICV2_MESSAGE_RESPONSE_UUID =
+ble_uuid128_t BLEGattServer::DEFAULT_MESSAGE_RESPONSE_UUID =
     {
         .u = {.type = BLE_UUID_TYPE_128},
         .value = {0x8f, 0x7c, 0xe5, 0x5b, 0x30, 0x0d, 0x10, 0xa5,
@@ -76,6 +77,9 @@ BLEGattServer::BLEGattServer(BLEGattServerAccessCBType callback, BLEManStats& bl
     _bleOutbound(*this, bleStats)
 {
     _accessCallback = callback;
+    _mainServiceUUID128 = DEFAULT_MAIN_SERVICE_UUID;
+    _commandUUID128 = DEFAULT_MESSAGE_COMMAND_UUID;
+    _responseUUID128 = DEFAULT_MESSAGE_RESPONSE_UUID;
 }
 
 BLEGattServer::~BLEGattServer()
@@ -88,9 +92,47 @@ BLEGattServer::~BLEGattServer()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 bool BLEGattServer::setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, bool useTaskForSending,
-                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize, bool sendUsingIndication)
+                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize, bool sendUsingIndication,
+                const String& uuidCmdRespService,
+                const String& uuidCmdRespCommand,
+                const String& uuidCmdRespResponse,
+                bool batteryService,
+                bool deviceInfoService,
+                bool heartRate)
 {
+    // UUIDs
+    if (uuidCmdRespService.length() > 0)
+    {
+        Raft::uuid128FromString(uuidCmdRespService.c_str(), _mainServiceUUID128.value);
+        Raft::uuid128FromString(uuidCmdRespCommand.c_str(), _commandUUID128.value);
+        Raft::uuid128FromString(uuidCmdRespResponse.c_str(), _responseUUID128.value);
+
+        // Debug
+#ifdef DEBUG_UUID_CONVERSION_FROM_STR
+        char buf[BLE_UUID_STR_LEN];
+        LOG_I(MODULE_PREFIX, "setup uuidCmdRespService %s uuidCmdRespCommand %s uuidCmdRespResponse %s",
+                    ble_uuid_to_str(&_mainServiceUUID128.u, buf),
+                    ble_uuid_to_str(&_commandUUID128.u, buf),
+                    ble_uuid_to_str(&_responseUUID128.u, buf));
+        String uuidStr;
+        Raft::getHexStrFromBytes(_mainServiceUUID128.value, 16, uuidStr);
+        LOG_I(MODULE_PREFIX, "setup serviceUUID config %s converted %s", uuidCmdRespService.c_str(), uuidStr.c_str());
+        Raft::getHexStrFromBytes(_commandUUID128.value, 16, uuidStr);
+        LOG_I(MODULE_PREFIX, "setup commandUUID config %s converted %s", uuidCmdRespCommand.c_str(), uuidStr.c_str());
+        Raft::getHexStrFromBytes(_responseUUID128.value, 16, uuidStr);
+        LOG_I(MODULE_PREFIX, "setup responseUUID config %s converted %s", uuidCmdRespResponse.c_str(), uuidStr.c_str());
+#endif
+    }
+
+    // Standard services
+    _batteryService = batteryService;
+    _deviceInfoService = deviceInfoService;
+    _heartRate = heartRate;
+
+    // Send using indication
     _sendUsingIndication = sendUsingIndication;
+
+    // Setup outbound handler
     return _bleOutbound.setup(maxPacketLen, outboundQueueSize, 
                 useTaskForSending, taskCore, taskPriority, taskStackSize,
                 sendUsingIndication);
@@ -374,7 +416,7 @@ int BLEGattServer::start()
     memset(mainServiceCharList.data(), 0, sizeof(struct ble_gatt_chr_def) * mainServiceCharList.size());
 
     // Command characteristic
-    mainServiceCharList[0].uuid = &GATT_RICV2_MESSAGE_COMMAND_UUID.u;
+    mainServiceCharList[0].uuid = &_commandUUID128.u;
     mainServiceCharList[0].access_cb = [](uint16_t conn_handle, uint16_t attr_handle,
                                               struct ble_gatt_access_ctxt *ctxt,
                                               void *arg)
@@ -387,7 +429,7 @@ int BLEGattServer::start()
     mainServiceCharList[0].flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP;
 
     // Response characteristic
-    mainServiceCharList[1].uuid = &GATT_RICV2_MESSAGE_RESPONSE_UUID.u;
+    mainServiceCharList[1].uuid = &_responseUUID128.u;
     mainServiceCharList[1].access_cb = [](uint16_t conn_handle, uint16_t attr_handle,
                                               struct ble_gatt_access_ctxt *ctxt,
                                               void *arg)
@@ -406,8 +448,19 @@ int BLEGattServer::start()
     
     // Main service
     servicesList[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
-    servicesList[0].uuid = &GATT_RICV2_MAIN_SERVICE_UUID.u;
+    servicesList[0].uuid = &_mainServiceUUID128.u;
     servicesList[0].characteristics = mainServiceCharList.data();
+
+    // // Battery service
+    // if (_batteryService)
+    // {
+    //     batteryServiceCharList.resize(2);
+    //     memset(batteryServiceCharList.data(), 0, sizeof(struct ble_gatt_chr_def) * batteryServiceCharList.size());
+    //     batteryServiceCharList[0].uuid = BLE_UUID16_DECLARE(GATT_CHR_UUID_BATTERY_LEVEL);
+    //     batteryServiceCharList[0].access_cb = ble_gatts_chr_access_peer;
+    //     batteryServiceCharList[0].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY;
+    //     batteryServiceCharList[0].val_handle = &_batteryLevelAttribHandle;
+    // }
 
     // Initialise GAP and GATT
     ble_svc_gap_init();

@@ -83,15 +83,32 @@ bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF,
                 uint32_t maxPacketLen, 
                 uint32_t outboundQueueSize, bool useTaskForSending,
                 uint32_t taskCore, int32_t taskPriority, int taskStackSize,
-                bool sendUsingIndication)
+                bool sendUsingIndication,
+                uint32_t advertisingIntervalMs,
+                const String& uuidCmdRespService,
+                const String& uuidCmdRespCommand,
+                const String& uuidCmdRespResponse,
+                bool batteryService,
+                bool deviceInfoService,
+                bool heartRate)
 {
     // Settings
     _pCommsCoreIF = pCommsCoreIF;
     _maxPacketLength = maxPacketLen;
 
+    // Advertising interval
+    _useSpecifiedAdvertisingInterval = false;
+    if (advertisingIntervalMs > 0)
+    {
+        _useSpecifiedAdvertisingInterval = true;
+        _advertisingIntervalMs = advertisingIntervalMs;
+    }
+
     // Setup GATT server
     _gattServer.setup(maxPacketLen, outboundQueueSize, useTaskForSending,
-                (UBaseType_t)taskCore, (BaseType_t)taskPriority, taskStackSize, sendUsingIndication);
+                (UBaseType_t)taskCore, (BaseType_t)taskPriority, taskStackSize, 
+                sendUsingIndication, uuidCmdRespService, uuidCmdRespCommand, uuidCmdRespResponse,
+                batteryService, deviceInfoService, heartRate);
     
     // Start NimBLE if not already started
     if (!_isInit)
@@ -344,10 +361,8 @@ bool BLEGapServer::startAdvertising()
         return true;
     }
 
-    struct ble_gap_adv_params adv_params;
-    struct ble_hs_adv_fields fields;
-
     // Set advertising data
+    struct ble_hs_adv_fields fields;
     memset(&fields, 0, sizeof fields);
 
     // Flags: discoverable, BLE-only
@@ -359,7 +374,7 @@ bool BLEGapServer::startAdvertising()
     fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
 
     // 128 bit UUID
-    fields.uuids128 = &BLEGattServer::GATT_RICV2_MAIN_SERVICE_UUID;
+    fields.uuids128 = &_gattServer.getMainServiceUUID128();
     fields.num_uuids128 = 1;
     fields.uuids128_is_complete = 1;
 
@@ -395,10 +410,23 @@ bool BLEGapServer::startAdvertising()
         return false;
     }
 
-    // Begin advertising
+    // Setup advertising name and rate
+    struct ble_gap_adv_params adv_params;
     memset(&adv_params, 0, sizeof adv_params);
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+
+
+    // Check if advertising interval is specified
+    if (_useSpecifiedAdvertisingInterval > 0)
+    {
+        // Set advertising interval
+        uint16_t advIntv = _advertisingIntervalMs / 0.625;
+        adv_params.itvl_min = advIntv;
+        adv_params.itvl_max = advIntv;
+    }
+
+    // Start advertising
     rc = ble_gap_adv_start(_ownAddrType, NULL, BLE_HS_FOREVER,
                            &adv_params,
                            [](struct ble_gap_event *event, void *arg) {
