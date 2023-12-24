@@ -52,6 +52,8 @@ protected:
 
 private:
 
+#ifdef CONFIG_BT_ENABLED
+
     // BLE enabled
     bool _enableBLE = false;
 
@@ -66,4 +68,5 @@ private:
 
     // Restart API
     RaftRetCode apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+#endif
 };

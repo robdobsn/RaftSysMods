@@ -22,16 +22,22 @@ static const char *MODULE_PREFIX = "BLEMan";
 
 BLEManager::BLEManager(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, 
                 ConfigBase *pMutableConfig, const char* defaultAdvName)
-    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig),
-        _gapServer([this](){
+    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+
+#ifdef CONFIG_BT_ENABLED
+
+        , _gapServer([this](){
                         return getAdvertisingName();
                     },
                     [this](bool isConnected){
                         executeStatusChangeCBs(isConnected);
                     })
+#endif
 {
+#ifdef CONFIG_BT_ENABLED    
     // BLE interface
     _defaultAdvName = defaultAdvName;
+#endif
 }
 
 BLEManager::~BLEManager()
@@ -44,6 +50,7 @@ BLEManager::~BLEManager()
 
 void BLEManager::setup()
 {
+#ifdef CONFIG_BT_ENABLED
     // See if BLE enabled
     _enableBLE = configGetBool("enable", false);
 
@@ -135,6 +142,9 @@ void BLEManager::setup()
             LOG_I(MODULE_PREFIX, "setup deinit ok");
         }
     }
+#else
+    LOG_E(MODULE_PREFIX, "setup BLE is not enabled in sdkconfig");
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -143,12 +153,14 @@ void BLEManager::setup()
 
 void BLEManager::service()
 {
+#ifdef CONFIG_BT_ENABLED    
     // Check enabled
     if (!_enableBLE)
         return;
 
     // Service BLE GAP
     _gapServer.service();
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -157,15 +169,18 @@ void BLEManager::service()
 
 void BLEManager::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager)
 {
+#ifdef CONFIG_BT_ENABLED
     endpointManager.addEndpoint("blerestart", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
                         std::bind(&BLEManager::apiBLERestart, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
                         "Restart BLE");
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // API Restart BLE
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef CONFIG_BT_ENABLED
 RaftRetCode BLEManager::apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
 {
     // Restart BLE GAP Server
@@ -174,6 +189,7 @@ RaftRetCode BLEManager::apiBLERestart(const String &reqStr, String &respStr, con
     // Restart in progress
     return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
 }
+#endif
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Comms channels
@@ -181,8 +197,10 @@ RaftRetCode BLEManager::apiBLERestart(const String &reqStr, String &respStr, con
 
 void BLEManager::addCommsChannels(CommsCoreIF& commsCoreIF)
 {
+#ifdef CONFIG_BT_ENABLED 
     // Add comms channel
     _gapServer.registerChannel(commsCoreIF);
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -191,7 +209,11 @@ void BLEManager::addCommsChannels(CommsCoreIF& commsCoreIF)
 
 String BLEManager::getStatusJSON()
 {
+#ifdef CONFIG_BT_ENABLED    
     return R"({"rslt":"ok",)" + _gapServer.getStatusJSON(false, false) + "}";
+#else
+    return R"({"rslt":"failNoBLE"})";
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -200,7 +222,11 @@ String BLEManager::getStatusJSON()
 
 String BLEManager::getDebugJSON()
 {
+#ifdef CONFIG_BT_ENABLED
     return _gapServer.getStatusJSON(true, true);
+#else
+    return R"({"rslt":"failNoBLE"})";
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -211,7 +237,9 @@ double BLEManager::getNamedValue(const char* valueName, bool& isValid)
 {
     switch(valueName[0])
     {
+#ifdef CONFIG_BT_ENABLED
         case 'R': { return _gapServer.getRSSI(isValid); }
+#endif
         default: { isValid = false; return 0; }
     }
 }
@@ -220,6 +248,7 @@ double BLEManager::getNamedValue(const char* valueName, bool& isValid)
 // Get advertising name
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef CONFIG_BT_ENABLED
 String BLEManager::getAdvertisingName()
 {
     // Name
@@ -235,4 +264,4 @@ String BLEManager::getAdvertisingName()
         adName = getSystemName();
     return adName;
 }
-
+#endif
