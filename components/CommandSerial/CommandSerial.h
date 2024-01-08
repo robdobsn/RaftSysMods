@@ -8,13 +8,12 @@
 
 #pragma once
 
-#include <ConfigBase.h>
-#include <RestAPIEndpointManager.h>
-#include <CommsCoreIF.h>
-#include <CommandSerialPort.h>
-#include <CommsBridgeMsg.h>
-#include <SysModBase.h>
 #include <list>
+#include "RestAPIEndpointManager.h"
+#include "CommsCoreIF.h"
+#include "CommandSerialPort.h"
+#include "CommsBridgeMsg.h"
+#include "SysModBase.h"
 
 class CommsChannelMsg;
 
@@ -22,7 +21,7 @@ class CommandSerial : public SysModBase
 {
 public:
     // Constructor/destructor
-    CommandSerial(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, ConfigBase *pMutableConfig);
+    CommandSerial(const char *pModuleName, RaftJsonIF& sysConfig);
     virtual ~CommandSerial();
 
 protected:

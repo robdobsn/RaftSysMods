@@ -10,7 +10,6 @@
 #pragma once
 
 #include "RaftUtils.h"
-#include "ConfigBase.h"
 #include "SysModBase.h"
 #include "esp_ota_ops.h"
 #include "FileStreamBlock.h"
@@ -21,7 +20,7 @@ class APISourceInfo;
 class ESPOTAUpdate : public SysModBase
 {
 public:
-    ESPOTAUpdate(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig);
+    ESPOTAUpdate(const char* pModuleName, RaftJsonIF& sysConfig);
 
     // Check if update in progress
     virtual bool isBusy() override final

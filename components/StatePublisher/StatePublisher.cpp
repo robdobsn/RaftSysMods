@@ -7,14 +7,13 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "StatePublisher.h"
-#include <Logger.h>
-#include <RaftArduino.h>
-#include <RaftUtils.h>
-#include <CommsCoreIF.h>
-#include <CommsChannelMsg.h>
-#include <RestAPIEndpointManager.h>
-#include <ConfigBase.h>
-#include <JSONParams.h>
+#include "Logger.h"
+#include "RaftArduino.h"
+#include "RaftUtils.h"
+#include "CommsCoreIF.h"
+#include "CommsChannelMsg.h"
+#include "RestAPIEndpointManager.h"
+#include "RaftJson.h"
 
 // Debug
 // #define DEBUG_PUBLISHING_HANDLE
@@ -42,8 +41,8 @@ static const char* MODULE_PREFIX = "StatePub";
 // Constructor / Destructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-StatePublisher::StatePublisher(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig)
-        : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+StatePublisher::StatePublisher(const char* pModuleName, RaftJsonIF& sysConfig)
+        : SysModBase(pModuleName, sysConfig)
 {
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
     _worstTimeSetMs = 0;
@@ -78,7 +77,7 @@ void StatePublisher::setup()
     for (int pubIdx = 0; pubIdx < pubList.size(); pubIdx++)
     {
         // Get the publication info
-        JSONParams pubInfo = pubList[pubIdx];
+        RaftJson pubInfo = pubList[pubIdx];
 
         // Check pub type
         String pubType = pubInfo.getString("type", "");
@@ -106,12 +105,12 @@ void StatePublisher::setup()
             {
                 pubRec._trigger = TRIGGER_ON_TIME_INTERVALS;
             }
-            String ratesJSON = pubInfo.getString("rates", "");
+            RaftJson ratesJson = pubInfo.getString("rates", "");
             pubRec._msgIDStr = pubInfo.getString("msgID", "");
 
             // Check for interfaces
             int numRatesAndInterfaces = 0;
-            if (RaftJson::getType(numRatesAndInterfaces, ratesJSON.c_str()) == JSMN_ARRAY)
+            if (ratesJson.getType("", numRatesAndInterfaces) == RaftJson::RAFT_JSON_ARRAY)
             {
                 // Iterate rates and interfaces
                 for (int rateIdx = 0; rateIdx < numRatesAndInterfaces; rateIdx++)
@@ -119,7 +118,7 @@ void StatePublisher::setup()
                     // TODO refactor to use JSON paths
 
                     // Get the rate and interface info
-                    ConfigBase rateAndInterfaceInfo = RaftJson::getString(("["+String(rateIdx)+"]").c_str(), "{}", ratesJSON.c_str());
+                    RaftJson rateAndInterfaceInfo = ratesJson.getString(("["+String(rateIdx)+"]").c_str(), "{}");
                     String interface = rateAndInterfaceInfo.getString("if", "");
                     String protocol = rateAndInterfaceInfo.getString("protocol", "");
                     double rateHz = rateAndInterfaceInfo.getDouble("rateHz", 1.0);
@@ -461,7 +460,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
         cmdName = params[0];
 
     // JSON params and channelID
-    JSONParams jsonParams = RaftJson::getJSONFromNVPairs(nameValues, true); 
+    RaftJson jsonParams = RaftJson::getJSONFromNVPairs(nameValues, true); 
     uint32_t channelID = sourceInfo.channelID;
 
     // Debug
@@ -504,7 +503,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
         for (String& pubRecToMod : pubRecsToMod)
         {
             // Get details of changes
-            ConfigBase pubRecConf = pubRecToMod;
+            RaftJson pubRecConf = pubRecToMod;
             String pubRecName = pubRecConf.getString("name", "");
             double pubRateHz = pubRecConf.getDouble("rateHz", 1.0);
 

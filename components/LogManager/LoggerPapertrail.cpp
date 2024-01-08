@@ -7,11 +7,10 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "LoggerPapertrail.h"
-#include <ConfigBase.h>
-#include <Logger.h>
-#include <NetworkSystem.h>
-#include <ESPUtils.h>
-#include <RaftUtils.h>
+#include "Logger.h"
+#include "NetworkSystem.h"
+#include "ESPUtils.h"
+#include "RaftUtils.h"
 
 // Debug
 #define DEBUG_LOGGER_PAPERTRAIL
@@ -24,7 +23,7 @@ static const char *MODULE_PREFIX = "LogPapertrail";
 // Constructor / destructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-LoggerPapertrail::LoggerPapertrail(const ConfigBase& logDestConfig, const String& systemUniqueString)
+LoggerPapertrail::LoggerPapertrail(const RaftJsonIF& logDestConfig, const String& systemUniqueString)
     : LoggerBase(logDestConfig)
 {
     // Get config

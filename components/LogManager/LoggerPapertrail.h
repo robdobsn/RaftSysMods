@@ -8,18 +8,18 @@
 
 #pragma once
 
-#include <LoggerBase.h>
-#include <RaftArduino.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
+#include "LoggerBase.h"
+#include "RaftArduino.h"
+#include "sys/types.h"
+#include "sys/socket.h"
+#include "netdb.h"
 
-class ConfigBase;
+class RaftJsonIF;
 
 class LoggerPapertrail : public LoggerBase
 {
 public:
-    LoggerPapertrail(const ConfigBase& logDestConfig, const String& systemUniqueString);
+    LoggerPapertrail(const RaftJsonIF& logDestConfig, const String& systemUniqueString);
     virtual ~LoggerPapertrail();
     virtual void log(esp_log_level_t level, const char *tag, const char* msg) override final;
 

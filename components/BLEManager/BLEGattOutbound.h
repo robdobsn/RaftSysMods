@@ -9,9 +9,9 @@
 
 #pragma once
 
-#include <ThreadSafeQueue.h>
-#include <ProtocolRawMsg.h>
-#include <CommsChannelMsg.h>
+#include "ThreadSafeQueue.h"
+#include "ProtocolRawMsg.h"
+#include "CommsChannelMsg.h"
 
 class CommsChannelMsg;
 class BLEGattServer;
@@ -32,7 +32,7 @@ public:
     static const uint32_t DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX = 10;
     static const uint32_t BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS = 500;
 
-#include <sdkconfig.h>
+#include "sdkconfig.h"
 #ifdef CONFIG_BT_ENABLED
 
     // Constructor

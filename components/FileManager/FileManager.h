@@ -9,8 +9,7 @@
 
 #pragma once
 
-#include <ConfigBase.h>
-#include <SysModBase.h>
+#include "SysModBase.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -24,7 +23,7 @@ class APISourceInfo;
 class FileManager : public SysModBase
 {
 public:
-    FileManager(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig);
+    FileManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
     // // Upload file to file system
     // virtual bool fileStreamDataBlock(FileStreamBlock& fileStreamBlock) override final;

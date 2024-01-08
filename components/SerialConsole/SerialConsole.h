@@ -9,20 +9,19 @@
 
 #pragma once
 
-#include <SysModBase.h>
-#include <ProtocolOverAscii.h>
-#include <SpiramAwareAllocator.h>
+#include "SysModBase.h"
+#include "ProtocolOverAscii.h"
+#include "SpiramAwareAllocator.h"
 
 class RestAPIEndpointManager;
 class CommsCoreIF;
 class CommsChannelMsg;
-class ConfigBase;
 class APISourceInfo;
 
 class SerialConsole : public SysModBase
 {
 public:
-    SerialConsole(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig);
+    SerialConsole(const char* pModuleName, RaftJsonIF& sysConfig);
 
     // Get
     int getChar();

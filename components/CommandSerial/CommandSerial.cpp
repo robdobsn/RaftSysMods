@@ -6,12 +6,11 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <Logger.h>
-#include <CommandSerial.h>
-#include <JSONParams.h>
-#include <RaftUtils.h>
-#include <CommsChannelMsg.h>
-#include <CommsChannelSettings.h>
+#include "Logger.h"
+#include "CommandSerial.h"
+#include "RaftUtils.h"
+#include "CommsChannelMsg.h"
+#include "CommsChannelSettings.h"
 
 static const char *MODULE_PREFIX = "CommandSerial";
 
@@ -25,8 +24,8 @@ static const char *MODULE_PREFIX = "CommandSerial";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-CommandSerial::CommandSerial(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, ConfigBase *pMutableConfig)
-    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+CommandSerial::CommandSerial(const char *pModuleName, RaftJsonIF& sysConfig)
+    : SysModBase(pModuleName, sysConfig)
 {
 }
 
@@ -48,17 +47,15 @@ void CommandSerial::setup()
     _serialPorts.clear();
 
     // Iterate through serial port configs creating ports
-    for (String& portConfigStr : serialPortConfigs)
+    for (RaftJson portConfig : serialPortConfigs)
     {
-        // Extract port config
-        ConfigBase portConfig(portConfigStr);
-
         // Create the port
         CommandSerialPort emptyPort;
         _serialPorts.push_back(emptyPort);
 
         // Configure the port
-        _serialPorts.back().setup(portConfig, modName());
+        RaftJsonPrefixed portConfigPrefixed(portConfig, modName());
+        _serialPorts.back().setup(portConfigPrefixed, modName());
     }
 }
 
@@ -201,7 +198,7 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
     std::vector<String> params;
     std::vector<RaftJson::NameValuePair> nameValues;
     RestAPIEndpointManager::getParamsAndNameValues(reqStr.c_str(), params, nameValues);
-    JSONParams nvJson = RaftJson::getJSONFromNVPairs(nameValues, true);
+    RaftJson nvJson = RaftJson::getJSONFromNVPairs(nameValues, true);
 
     // Check valid
     if (params.size() < 3)
@@ -234,7 +231,7 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
                 if (serialPort.getName().equalsIgnoreCase(portName))
                 {
                     // Get bridge name
-                    String bridgeName = nvJson.getString("name", "Bridge_" + serialPort.getName());
+                    String bridgeName = nvJson.getString("name", ("Bridge_" + serialPort.getName()).c_str());
 
                     // Get idle close time (0 = default)
                     uint32_t idleCloseSecs = nvJson.getLong("idleCloseSecs", 0);

@@ -10,17 +10,17 @@
 
 #include "WebServer.h"
 #include "WebServerResource.h"
-#include <Logger.h>
-#include <RaftUtils.h>
-#include <RestAPIEndpointManager.h>
-#include <NetworkSystem.h>
-#include <FileSystem.h>
-#include <RaftWebServer.h>
-#include <CommsCoreIF.h>
-#include <CommsChannelMsg.h>
-#include <RaftWebHandlerStaticFiles.h>
-#include <RaftWebHandlerRestAPI.h>
-#include <RaftWebHandlerWS.h>
+#include "Logger.h"
+#include "RaftUtils.h"
+#include "RestAPIEndpointManager.h"
+#include "NetworkSystem.h"
+#include "FileSystem.h"
+#include "RaftWebServer.h"
+#include "CommsCoreIF.h"
+#include "CommsChannelMsg.h"
+#include "RaftWebHandlerStaticFiles.h"
+#include "RaftWebHandlerRestAPI.h"
+#include "RaftWebHandlerWS.h"
 
 // #define DEBUG_WEBSERVER_WEBSOCKETS
 
@@ -33,8 +33,8 @@ WebServer* WebServer::_pThisWebServer = nullptr;
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-WebServer::WebServer(const char *pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig) 
-        : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+WebServer::WebServer(const char *pModuleName, RaftJsonIF& sysConfig) 
+        : SysModBase(pModuleName, sysConfig)
 {
     // Singleton
     _pThisWebServer = this;
@@ -230,7 +230,7 @@ void WebServer::webSocketSetup()
     for (uint32_t wsIdx = 0; wsIdx < _webSocketConfigs.size(); wsIdx++)        
     {
         // Get config
-        ConfigBase jsonConfig = _webSocketConfigs[wsIdx];
+        RaftJson jsonConfig = _webSocketConfigs[wsIdx];
 
         // Setup WebHandler for Websockets    
         RaftWebHandlerWS* pHandler = new RaftWebHandlerWS(jsonConfig, 

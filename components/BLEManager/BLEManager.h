@@ -9,9 +9,8 @@
 
 #pragma once
 
-#include <ConfigBase.h>
-#include <SysModBase.h>
-#include <sdkconfig.h>
+#include "SysModBase.h"
+#include "sdkconfig.h"
 #include "BLEGapServer.h"
 
 class CommsChannelMsg;
@@ -24,8 +23,7 @@ class APISourceInfo;
 class BLEManager : public SysModBase
 {
 public:
-    BLEManager(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, 
-                ConfigBase *pMutableConfig, const char* defaultAdvName);
+    BLEManager(const char *pModuleName, RaftJsonIF& sysConfig, const char* defaultAdvName);
     virtual ~BLEManager();
 
 protected:

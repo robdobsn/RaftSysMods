@@ -6,12 +6,12 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <FileManager.h>
-#include <FileSystem.h>
-#include <ConfigPinMap.h>
-#include <RestAPIEndpointManager.h>
-#include <Logger.h>
-#include <SysManager.h>
+#include "FileManager.h"
+#include "FileSystem.h"
+#include "ConfigPinMap.h"
+#include "RestAPIEndpointManager.h"
+#include "Logger.h"
+#include "SysManager.h"
 
 static const char* MODULE_PREFIX = "FileManager";
 
@@ -23,8 +23,8 @@ static const char* MODULE_PREFIX = "FileManager";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-FileManager::FileManager(const char *pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig) 
-        : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+FileManager::FileManager(const char *pModuleName, RaftJsonIF& sysConfig) 
+        : SysModBase(pModuleName, sysConfig)
 {
     _pProtocolExchange = nullptr;
 }

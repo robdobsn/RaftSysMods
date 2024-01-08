@@ -10,7 +10,6 @@
 #include "Logger.h"
 #include "NetworkManager.h"
 #include "RaftUtils.h"
-#include "ConfigNVS.h"
 #include "RestAPIEndpointManager.h"
 #include "SysManager.h"
 
@@ -24,9 +23,8 @@ NetworkManager* NetworkManager::_pNetworkManager = NULL;
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-NetworkManager::NetworkManager(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, 
-            ConfigBase *pMutableConfig)
-    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+NetworkManager::NetworkManager(const char *pModuleName, RaftJsonIF& sysConfig)
+    : SysModBase(pModuleName, sysConfig)
 {
     // Singleton
     _pNetworkManager = this;

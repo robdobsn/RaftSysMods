@@ -6,13 +6,13 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <sdkconfig.h>
+#include "sdkconfig.h"
 #ifdef CONFIG_BT_ENABLED
 
 #include "BLEGattOutbound.h"
-#include <CommsChannelMsg.h>
-#include <Logger.h>
-#include <RaftUtils.h>
+#include "CommsChannelMsg.h"
+#include "Logger.h"
+#include "RaftUtils.h"
 #include "BLEGattServer.h"
 #include "BLEManStats.h"
 

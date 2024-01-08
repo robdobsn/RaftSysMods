@@ -9,14 +9,14 @@
 
 #pragma once
 
-#include <sdkconfig.h>
+#include "sdkconfig.h"
 #ifdef CONFIG_BT_ENABLED
 
 #include "host/ble_uuid.h"
 #endif
 #include "BLEManStats.h"
 #include "BLEGattServer.h"
-#include <CommsCoreIF.h>
+#include "CommsCoreIF.h"
 
 #define USE_TIMED_ADVERTISING_CHECK 1
 

@@ -15,7 +15,6 @@
 #include "SysModBase.h"
 #include "CommsCoreIF.h"
 
-class ConfigBase;
 class RobotController;
 
 // #define DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS 1
@@ -24,7 +23,7 @@ class StatePublisher : public SysModBase
 {
 public:
     // Constructor
-    StatePublisher(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig);
+    StatePublisher(const char* pModuleName, RaftJsonIF& sysConfig);
     ~StatePublisher();
 
     // Subscription API

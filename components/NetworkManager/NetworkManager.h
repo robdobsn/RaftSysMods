@@ -9,18 +9,17 @@
 
 #pragma once
 
-#include <SysModBase.h>
+#include "SysModBase.h"
 #include "NetworkSystem.h"
 
-class ConfigBase;
+class RaftJsonIF;
 class RestAPIEndpointManager;
 class APISourceInfo;
 
 class NetworkManager : public SysModBase
 {
 public:
-    NetworkManager(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, 
-                ConfigBase* pMutableConfig);
+    NetworkManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
 protected:
     // Setup

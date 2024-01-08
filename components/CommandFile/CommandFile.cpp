@@ -6,11 +6,11 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <Logger.h>
-#include <CommandFile.h>
-#include <RaftUtils.h>
-#include <FileSystem.h>
-#include <RestAPIEndpointManager.h>
+#include "Logger.h"
+#include "CommandFile.h"
+#include "RaftUtils.h"
+#include "FileSystem.h"
+#include "RestAPIEndpointManager.h"
 
 static const char *MODULE_PREFIX = "CommandFile";
 
@@ -21,8 +21,8 @@ static const char *MODULE_PREFIX = "CommandFile";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-CommandFile::CommandFile(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, ConfigBase *pMutableConfig)
-    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+CommandFile::CommandFile(const char *pModuleName, RaftJsonIF& sysConfig)
+    : SysModBase(pModuleName, sysConfig)
 {
     _curState = API_STATE_IDLE;
 }

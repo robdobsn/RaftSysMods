@@ -9,17 +9,16 @@
 
 #pragma once
 
-#include <SysModBase.h>
-#include <LogManager.h>
+#include "SysModBase.h"
+#include "LogManager.h"
 
-class ConfigBase;
+class RaftJsonIF;
 class RestAPIEndpointManager;
 class APISourceInfo;
 class LogManager : public SysModBase
 {
 public:
-    LogManager(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, 
-                ConfigBase* pMutableConfig);
+    LogManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
 protected:
     // Setup

@@ -9,21 +9,18 @@
 
 #pragma once
 
-#ifdef FEATURE_MQTT_MANAGER
+#include "SysModBase.h"
+#include "RaftMQTTClient.h"
+#include "CommsChannelMsg.h"
 
-#include <SysModBase.h>
-#include <RaftMQTTClient.h>
-#include <CommsChannelMsg.h>
-
-class ConfigBase;
+class RaftJsonIF;
 class RestAPIEndpointManager;
 class APISourceInfo;
 
 class MQTTManager : public SysModBase
 {
 public:
-    MQTTManager(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, 
-                ConfigBase* pMutableConfig);
+    MQTTManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
 protected:
     // Setup
@@ -55,5 +52,3 @@ private:
     bool sendMQTTMsg(const String& topicName, CommsChannelMsg& msg);
     bool readyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
 };
-
-#endif

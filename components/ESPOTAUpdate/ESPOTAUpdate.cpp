@@ -22,8 +22,8 @@ static const char* MODULE_PREFIX = "ESPOTAUpdate";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-ESPOTAUpdate::ESPOTAUpdate(const char *pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig) 
-        : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+ESPOTAUpdate::ESPOTAUpdate(const char* pModuleName, RaftJsonIF& sysConfig)
+    : SysModBase(pModuleName, sysConfig)
 {
     // Extract info from config
     _otaDirectEnabled = configGetBool("OTADirect", true);

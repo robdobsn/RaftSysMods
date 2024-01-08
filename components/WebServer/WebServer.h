@@ -10,11 +10,10 @@
 
 #ifdef FEATURE_WEB_SERVER_OR_WEB_SOCKETS
 
-#include <ConfigBase.h>
-#include <RestAPIEndpointManager.h>
-#include <SysModBase.h>
-#include <RaftWebInterface.h>
-#include <CommsChannelSettings.h>
+#include "RestAPIEndpointManager.h"
+#include "SysModBase.h"
+#include "RaftWebInterface.h"
+#include "CommsChannelSettings.h"
 
 class WebServerResource;
 class CommsChannelMsg;
@@ -25,8 +24,7 @@ class WebServer : public SysModBase
 {
 public:
     // Constructor/destructor
-    WebServer(const char* pModuleName, ConfigBase& defaultConfig, 
-            ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig);
+    WebServer(const char* pModuleName, RaftJsonIF& sysConfig);
     virtual ~WebServer();
 
     // Begin

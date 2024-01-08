@@ -7,15 +7,15 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <sdkconfig.h>
+#include "sdkconfig.h"
 #ifdef CONFIG_BT_ENABLED
 
 #include "BLEGapServer.h"
-#include <CommsCoreIF.h>
-#include <CommsChannelMsg.h>
-#include <CommsChannelSettings.h>
-#include <RaftUtils.h>
-#include <ESPUtils.h>
+#include "CommsCoreIF.h"
+#include "CommsChannelMsg.h"
+#include "CommsChannelSettings.h"
+#include "RaftUtils.h"
+#include "ESPUtils.h"
 
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"

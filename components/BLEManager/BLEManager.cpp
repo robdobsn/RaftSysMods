@@ -7,10 +7,10 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <Logger.h>
+#include "Logger.h"
 #include "BLEManager.h"
-#include <RestAPIEndpointManager.h>
-#include <SysManager.h>
+#include "RestAPIEndpointManager.h"
+#include "SysManager.h"
 #include "BLEGattOutbound.h"
 
 // Log prefix
@@ -20,9 +20,8 @@ static const char *MODULE_PREFIX = "BLEMan";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-BLEManager::BLEManager(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, 
-                ConfigBase *pMutableConfig, const char* defaultAdvName)
-    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+BLEManager::BLEManager(const char *pModuleName, RaftJsonIF& sysConfig, const char* defaultAdvName)
+    : SysModBase(pModuleName, sysConfig)
 
 #ifdef CONFIG_BT_ENABLED
 

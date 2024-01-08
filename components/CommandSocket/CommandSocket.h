@@ -8,14 +8,13 @@
 
 #pragma once
 
-#include <ConfigBase.h>
-#include <RestAPIEndpointManager.h>
-#include <SysModBase.h>
 #include <list>
+#include "RestAPIEndpointManager.h"
+#include "SysModBase.h"
 
 // #define USE_ASYNC_SOCKET_FOR_COMMAND_SOCKET
 #ifdef USE_ASYNC_SOCKET_FOR_COMMAND_SOCKET
-#include <AsyncTCP.h>
+#include "AsyncTCP.h"
 #endif
 
 class CommsChannelMsg;
@@ -24,7 +23,7 @@ class CommandSocket : public SysModBase
 {
 public:
     // Constructor/destructor
-    CommandSocket(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, ConfigBase *pMutableConfig);
+    CommandSocket(const char *pModuleName, RaftJsonIF& sysConfig);
     virtual ~CommandSocket();
 
 protected:

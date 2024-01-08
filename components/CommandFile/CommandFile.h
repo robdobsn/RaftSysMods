@@ -8,15 +8,14 @@
 
 #pragma once
 
-#include <ConfigBase.h>
-#include <RestAPIEndpointManager.h>
-#include <SysModBase.h>
+#include "RestAPIEndpointManager.h"
+#include "SysModBase.h"
 
 class CommandFile : public SysModBase
 {
 public:
     // Constructor/destructor
-    CommandFile(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, ConfigBase *pMutableConfig);
+    CommandFile(const char* pModuleName, RaftJsonIF& sysConfig);
     virtual ~CommandFile();
 
 protected:

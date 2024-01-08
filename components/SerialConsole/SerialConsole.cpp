@@ -7,16 +7,14 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <Logger.h>
+#include "Logger.h"
 #include "SerialConsole.h"
-#include <RestAPIEndpointManager.h>
-#include <ConfigBase.h>
-#include <driver/uart.h>
+#include "RestAPIEndpointManager.h"
+#include "driver/uart.h"
 #include "CommsChannelSettings.h"
 #include "CommsCoreIF.h"
-#include <RaftUtils.h>
-#include <CommsChannelMsg.h>
-#include <JSONParams.h>
+#include "RaftUtils.h"
+#include "CommsChannelMsg.h"
 
 // Log prefix
 static const char *MODULE_PREFIX = "SerialConsole";
@@ -27,8 +25,8 @@ static const char *MODULE_PREFIX = "SerialConsole";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-SerialConsole::SerialConsole(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig)
-        : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+SerialConsole::SerialConsole(const char* pModuleName, RaftJsonIF& sysConfig)
+        : SysModBase(pModuleName, sysConfig)
 {
     _curLine.reserve(MAX_REGULAR_LINE_LEN);
     _prevChar = -1;
@@ -390,7 +388,7 @@ bool SerialConsole::sendMsg(CommsChannelMsg& msg)
 RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
 {
     // Extract command from JSON
-    ConfigBase jsonInfo(cmdJSON);
+    RaftJson jsonInfo(cmdJSON);
     String cmd = jsonInfo.getString("cmd", "");
     int baudRate = jsonInfo.getLong("baudRate", -1);
     int txBufSize = jsonInfo.getLong("txBuf", -1);
@@ -441,7 +439,7 @@ RaftRetCode SerialConsole::apiConsole(const String &reqStr, String& respStr, con
     std::vector<String> params;
     std::vector<RaftJson::NameValuePair> nameValues;
     RestAPIEndpointManager::getParamsAndNameValues(reqStr.c_str(), params, nameValues);
-    JSONParams nvJson = RaftJson::getJSONFromNVPairs(nameValues, true);
+    RaftJson nvJson = RaftJson::getJSONFromNVPairs(nameValues, true);
 
     // Check valid
     if (params.size() < 2)
