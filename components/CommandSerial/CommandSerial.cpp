@@ -39,23 +39,31 @@ CommandSerial::~CommandSerial()
 
 void CommandSerial::setup()
 {
-    // Get array of serial port configs
-    std::vector<String> serialPortConfigs;
-    configGetArrayElems("ports", serialPortConfigs);
+    // Get length of serial port configs array
+    int arrayLen = 0;
+    modConfig().getType("ports", arrayLen);
+
+    // Check valid
+    if (arrayLen <= 0)
+        return;
+
+    // Check maximum number of ports
+    if (arrayLen > MAX_SERIAL_PORTS)
+    {
+        LOG_W(MODULE_PREFIX, "setup too many serial ports %d > %d", arrayLen, MAX_SERIAL_PORTS);
+        arrayLen = MAX_SERIAL_PORTS;
+    }
 
     // Clear list of ports
     _serialPorts.clear();
+    _serialPorts.resize(arrayLen);
 
     // Iterate through serial port configs creating ports
-    for (RaftJson portConfig : serialPortConfigs)
+    for (int i = 0; i < arrayLen; i++)
     {
-        // Create the port
-        CommandSerialPort emptyPort;
-        _serialPorts.push_back(emptyPort);
-
         // Configure the port
-        RaftJsonPrefixed portConfigPrefixed(portConfig, modName());
-        _serialPorts.back().setup(portConfigPrefixed, modName());
+        RaftJsonPrefixed portConfig(modConfig(), "ports[" + String(i) + "]");
+        _serialPorts.back().setup(portConfig, modName());
     }
 }
 

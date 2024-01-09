@@ -39,6 +39,8 @@ protected:
 
 private:
 
+    static const int MAX_SERIAL_PORTS = 4;
+    
     // List of serial ports
     std::list<CommandSerialPort> _serialPorts;
 
