@@ -67,9 +67,6 @@ public:
     double getRSSI(bool& isValid);
 
 private:
-    // Singleton
-    static BLEGapServer* _pThis;
-
     // Comms core interface
     CommsCoreIF* _pCommsCoreIF = nullptr;
 
