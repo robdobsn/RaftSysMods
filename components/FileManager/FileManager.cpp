@@ -46,8 +46,12 @@ void FileManager::setup()
 void FileManager::applySetup()
 {
     // Config settings
-    bool enableSPIFFS = configGetBool("SPIFFSEnabled", false);
-    bool enableLittleFS = configGetBool("LittleFSEnabled", false);
+    String localFsDefaultName = configGetString("LocalFsDefault", "");
+    FileSystem::LocalFileSystemType localFsTypeDefault = FileSystem::LOCAL_FS_DISABLE;
+    if (localFsDefaultName.equalsIgnoreCase("spiffs"))
+        localFsTypeDefault = FileSystem::LOCAL_FS_SPIFFS;
+    else if (localFsDefaultName.equalsIgnoreCase("littlefs"))
+        localFsTypeDefault = FileSystem::LOCAL_FS_LITTLEFS;
     bool localFsFormatIfCorrupt = configGetBool("LocalFsFormatIfCorrupt", false);
     bool enableSD = configGetBool("SDEnabled", false);
     bool defaultToSDIfAvailable = configGetBool("DefaultSD", false);
@@ -64,7 +68,7 @@ void FileManager::applySetup()
     int sdCSPin = ConfigPinMap::getPinFromName(pinName.c_str());
 
     // Setup file system
-    fileSystem.setup(enableSPIFFS, enableLittleFS, localFsFormatIfCorrupt, enableSD, sdMOSIPin, sdMISOPin, sdCLKPin, sdCSPin, 
+    fileSystem.setup(localFsTypeDefault, localFsFormatIfCorrupt, enableSD, sdMOSIPin, sdMISOPin, sdCLKPin, sdCSPin, 
                 defaultToSDIfAvailable, cacheFileSystemInfo);
 }
 
