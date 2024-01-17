@@ -28,12 +28,6 @@ public:
     // // Upload file to file system
     // virtual bool fileStreamDataBlock(FileStreamBlock& fileStreamBlock) override final;
 
-    // Set protocol exchange
-    void setProtocolExchange(ProtocolExchange& protocolExchange)
-    {
-        _pProtocolExchange = &protocolExchange;
-    }
-
 protected:
     // Setup
     virtual void setup() override final;

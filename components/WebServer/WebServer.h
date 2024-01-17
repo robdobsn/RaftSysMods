@@ -27,9 +27,6 @@ public:
     WebServer(const char* pModuleName, RaftJsonIF& sysConfig);
     virtual ~WebServer();
 
-    // Begin
-    void beginServer();
-
     // Add resources: servable content defined in code
     // @param pResources array of resource definitions
     // @param numResources number of resource definitions

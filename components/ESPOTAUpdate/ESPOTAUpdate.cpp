@@ -12,6 +12,8 @@
 #include "Logger.h"
 #include "esp_system.h"
 #include "RaftArduino.h"
+#include "SysManager.h"
+#include "ProtocolExchange.h"
 
 static const char* MODULE_PREFIX = "ESPOTAUpdate";
 
@@ -52,6 +54,15 @@ ESPOTAUpdate::ESPOTAUpdate(const char* pModuleName, RaftJsonIF& sysConfig)
 void ESPOTAUpdate::setup()
 {
     LOG_I(MODULE_PREFIX, "setup otaDirect %s", _otaDirectEnabled ? "YES" : "NO");
+
+    // Get the protocol exchange from the system manager
+    SysManager* pSysManager = getSysManager();
+    if (pSysManager)
+    {
+        ProtocolExchange* pProtocolExchange = pSysManager->getProtocolExchange();
+        if (pProtocolExchange)
+            pProtocolExchange->setFWUpdateHandler(this);
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

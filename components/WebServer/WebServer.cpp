@@ -96,6 +96,9 @@ void WebServer::applySetup()
     // Get server send buffer max length
     uint32_t sendBufferMaxLen = configGetLong("sendMax", RaftWebServerSettings::DEFAULT_SEND_BUFFER_MAX_LEN);
 
+    // Get static file paths
+    String staticFilePaths = configGetString("staticFilePaths", "");
+
     // Setup server if required
     if (_webServerEnabled)
     {
@@ -107,21 +110,19 @@ void WebServer::applySetup()
                     CommsCoreIF::CHANNEL_ID_REST_API, stdRespHeaders, nullptr, nullptr);
             _raftWebServer.setup(settings);
         }
+
+        // Serve static paths if enabled
+        if (enableFileServer)
+        {
+            serveStaticFiles(staticFilePaths.isEmpty() ? nullptr : staticFilePaths.c_str(), nullptr);
+        }
         _isWebServerSetup = true;
     }
 
 #ifdef FEATURE_WEB_SOCKETS
     // Serve websockets
     webSocketSetup();
-#endif    
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Begin
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void WebServer::beginServer()
-{
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
