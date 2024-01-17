@@ -29,6 +29,7 @@ idf_component_register(
     "components/LogManager"
     "components/MQTTManager"
     "components/NetworkManager"
+    "components/RegisterSysMods"
     "components/SerialConsole"
     "components/StatePublisher"
     "components/WebServer"
