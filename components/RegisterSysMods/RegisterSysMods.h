@@ -37,78 +37,76 @@ namespace RegisterSysMods
         // BLE
 #if CONFIG_BT_ENABLED
         sysManager.registerSysMod("BLEMan", 
-                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new BLEManager(pSysModName, sysConfig); },
-                10, false
+                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new BLEManager(pSysModName, sysConfig); }
         );
 #endif
 
         // Command File
         sysManager.registerSysMod("CommandFile", 
-                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new CommandFile(pSysModName, sysConfig); },
-                10, false
+                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new CommandFile(pSysModName, sysConfig); }
         );
 
         // Command Serial
         sysManager.registerSysMod("CommandSerial", 
-                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new CommandSerial(pSysModName, sysConfig); },
-                10, false
+                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new CommandSerial(pSysModName, sysConfig); }
         );
         
         // Command Socket
+#ifdef NETWORKING_IS_ENABLED
         sysManager.registerSysMod("CommandSocket", 
                 [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new CommandSocket(pSysModName, sysConfig); },
-                10, false
+                false, 
+                "NetMan"
         );
+#endif
 
         // ESPOTAUpdate
         sysManager.registerSysMod("ESPOTAUpdate", 
-                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new ESPOTAUpdate(pSysModName, sysConfig); },
-                10, false
+                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new ESPOTAUpdate(pSysModName, sysConfig); }
         );
         
         // FileManager
         sysManager.registerSysMod("FileManager", 
-                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new FileManager(pSysModName, sysConfig); },
-                2, true
+                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new FileManager(pSysModName, sysConfig); }
         );
 
         // LogManager
         sysManager.registerSysMod("LogManager", 
-                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new LogManager(pSysModName, sysConfig); },
-                5, true
+                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new LogManager(pSysModName, sysConfig); }
         );
 
         // MQTTManager
+#ifdef NETWORKING_IS_ENABLED
         sysManager.registerSysMod("MQTTMan", 
                 [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new MQTTManager(pSysModName, sysConfig); },
-                10, false
+                false,
+                "NetMan"
         );
+#endif
 
         // NetworkManager
 #ifdef NETWORKING_IS_ENABLED
         sysManager.registerSysMod("NetMan", 
-                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new NetworkManager(pSysModName, sysConfig); },
-                1, true
+                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new NetworkManager(pSysModName, sysConfig); }
         );
 #endif
 
         // Serial Console
         sysManager.registerSysMod("SerialConsole", 
-                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new SerialConsole(pSysModName, sysConfig); },
-                10, true
+                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new SerialConsole(pSysModName, sysConfig); }
         );
         
         // StatePublisher
         sysManager.registerSysMod("Publish", 
-                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new StatePublisher(pSysModName, sysConfig); },
-                10, false
+                [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new StatePublisher(pSysModName, sysConfig); }
         );
 
         // WebServer
 #ifdef NETWORKING_IS_ENABLED
         sysManager.registerSysMod("WebServer", 
                 [](const char* pSysModName, RaftJsonIF& sysConfig) -> SysModBase* { return new WebServer(pSysModName, sysConfig); },
-                7, false
+                false,
+                "NetMan"
         );
 #endif
     }

@@ -115,8 +115,6 @@ void StatePublisher::setup()
                 // Iterate rates and interfaces
                 for (int rateIdx = 0; rateIdx < numRatesAndInterfaces; rateIdx++)
                 {
-                    // TODO refactor to use JSON paths
-
                     // Get the rate and interface info
                     RaftJson rateAndInterfaceInfo = ratesJson.getString(("["+String(rateIdx)+"]").c_str(), "{}");
                     String interface = rateAndInterfaceInfo.getString("if", "");
