@@ -23,8 +23,14 @@ class APISourceInfo;
 class BLEManager : public SysModBase
 {
 public:
-    BLEManager(const char *pModuleName, RaftJsonIF& sysConfig, const char* defaultAdvName);
+    BLEManager(const char *pModuleName, RaftJsonIF& sysConfig);
     virtual ~BLEManager();
+
+    // Create function (for use by SysManager factory)
+    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new BLEManager(pModuleName, sysConfig);
+    }
 
 protected:
     // Setup
@@ -54,9 +60,6 @@ private:
 
     // BLE enabled
     bool _enableBLE = false;
-
-    // Default advertising name
-    String _defaultAdvName;
 
     // BLE Gap server
     BLEGapServer _gapServer;

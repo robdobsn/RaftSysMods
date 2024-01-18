@@ -23,6 +23,12 @@ class SerialConsole : public SysModBase
 public:
     SerialConsole(const char* pModuleName, RaftJsonIF& sysConfig);
 
+    // Create function (for use by SysManager factory)
+    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new SerialConsole(pModuleName, sysConfig);
+    }
+    
     // Get
     int getChar();
 

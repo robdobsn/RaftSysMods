@@ -22,6 +22,12 @@ class ESPOTAUpdate : public SysModBase
 public:
     ESPOTAUpdate(const char* pModuleName, RaftJsonIF& sysConfig);
 
+    // Create function (for use by SysManager factory)
+    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new ESPOTAUpdate(pModuleName, sysConfig);
+    }
+    
     // Check if update in progress
     virtual bool isBusy() override final
     {

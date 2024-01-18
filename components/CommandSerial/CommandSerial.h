@@ -24,6 +24,12 @@ public:
     CommandSerial(const char *pModuleName, RaftJsonIF& sysConfig);
     virtual ~CommandSerial();
 
+    // Create function (for use by SysManager factory)
+    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new CommandSerial(pModuleName, sysConfig);
+    }
+    
 protected:
     // Setup
     virtual void setup() override final;

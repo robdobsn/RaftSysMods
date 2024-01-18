@@ -25,6 +25,12 @@ class FileManager : public SysModBase
 public:
     FileManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
+    // Create function (for use by SysManager factory)
+    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new FileManager(pModuleName, sysConfig);
+    }
+    
     // // Upload file to file system
     // virtual bool fileStreamDataBlock(FileStreamBlock& fileStreamBlock) override final;
 

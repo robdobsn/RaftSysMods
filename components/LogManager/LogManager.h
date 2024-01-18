@@ -20,6 +20,12 @@ class LogManager : public SysModBase
 public:
     LogManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
+    // Create function (for use by SysManager factory)
+    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new LogManager(pModuleName, sysConfig);
+    }
+    
 protected:
     // Setup
     virtual void setup() override final;

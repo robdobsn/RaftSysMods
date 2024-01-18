@@ -22,6 +22,12 @@ class MQTTManager : public SysModBase
 public:
     MQTTManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
+    // Create function (for use by SysManager factory)
+    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new MQTTManager(pModuleName, sysConfig);
+    }
+    
 protected:
     // Setup
     virtual void setup() override final;

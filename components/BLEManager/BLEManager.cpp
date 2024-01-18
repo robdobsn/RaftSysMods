@@ -20,7 +20,7 @@ static const char *MODULE_PREFIX = "BLEMan";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-BLEManager::BLEManager(const char *pModuleName, RaftJsonIF& sysConfig, const char* defaultAdvName)
+BLEManager::BLEManager(const char *pModuleName, RaftJsonIF& sysConfig)
     : SysModBase(pModuleName, sysConfig)
 
 #ifdef CONFIG_BT_ENABLED
@@ -33,10 +33,6 @@ BLEManager::BLEManager(const char *pModuleName, RaftJsonIF& sysConfig, const cha
                     })
 #endif
 {
-#ifdef CONFIG_BT_ENABLED    
-    // BLE interface
-    _defaultAdvName = defaultAdvName;
-#endif
 }
 
 BLEManager::~BLEManager()
@@ -257,8 +253,6 @@ String BLEManager::getAdvertisingName()
         bool friendlyNameIsSet = false;
         adName = getFriendlyName(friendlyNameIsSet);
     }
-    if (adName.length() == 0)
-        adName = _defaultAdvName;
     if (adName.length() == 0)
         adName = getSystemName();
     return adName;

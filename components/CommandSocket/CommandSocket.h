@@ -26,6 +26,12 @@ public:
     CommandSocket(const char *pModuleName, RaftJsonIF& sysConfig);
     virtual ~CommandSocket();
 
+    // Create function (for use by SysManager factory)
+    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new CommandSocket(pModuleName, sysConfig);
+    }
+    
 protected:
     // Setup
     virtual void setup() override final;

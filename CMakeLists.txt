@@ -18,7 +18,6 @@ idf_component_register(
     "components/NetworkManager/NetworkManager.cpp"
     "components/SerialConsole/SerialConsole.cpp"
     "components/StatePublisher/StatePublisher.cpp"
-    "components/WebServer/WebServer.cpp"
   INCLUDE_DIRS
     "components/BLEManager"
     "components/CommandFile"
@@ -32,10 +31,8 @@ idf_component_register(
     "components/RegisterSysMods"
     "components/SerialConsole"
     "components/StatePublisher"
-    "components/WebServer"
   REQUIRES
     raftcore-src
-    raftwebserver-src
     bt
     spiffs
     fatfs

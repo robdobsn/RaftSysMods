@@ -26,6 +26,12 @@ public:
     StatePublisher(const char* pModuleName, RaftJsonIF& sysConfig);
     ~StatePublisher();
 
+    // Create function (for use by SysManager factory)
+    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new StatePublisher(pModuleName, sysConfig);
+    }
+    
     // Subscription API
     RaftRetCode apiSubscription(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
