@@ -51,6 +51,9 @@
 
 static const char* MODULE_PREFIX = "BLEGap";
 
+// Singleton instance
+BLEGapServer* BLEGapServer::_pThis = nullptr;
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constructor and destructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -63,6 +66,7 @@ BLEGapServer::BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn,
                     },
                     _bleStats)
 {
+    _pThis = this;
     _getAdvertisingNameFn = getAdvertisingNameFn;
     _statusChangeFn = statusChangeFn;
 }
@@ -699,9 +703,7 @@ bool BLEGapServer::nimbleStart()
     };
 
     // onSync callback
-    ble_hs_cfg.sync_cb = []() {
-        onSync();
-    };
+    ble_hs_cfg.sync_cb = onSyncStatic;
 
     ble_hs_cfg.gatts_register_cb = BLEGattServer::registrationCallbackStatic;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;

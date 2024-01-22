@@ -67,6 +67,9 @@ public:
     double getRSSI(bool& isValid);
 
 private:
+    // Singleton (used for event callbacks)
+    static BLEGapServer* _pThis;
+
     // Comms core interface
     CommsCoreIF* _pCommsCoreIF = nullptr;
 
@@ -153,6 +156,11 @@ private:
     void serviceTimedAdvertisingCheck();
     
     // Callbacks
+    static void onSyncStatic()
+    {
+        if (_pThis)
+            _pThis->onSync();
+    }
     void onSync();
     int nimbleGapEvent(struct ble_gap_event *event);
 
