@@ -20,9 +20,9 @@
 #include "LogManager.h"
 #include "MQTTManager.h"
 #include "NetworkManager.h"
+#include "SampleCollectorJSON.h"
 #include "SerialConsole.h"
 #include "StatePublisher.h"
-#include "WebServer.h"
 
 // Check if networking is enabled
 #if defined(CONFIG_ESP_WIFI_ENABLED) || defined(CONFIG_ETH_USE_ESP32_EMAC) || defined(CONFIG_ETH_USE_SPI_ETHERNET) || defined(CONFIG_ETH_USE_OPENETH) || defined(CONFIG_ETH_USE_RMII_ETHERNET)
@@ -54,7 +54,7 @@ namespace RegisterSysMods
         sysManager.registerSysMod("ESPOTAUpdate", ESPOTAUpdate::create);
         
         // FileManager
-        sysManager.registerSysMod("FileManager", FileManager::create);
+        sysManager.registerSysMod("FileManager", FileManager::create, true);
 
         // LogManager
         sysManager.registerSysMod("LogManager", LogManager::create);
@@ -68,6 +68,9 @@ namespace RegisterSysMods
 #ifdef NETWORKING_IS_ENABLED
         sysManager.registerSysMod("NetMan", NetworkManager::create);
 #endif
+
+        // Sample collector JSON
+        sysManager.registerSysMod("SamplesJSON", SampleCollectorJSON::create);
 
         // Serial Console
         sysManager.registerSysMod("SerialConsole", SerialConsole::create);

@@ -10,11 +10,17 @@
 #include "Logger.h"
 #include "SerialConsole.h"
 #include "RestAPIEndpointManager.h"
-#include "driver/uart.h"
 #include "CommsChannelSettings.h"
 #include "CommsCoreIF.h"
 #include "RaftUtils.h"
 #include "CommsChannelMsg.h"
+#include "sdkconfig.h"
+#include "esp_idf_version.h"
+#include "driver/uart.h"
+
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#include "driver/usb_serial_jtag.h"
+#endif
 
 // Log prefix
 static const char *MODULE_PREFIX = "SerialConsole";
@@ -29,15 +35,6 @@ SerialConsole::SerialConsole(const char* pModuleName, RaftJsonIF& sysConfig)
         : SysModBase(pModuleName, sysConfig)
 {
     _curLine.reserve(MAX_REGULAR_LINE_LEN);
-    _prevChar = -1;
-    _cmdRxState = CommandRx_idle;
-    _isEnabled = 0;
-    _crlfOnTx = 1;
-    _baudRate = 115200;
-    _uartNum = 0;
-    _isInitialised = false;
-    _rxBufferSize = 1024;
-    _txBufferSize = 1024;
 
     // ChannelID
     _commsChannelID = CommsCoreIF::CHANNEL_ID_UNDEFINED;    
@@ -51,21 +48,45 @@ void SerialConsole::setup()
 {
     // Get params
     _isEnabled = configGetBool("enable", false);
-    _crlfOnTx = configGetLong("crlfOnTx", 1);
-    _uartNum = configGetLong("uartNum", 0);
+    _crlfOnTx = configGetLong("crlfOnTx", DEFAULT_CRLF_ON_TX);
+    _uartNum = configGetLong("uartNum", DEFAULT_UART_NUM);
     _baudRate = configGetLong("baudRate", 0);
-    _rxBufferSize = configGetLong("rxBuf", 1024);
-    _txBufferSize = configGetLong("txBuf", 1024);
+    _rxBufferSize = configGetLong("rxBuf", DEFAULT_RX_BUFFER_SIZE);
+    _txBufferSize = configGetLong("txBuf", DEFAULT_TX_BUFFER_SIZE);
 
     // Protocol
     _protocol = configGetString("protocol", "RICSerial");
 
-    // Check if a baud rate is specified (otherwise leave serial config as it is)
-    if (_baudRate != 0)
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+
+    // Configure USB-JTAG if required
+    usb_serial_jtag_driver_config_t usb_serial_jtag_config = {
+                .tx_buffer_size = _txBufferSize,
+                .rx_buffer_size = _rxBufferSize,
+                };
+
+    esp_err_t jtagErr = usb_serial_jtag_driver_install(&usb_serial_jtag_config);
+    if (jtagErr != ESP_OK)
     {
-        if (_baudRate != 115200)
+        LOG_E(MODULE_PREFIX, "setup FAILED can't install jtag driver, err %d", jtagErr);
+        return;
+    }
+
+    // Debug
+    LOG_I(MODULE_PREFIX, "setup USB JTAG OK enabled %s rxBufLen %d txBufLen %d", 
+                _isEnabled ? "YES" : "NO", _rxBufferSize, _txBufferSize);
+
+#else
+
+    // Config required if baud rate specified
+    bool configRequired = _baudRate != 0;
+
+    // Check if a config required
+    if (configRequired)
+    {
+        if (_baudRate != DEFAULT_BAUD_RATE)
         {
-            LOG_I(MODULE_PREFIX, "Changing baud rate to %d", _baudRate);
+            LOG_I(MODULE_PREFIX, "Changing uartNum %d baud rate to %d", _uartNum, _baudRate);
             vTaskDelay(10);
         }
 
@@ -90,7 +111,7 @@ void SerialConsole::setup()
         esp_err_t err = uart_param_config((uart_port_t)_uartNum, &uart_config);
         if (err != ESP_OK)
         {
-            LOG_E(MODULE_PREFIX, "setup FAILED to initialize uart, err %d", err);
+            LOG_E(MODULE_PREFIX, "setup FAILED uartNum %d can't initialize uart, err %d", _uartNum, err);
             return;
         }
 
@@ -98,18 +119,29 @@ void SerialConsole::setup()
         vTaskDelay(1);
     }
 
+    // Check for interrupt allocation flags (IRAM)
+    int intr_alloc_flags = 0;
+#if CONFIG_UART_ISR_IN_IRAM
+    intr_alloc_flags = ESP_INTR_FLAG_IRAM;
+#endif
+
+    // Install UART driver for interrupt-driven reads and writes
+    esp_err_t err = uart_driver_install((uart_port_t)_uartNum, _rxBufferSize, _txBufferSize, 0, 
+                            NULL, intr_alloc_flags);
+    if (err != ESP_OK)
+    {
+        LOG_E(MODULE_PREFIX, "setup FAILED uartNum %d can't install uart driver, err %d", _uartNum, err);
+        return;
+    }
+
     // Debug
-    LOG_I(MODULE_PREFIX, "setup enabled %s uartNum %d crlfOnTx %s rxBufLen %d txBufLen %d", 
+    LOG_I(MODULE_PREFIX, "setup OK enabled %s uartNum %d crlfOnTx %s rxBufLen %d txBufLen %d", 
                 _isEnabled ? "YES" : "NO", _uartNum, _crlfOnTx ? "YES" : "NO",
                 _rxBufferSize, _txBufferSize);
 
-    // Install UART driver for interrupt-driven reads and writes
-    esp_err_t err = uart_driver_install((uart_port_t)_uartNum, _rxBufferSize, _txBufferSize, 0, NULL, 0);
-    if (err != ESP_OK)
-    {
-        LOG_E(MODULE_PREFIX, "setup FAILED to install uart driver, err %d", err);
-        return;
-    }
+#endif // CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+
+
     _isInitialised = true;
 }
 
@@ -154,14 +186,33 @@ int SerialConsole::getChar()
     {
         // Check anything available
         size_t numCharsAvailable = 0;
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+        esp_err_t err = ESP_OK;
+        numCharsAvailable = 1;
+#else
         esp_err_t err = uart_get_buffered_data_len((uart_port_t)_uartNum, &numCharsAvailable);
+#endif
         if ((err == ESP_OK) && (numCharsAvailable > 0))
         {
             // Get char
             uint8_t charRead;
-            if (uart_read_bytes((uart_port_t)_uartNum, &charRead, 1, 1) > 0)
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+            if (usb_serial_jtag_read_bytes(&charRead, 1, 0) > 0)
+#else
+            if (uart_read_bytes((uart_port_t)_uartNum, &charRead, 1, 0) > 0)
+#endif
+            {
+                // Debug
+#ifdef DEBUG_SERIAL_CONSOLE
+                LOG_I(MODULE_PREFIX, "getChar %02x", charRead);
+#endif
                 return charRead;
         }
+    }
+    }
+    else
+    {
+        LOG_W(MODULE_PREFIX, "getChar called when not enabled");
     }
     return -1;
 }
@@ -174,7 +225,12 @@ void SerialConsole::putStr(const char* pStr)
 {
     if (_isEnabled)
     {
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+        // LOG_I(MODULE_PREFIX, "putStr strlen %d", strnlen(pStr, _txBufferSize/2+1));
+        usb_serial_jtag_write_bytes((const char*)pStr, strnlen(pStr, _txBufferSize/2+1), 1);
+#else
         uart_write_bytes((uart_port_t)_uartNum, pStr, strnlen(pStr, _txBufferSize/2+1));
+#endif
     }
 }
 
@@ -182,7 +238,12 @@ void SerialConsole::putStr(const String& str)
 {
     if (_isEnabled)
     {
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+        // LOG_I(MODULE_PREFIX, "putString strlen %d", str.length());
+        usb_serial_jtag_write_bytes(str.c_str(), str.length(), 1);
+#else
         uart_write_bytes((uart_port_t)_uartNum, str.c_str(), str.length());
+#endif
     }
 }
 
@@ -260,7 +321,9 @@ void SerialConsole::service()
 
             putStr(_crlfOnTx ? "\r\n" : "\n");
             // Check for immediate instructions
-            LOG_D(MODULE_PREFIX, "CommsSerial: ->cmdInterp cmdStr %s", _curLine.c_str());
+#ifdef DEBUG_SERIAL_CONSOLE
+            LOG_I(MODULE_PREFIX, "CommsSerial: ->cmdInterp cmdStr %s", _curLine.c_str());
+#endif
             String retStr;
             if (getRestAPIEndpointManager())
                 getRestAPIEndpointManager()->handleApiRequest(_curLine.c_str(), retStr, 
@@ -370,7 +433,11 @@ bool SerialConsole::sendMsg(CommsChannelMsg& msg)
     uint32_t encodedFrameLen = _protocolOverAscii.encodeFrame(msg.getBuf(), msg.getBufLen(), encodedFrame, encodedFrameMax);
 
     // Send the message
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+    int bytesSent = usb_serial_jtag_write_bytes((const char*)encodedFrame, encodedFrameLen, 1);
+#else
     int bytesSent = uart_write_bytes((uart_port_t)_uartNum, (const char*)encodedFrame, encodedFrameLen);
+#endif
     if (bytesSent != encodedFrameLen)
     {
         LOG_W(MODULE_PREFIX, "sendMsg channelID %d, msgType %s msgNum %d, len %d only wrote %d bytes",
@@ -387,6 +454,7 @@ bool SerialConsole::sendMsg(CommsChannelMsg& msg)
 
 RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
 {
+#ifndef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
     // Extract command from JSON
     RaftJson jsonInfo(cmdJSON);
     String cmd = jsonInfo.getString("cmd", "");
@@ -426,6 +494,7 @@ RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
         }
         return RAFT_OK;
     }
+#endif
     return RAFT_INVALID_OPERATION;
 }
 
@@ -453,6 +522,7 @@ RaftRetCode SerialConsole::apiConsole(const String &reqStr, String& respStr, con
     String cmdStr = params[1];
     if (cmdStr.equalsIgnoreCase("settings"))
     {
+#ifndef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
         // Iterate over name/values
         RaftRetCode result = RaftRetCode::RAFT_INVALID_DATA;
         for (auto& nv : nameValues)
@@ -475,6 +545,7 @@ RaftRetCode SerialConsole::apiConsole(const String &reqStr, String& respStr, con
         }
         if (result != RaftRetCode::RAFT_INVALID_DATA)
             return result;
+#endif
     }
 
     // Unknown command

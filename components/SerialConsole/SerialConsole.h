@@ -45,6 +45,13 @@ public:
     typedef char CommandRxState;
     CommandRxState getXonXoff();
 
+    // Defaults
+    static const int DEFAULT_UART_NUM = 0;
+    static const int DEFAULT_BAUD_RATE = 115200;
+    static const int DEFAULT_RX_BUFFER_SIZE = 1024;
+    static const int DEFAULT_TX_BUFFER_SIZE = 1024;
+    static const bool DEFAULT_CRLF_ON_TX = true;
+
 protected:
     // Setup
     virtual void setup() override final;
@@ -74,19 +81,19 @@ public:
 
 private:
     // isEnabled and isInitialised
-    bool _isEnabled;
-    bool _isInitialised;
+    bool _isEnabled = false;
+    bool _isInitialised = false;
 
     // CRLF string on tx line end
-    bool _crlfOnTx;
+    bool _crlfOnTx = DEFAULT_CRLF_ON_TX;
 
     // Serial details
-    int _uartNum;
-    int _baudRate;
+    int _uartNum = DEFAULT_UART_NUM;
+    int _baudRate = DEFAULT_BAUD_RATE;
 
     // Buffer sizes
-    uint32_t _rxBufferSize;
-    uint32_t _txBufferSize;
+    uint32_t _rxBufferSize = DEFAULT_RX_BUFFER_SIZE;
+    uint32_t _txBufferSize = DEFAULT_TX_BUFFER_SIZE;
 
     // Bytes to process in service call
     static const uint32_t MAX_BYTES_TO_PROCESS_IN_SERVICE = 100;
@@ -102,10 +109,10 @@ private:
     static const int ABS_MAX_LINE_LEN = 1000;
 
     // Prev char entered (for line end checks)
-    int _prevChar;
+    int _prevChar = -1;
 
     // Cur state (XON/XOFF etc)
-    CommandRxState _cmdRxState;
+    CommandRxState _cmdRxState = CommandRx_idle;
 
     // EndpointID used to identify this message channel to the CommsCoreIF
     uint32_t _commsChannelID;
