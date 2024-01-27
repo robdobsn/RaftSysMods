@@ -19,7 +19,7 @@ class RaftJsonIF;
 class LoggerPapertrail : public LoggerBase
 {
 public:
-    LoggerPapertrail(const RaftJsonIF& logDestConfig, const String& systemUniqueString);
+    LoggerPapertrail(const RaftJsonIF& logDestConfig, const String& systemName, const String& systemUniqueString);
     virtual ~LoggerPapertrail();
     virtual void log(esp_log_level_t level, const char *tag, const char* msg) override final;
 

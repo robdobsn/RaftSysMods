@@ -23,7 +23,7 @@ static const char *MODULE_PREFIX = "LogPapertrail";
 // Constructor / destructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-LoggerPapertrail::LoggerPapertrail(const RaftJsonIF& logDestConfig, const String& systemUniqueString)
+LoggerPapertrail::LoggerPapertrail(const RaftJsonIF& logDestConfig, const String& systemName, const String& systemUniqueString)
     : LoggerBase(logDestConfig)
 {
     // Get config
@@ -31,7 +31,7 @@ LoggerPapertrail::LoggerPapertrail(const RaftJsonIF& logDestConfig, const String
     memset(&_hostAddrInfo, 0, sizeof(struct addrinfo));
     _dnsLookupDone = false;
     _port = logDestConfig.getLong("port", 0);
-    _sysName = logDestConfig.getString("sysName", "");
+    _sysName = logDestConfig.getString("sysName", systemName.c_str());
     _sysName += "_" + systemUniqueString;
 }
 
