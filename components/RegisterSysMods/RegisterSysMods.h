@@ -66,7 +66,7 @@ namespace RegisterSysMods
 
         // NetworkManager
 #ifdef NETWORKING_IS_ENABLED
-        sysManager.registerSysMod("NetMan", NetworkManager::create);
+        sysManager.registerSysMod("NetMan", NetworkManager::create, true);
 #endif
 
         // Sample collector JSON
