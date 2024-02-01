@@ -220,22 +220,25 @@ void StatePublisher::service()
                 continue;
 
             // Check for time to publish
-            bool publishTimePending = rateRec._isPending || 
-                                ((rateRec._rateHz != 0) && Raft::isTimeout(millis(), rateRec._lastPublishMs, 
-                                    reducePublishingRate ? REDUCED_PUB_RATE_WHEN_BUSY_MS : rateRec._betweenPubsMs));
+            bool publishTime = (rateRec._rateHz != 0) && Raft::isTimeout(millis(), rateRec._lastPublishMs, 
+                                    reducePublishingRate ? REDUCED_PUB_RATE_WHEN_BUSY_MS : rateRec._betweenPubsMs);
 
 #ifdef DEBUG_PUBLISHING_REASON
             if (publishDueToStateChange)
             {
-                LOG_I(MODULE_PREFIX, "service publish due to state change for %s", pubRec._name.c_str());
+                LOG_I(MODULE_PREFIX, "service publish due to state change for %s i/f %s", pubRec._name.c_str(), rateRec._interface.c_str());
             }
-            else if (publishTimePending)
+            else if (publishTime)
             {
-                LOG_I(MODULE_PREFIX, "service publish due to timeout/pending for %s", pubRec._name.c_str());
+                LOG_I(MODULE_PREFIX, "service publish due to timeout for %s i/f %s", pubRec._name.c_str(), rateRec._interface.c_str());
+            }
+            else if (rateRec._isPending)
+            {
+                LOG_I(MODULE_PREFIX, "service publish pending for %s i/f %s", pubRec._name.c_str(), rateRec._interface.c_str());
             }
 #endif
             // Check for publish required
-            if (publishDueToStateChange || publishTimePending)
+            if (publishDueToStateChange || publishTime || rateRec._isPending)
             {
                 // Publish is pending
                 rateRec._isPending = true;
@@ -248,7 +251,7 @@ void StatePublisher::service()
 
 #ifdef DEBUG_PUBLISHING_HANDLE
                     // Debug
-                    LOG_I(MODULE_PREFIX, "Got channelID %d for name %s IF %s protocol %s", rateRec._channelID, pubRec._name.c_str(),
+                    LOG_I(MODULE_PREFIX, "Got channelID %d for name %s i/f %s protocol %s", rateRec._channelID, pubRec._name.c_str(),
                             rateRec._interface.c_str(), rateRec._protocol.c_str());
 #endif
 
@@ -292,9 +295,9 @@ void StatePublisher::service()
                     {
                         noConn = true;
                     }
-                    else if (publishRetc == COMMS_CORE_RET_OK)
+                    else
                     {
-                        // Publish no longer pending
+                        // Publish no longer pending (whether successful or not)
                         rateRec._isPending = false;
                         rateRec._lastPublishMs = millis();
                     }
@@ -525,6 +528,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                         rateRec.setRateHz(pubRateHz);
                         rateRec._isPending = true;
                         rateRec._lastPublishMs = millis();
+                        rateRec._interface = "Subscr_ch_" + String(channelID);
 #ifdef DEBUG_PUBLISH_SUPPRESS_RESTART
                         if (rateRec._isSuppressed)
                         {
