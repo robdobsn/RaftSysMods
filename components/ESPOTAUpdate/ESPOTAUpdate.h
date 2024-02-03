@@ -84,6 +84,8 @@ private:
         float updateRateBps = 0;
         uint16_t lastBlockSize = 0;
         uint16_t totalCRC = MiniHDLC::crcInitCCITT();
+        bool lastOTAUpdateOK = false;
+        String lastOTAUpdateResult = "NotStarted";
     };
 
     // Firmware update status

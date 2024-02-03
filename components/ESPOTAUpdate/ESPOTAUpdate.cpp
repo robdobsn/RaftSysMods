@@ -139,7 +139,19 @@ RaftRetCode ESPOTAUpdate::apiFirmwareMain(const String &reqStr, String &respStr,
     // Debug
     LOG_I(MODULE_PREFIX, "apiESPFirmwareMain");
 #endif
-    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
+
+    // Get status
+    FWUpdateStatus otaStatus;
+    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 1) == pdTRUE))
+    {
+        // Copy status
+        otaStatus = _otaStatus;
+
+        // Release semaphore
+        xSemaphoreGive(_fwUpdateStatusSemaphore);
+    }
+
+    return Raft::setJsonResult(reqStr.c_str(), respStr, otaStatus.lastOTAUpdateOK, otaStatus.lastOTAUpdateResult.c_str());
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -352,9 +364,14 @@ void ESPOTAUpdate::otaWorkerTask()
 
             // Check for start
             bool isOk = true;
+            String failReason;
             if (pReqRec->fsb.firstBlock)
             {
                 isOk = startOTAUpdate(pReqRec->fsb.fileLenValid ? pReqRec->fsb.fileLen : pReqRec->fsb.contentLen);
+                if (!isOk)
+                {
+                    failReason = "FailedStartOTA";
+                }
             }
 
             // Check if update in progress
@@ -383,7 +400,7 @@ void ESPOTAUpdate::otaWorkerTask()
                 {
                     // Failed
                     isOk = false;
-                    _otaDirectInProgress = false;
+                    failReason = "FailedWriteOTA";
                     LOG_E(MODULE_PREFIX, "otaWorkerTask esp_ota_write FAILED err=0x%x", err);
                 }
             }
@@ -391,7 +408,22 @@ void ESPOTAUpdate::otaWorkerTask()
             // Check if final
             if (isOk && pReqRec->fsb.finalBlock)
             {
-                isOk = completeOTAUpdate(false);
+                completeOTAUpdate(false);
+            }
+
+            // Handle failures
+            if (!isOk)
+            {
+                // No longer in progress
+                _otaDirectInProgress = false;
+
+                // Update status
+                if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 1) == pdTRUE))
+                {
+                    _otaStatus.lastOTAUpdateOK = false;
+                    _otaStatus.lastOTAUpdateResult = "Failed";
+                    xSemaphoreGive(_fwUpdateStatusSemaphore);
+                }
             }
         }
 
@@ -418,12 +450,19 @@ bool ESPOTAUpdate::startOTAUpdate(size_t fileLen)
     _otaStatus.totalBytes = 0;
     _otaStatus.lastBlockSize = 0;
     _otaStatus.totalCRC = MiniHDLC::crcInitCCITT();
+    _otaStatus.lastOTAUpdateOK = false;
+    _otaStatus.lastOTAUpdateResult = "InProgress";
 
     // Release semaphore
     xSemaphoreGive(_fwUpdateStatusSemaphore);
 
     // Get update partition
     const esp_partition_t* update_partition = esp_ota_get_next_update_partition(NULL);
+    if (!update_partition)
+    {
+        LOG_E(MODULE_PREFIX, "startOTAUpdate esp_ota_get_next_update_partition failed");
+        return false;
+    }
 
 #ifdef DEBUG_ESP_OTA_UPDATE
     // Debug
@@ -432,6 +471,11 @@ bool ESPOTAUpdate::startOTAUpdate(size_t fileLen)
 
     // const esp_partition_t *configured = esp_ota_get_boot_partition();
     const esp_partition_t *running = esp_ota_get_running_partition();
+    if (!running)
+    {
+        LOG_E(MODULE_PREFIX, "startOTAUpdate esp_ota_get_running_partition failed");
+        return false;
+    }
 
     // Info
     LOG_I(MODULE_PREFIX, "startOTAUpdate running partition type %d subtype %d (offset 0x%x)",
@@ -467,7 +511,7 @@ bool ESPOTAUpdate::startOTAUpdate(size_t fileLen)
         return false;
 #endif
     }
-    return true;
+    return err == ESP_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -483,6 +527,12 @@ bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
     if (updateCancelled)
     {
         LOG_I(MODULE_PREFIX, "completeOTAUpdate cancelled");
+        if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 10) == pdTRUE))
+        {
+            _otaStatus.lastOTAUpdateOK = false;
+            _otaStatus.lastOTAUpdateResult = "FailedCancelled";
+            xSemaphoreGive(_fwUpdateStatusSemaphore);
+        }
         return false;
     }
 
@@ -500,6 +550,12 @@ bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
     if (esp_ota_end(_espOTAHandle) != ESP_OK) 
     {
         LOG_E(MODULE_PREFIX, "esp_ota_end failed!");
+        if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 10) == pdTRUE))
+        {
+            _otaStatus.lastOTAUpdateOK = false;
+            _otaStatus.lastOTAUpdateResult = "FailedOTAEnd";
+            xSemaphoreGive(_fwUpdateStatusSemaphore);
+        }
         return false;
     }
 
@@ -511,6 +567,12 @@ bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
     if (err != ESP_OK) 
     {
         LOG_E(MODULE_PREFIX, "esp_ota_set_boot_partition failed! err=0x%x", err);
+        if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 10) == pdTRUE))
+        {
+            _otaStatus.lastOTAUpdateOK = false;
+            _otaStatus.lastOTAUpdateResult = "FailedSetBootPartition";
+            xSemaphoreGive(_fwUpdateStatusSemaphore);
+        }
         return false;
     }
 
@@ -522,5 +584,11 @@ bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
     // Schedule restart
     _restartPendingStartMs = millis();
     _restartPending = true;
+    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 10) == pdTRUE))
+        {
+            _otaStatus.lastOTAUpdateOK = true;
+            _otaStatus.lastOTAUpdateResult = "OK";
+            xSemaphoreGive(_fwUpdateStatusSemaphore);
+        }
     return true;
 }

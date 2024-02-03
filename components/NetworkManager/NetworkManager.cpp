@@ -115,7 +115,7 @@ void NetworkManager::service()
 String NetworkManager::getStatusJSON()
 {
     String statusStr = R"({"rslt":"ok")";
-    statusStr += R"(,"v":)" + String(getSysManager() ? getSysManager()->getSystemVersion() : "0.0.0");
+    statusStr += R"(,"v":")" + String(getSysManager() ? getSysManager()->getSystemVersion() + "\"" : "0.0.0");
     statusStr += "," + networkSystem.getConnStateJSON(false, true, true, true, true);
     statusStr += R"(})";
     return statusStr;
