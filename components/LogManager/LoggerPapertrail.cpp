@@ -13,8 +13,9 @@
 #include "RaftUtils.h"
 
 // Debug
-#define DEBUG_LOGGER_PAPERTRAIL
+// #define DEBUG_LOGGER_PAPERTRAIL
 // #define DEBUG_LOGGER_PAPERTRAIL_DETAIL
+// #define DEBUG_LOGGER_PAPERTRAIL_SOCKET
 
 // Log prefix
 static const char *MODULE_PREFIX = "LogPapertrail";
@@ -27,12 +28,13 @@ LoggerPapertrail::LoggerPapertrail(const RaftJsonIF& logDestConfig, const String
     : LoggerBase(logDestConfig)
 {
     // Get config
-    _host = logDestConfig.getString("host", "");
-    memset(&_hostAddrInfo, 0, sizeof(struct addrinfo));
-    _dnsLookupDone = false;
+    _hostname = logDestConfig.getString("host", "");
     _port = logDestConfig.getLong("port", 0);
     _sysName = logDestConfig.getString("sysName", systemName.c_str());
     _sysName += "_" + systemUniqueString;
+
+    // Setup resolver
+    _dnsResolver.setHostname(_hostname.c_str());
 }
 
 LoggerPapertrail::~LoggerPapertrail()
@@ -53,63 +55,19 @@ void LOGGING_FUNCTION_DECORATOR LoggerPapertrail::log(esp_log_level_t level, con
     if (level > _level)
         return;
 
-    // Check if we're connected
-    if (!networkSystem.isIPConnected())
+    // Check for recusion (e.g. if the log function itself logs)
+    if (_inLog)
         return;
+    _inLog = true;
 
-    // Check if DNS lookup done
-    if (!_dnsLookupDone)
+    // Check socket
+    ip_addr_t hostIPAddr;
+    if (!checkSocket(hostIPAddr))
     {
-        // Do DNS lookup
-        struct addrinfo hints;
-        memset(&hints,0,sizeof(hints));
-        hints.ai_family=AF_INET;
-        hints.ai_socktype=SOCK_DGRAM;
-        hints.ai_flags=0;
-        struct addrinfo *addrResult;
-        if (getaddrinfo(_host.c_str(), _port.c_str(), &hints, &addrResult) != 0)
-        {
-            if (Raft::isTimeout(millis(), _internalDNSResolveErrorLastTime, INTERNAL_ERROR_LOG_MIN_GAP_MS))
-            {
-                ESP_LOGE(MODULE_PREFIX, "log failed to resolve host %s", _host.c_str());
-                _internalDNSResolveErrorLastTime = millis();
-            }
-            return;
-        }
-#ifdef DEBUG_LOGGER_PAPERTRAIL_DETAIL
-        ESP_LOGI(MODULE_PREFIX, "log resolved host %s to %d.%d.%d.%d", _host.c_str(), 
-                    addrResult->ai_addr->sa_data[0], addrResult->ai_addr->sa_data[1],
-                    addrResult->ai_addr->sa_data[2], addrResult->ai_addr->sa_data[3]);
-#endif
-        _hostAddrInfo = *addrResult;
-        _dnsLookupDone = true;
-
-        // Create UDP socket
-#ifdef DEBUG_LOGGER_PAPERTRAIL_DETAIL
-        ESP_LOGI(MODULE_PREFIX, "log create udp socket");
-#endif
-        _socketFd = socket(_hostAddrInfo.ai_family, _hostAddrInfo.ai_socktype, _hostAddrInfo.ai_protocol);
-        if (_socketFd < 0)
-        {
-            if (Raft::isTimeout(millis(), _internalSocketCreateErrorLastTime, INTERNAL_ERROR_LOG_MIN_GAP_MS))
-            {
-                ESP_LOGE(MODULE_PREFIX, "log create udp socket failed: %d errno: %d", _socketFd, errno);
-                _internalSocketCreateErrorLastTime = millis();
-            }
-            return;
-        }
-
-        // Set non-blocking
-        fcntl(_socketFd, F_SETFL, fcntl(_socketFd, F_GETFL, 0) | O_NONBLOCK);
-
-        // Debug
-#ifdef DEBUG_LOGGER_PAPERTRAIL
-        ESP_LOGI(MODULE_PREFIX, "log hostIP %s port %s level %s sysName %s socketFd %d socketFlags %04x", 
-                            _host.c_str(), _port.c_str(), getLevelStr(), _sysName.c_str(), _socketFd, 
-                            fcntl(_socketFd, F_GETFL, 0));
-#endif
+        _inLog = false;
+        return;
     }
-    
+
     // Start of log window?
     if (Raft::isTimeout(millis(), _logWindowStartMs, LOG_WINDOW_SIZE_MS))
     {
@@ -123,6 +81,7 @@ void LOGGING_FUNCTION_DECORATOR LoggerPapertrail::log(esp_log_level_t level, con
         if (_logWindowCount >= LOG_WINDOW_MAX_COUNT)
         {
             // Discard
+            _inLog = false;
             return;
         }
     }
@@ -130,15 +89,115 @@ void LOGGING_FUNCTION_DECORATOR LoggerPapertrail::log(esp_log_level_t level, con
     // Format message
     String logMsg = "<22>" + _sysName + ": " + msg;
 
+    // Form the IP address
+    struct sockaddr_in destAddr;
+    destAddr.sin_addr.s_addr = hostIPAddr.u_addr.ip4.addr;
+    destAddr.sin_family = AF_INET;
+    destAddr.sin_port = htons(atoi(_port.c_str()));
+
     // Send to papertrail using UDP socket
-    int ret = sendto(_socketFd, logMsg.c_str(), logMsg.length(), 0, _hostAddrInfo.ai_addr, _hostAddrInfo.ai_addrlen);
+    int ret = sendto(_socketFd, logMsg.c_str(), logMsg.length(), 0, (struct sockaddr *)&destAddr, sizeof(destAddr));
     if (ret < 0)
     {
         if (Raft::isTimeout(millis(), _internalLoggingFailedErrorLastTime, INTERNAL_ERROR_LOG_MIN_GAP_MS))
         {
-            ESP_LOGE(MODULE_PREFIX, "log failed: %d errno %d", ret, errno);
+            ESP_LOGI(MODULE_PREFIX, "log failed: %d errno %d socketFd %d ipAddr %s msgLen %d",
+                        ret, errno, _socketFd, ipaddr_ntoa(&hostIPAddr), logMsg.length());
             _internalLoggingFailedErrorLastTime = millis();
         }
-        return;
     }
+
+    // Done
+    _inLog = false;
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Check socket connected
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool LoggerPapertrail::checkSocket(ip_addr_t& hostIPAddr)
+{
+    // Check if we're connected to IP
+    if (!networkSystem.isIPConnected())
+        return false;
+
+    // Get IP address
+    if (!_dnsResolver.getIPAddr(hostIPAddr))
+    {
+        if (Raft::isTimeout(millis(), _internalDNSResolveErrorLastTimeMs, INTERNAL_ERROR_LOG_MIN_GAP_MS))
+        {
+            ESP_LOGI(MODULE_PREFIX, "checkSocketCreated dns not resolved");
+            _internalDNSResolveErrorLastTimeMs = millis();
+        }
+        return false;
+    }
+
+    // Check if socket already connected
+    if (_socketFd >= 0)
+        return true;
+
+    // Debug
+#ifdef DEBUG_LOGGER_PAPERTRAIL_SOCKET
+    ESP_LOGI(MODULE_PREFIX, "checkSocketCreated creating udp socket");
+#endif
+
+    // Check address family
+    if (hostIPAddr.type != IPADDR_TYPE_V4)
+    {
+        if (Raft::isTimeout(millis(), _internalSocketCreateErrorLastTimeMs, INTERNAL_ERROR_LOG_MIN_GAP_MS))
+        {
+            ESP_LOGI(MODULE_PREFIX, "checkSocketCreated invalid address family %d != IPADDR_TYPE_V4", hostIPAddr.type);
+            _internalSocketCreateErrorLastTimeMs = millis();
+        }
+        return false;
+    }
+    
+    // Create UDP socket
+    _socketFd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (_socketFd < 0)
+    {
+#ifdef DEBUG_LOGGER_PAPERTRAIL_SOCKET
+        ESP_LOGI(MODULE_PREFIX, "checkSocketCreated create udp socket failed: %d errno: %d", _socketFd, errno);
+#endif
+        if (Raft::isTimeout(millis(), _internalSocketCreateErrorLastTimeMs, INTERNAL_ERROR_LOG_MIN_GAP_MS))
+        {
+            ESP_LOGW(MODULE_PREFIX, "log create udp socket failed: %d errno: %d", _socketFd, errno);
+            _internalSocketCreateErrorLastTimeMs = millis();
+        }
+        return false;
+    }
+
+#ifdef DEBUG_LOGGER_PAPERTRAIL_SOCKET
+    ESP_LOGI(MODULE_PREFIX, "checkSocketCreated created udp socket - setting non-blocking");
+#endif
+
+    // Get socket flags
+    int flags = fcntl(_socketFd, F_GETFL, 0);
+    if (flags < 0)
+    {
+        ESP_LOGE(MODULE_PREFIX, "checkSocketCreated get flags failed: %d errno: %d", flags, errno);
+        close(_socketFd);
+        _socketFd = -1;
+        return false;
+    }
+
+    // Set non-blocking
+    if (fcntl(_socketFd, F_SETFL, flags | O_NONBLOCK) < 0)
+    {
+        ESP_LOGE(MODULE_PREFIX, "checkSocketCreated set non-blocking failed: %d errno: %d", flags, errno);
+        close(_socketFd);
+        _socketFd = -1;
+        return false;
+    }
+
+#ifdef DEBUG_LOGGER_PAPERTRAIL_SOCKET
+    ESP_LOGI(MODULE_PREFIX, "checkSocketConnected set non-blocking ok");
+#endif
+
+    // Debug
+    ESP_LOGI(MODULE_PREFIX, "checkSocket OK hostname %s port %s level %s sysName %s socketFd %d socketFlags %04x", 
+                        _hostname.c_str(), _port.c_str(), getLevelStr(), _sysName.c_str(), _socketFd, 
+                        fcntl(_socketFd, F_GETFL, 0));
+    return true;
+}
+

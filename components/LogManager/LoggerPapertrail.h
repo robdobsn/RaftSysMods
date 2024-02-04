@@ -10,6 +10,7 @@
 
 #include "LoggerBase.h"
 #include "RaftArduino.h"
+#include "DNSResolver.h"
 #include "sys/types.h"
 #include "sys/socket.h"
 #include "netdb.h"
@@ -24,12 +25,17 @@ public:
     virtual void log(esp_log_level_t level, const char *tag, const char* msg) override final;
 
 private:
-    String _host;
+    // Config
+    String _hostname;
     String _port;
     String _sysName;
-    struct addrinfo _hostAddrInfo;
-    bool _dnsLookupDone = false;
+    DNSResolver _dnsResolver;
+
+    // Socket
     int _socketFd = -1;
+
+    // Recursion detector
+    bool _inLog = false;
 
     // Avoid swamping the network
     uint32_t _logWindowStartMs = 0;
@@ -40,8 +46,11 @@ private:
     static const uint32_t LOG_WINDOW_THROTTLE_BACKOFF_MS = 30000;
 
     // Avoid logging internal errors too often
-    uint32_t _internalDNSResolveErrorLastTime = 0;
-    uint32_t _internalSocketCreateErrorLastTime = 0;
+    uint32_t _internalDNSResolveErrorLastTimeMs = 0;
+    uint32_t _internalSocketCreateErrorLastTimeMs = 0;
     uint32_t _internalLoggingFailedErrorLastTime = 0;
     static const uint32_t INTERNAL_ERROR_LOG_MIN_GAP_MS = 10000;
+
+    // Helpers
+    bool checkSocket(ip_addr_t& hostIPAddr);
 };
