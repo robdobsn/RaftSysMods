@@ -42,8 +42,8 @@ protected:
     // Setup
     virtual void setup() override final;
 
-    // Service
-    virtual void service() override final
+    // Loop
+    virtual void loop() override final
     {}
 
     // Add endpoints

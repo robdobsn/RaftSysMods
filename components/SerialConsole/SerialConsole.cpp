@@ -273,14 +273,14 @@ SerialConsole::CommandRxState SerialConsole::getXonXoff()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service
+// Loop (called frequently)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void SerialConsole::service()
+void SerialConsole::loop()
 {
     // Process received data
     std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> inboundMessage;
-    for (uint32_t chIdx = 0; chIdx < MAX_BYTES_TO_PROCESS_IN_SERVICE; chIdx++)
+    for (uint32_t chIdx = 0; chIdx < MAX_BYTES_TO_PROCESS_IN_LOOP; chIdx++)
     {
         // Check for char
         int ch = getChar();
