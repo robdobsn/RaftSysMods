@@ -24,7 +24,7 @@ static const char* MODULE_PREFIX = "FileManager";
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 FileManager::FileManager(const char *pModuleName, RaftJsonIF& sysConfig) 
-        : SysModBase(pModuleName, sysConfig)
+        : RaftSysMod(pModuleName, sysConfig)
 {
     _pProtocolExchange = nullptr;
 }

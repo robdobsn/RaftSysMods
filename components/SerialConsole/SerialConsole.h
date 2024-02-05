@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 #include "ProtocolOverAscii.h"
 #include "SpiramAwareAllocator.h"
 
@@ -18,13 +18,13 @@ class CommsCoreIF;
 class CommsChannelMsg;
 class APISourceInfo;
 
-class SerialConsole : public SysModBase
+class SerialConsole : public RaftSysMod
 {
 public:
     SerialConsole(const char* pModuleName, RaftJsonIF& sysConfig);
 
     // Create function (for use by SysManager factory)
-    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new SerialConsole(pModuleName, sysConfig);
     }

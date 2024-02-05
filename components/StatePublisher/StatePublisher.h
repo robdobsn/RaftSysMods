@@ -12,14 +12,14 @@
 #include <vector>
 #include "RaftArduino.h"
 #include "APISourceInfo.h"
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 #include "CommsCoreIF.h"
 
 class RobotController;
 
 // #define DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS 1
 
-class StatePublisher : public SysModBase
+class StatePublisher : public RaftSysMod
 {
 public:
     // Constructor
@@ -27,7 +27,7 @@ public:
     ~StatePublisher();
 
     // Create function (for use by SysManager factory)
-    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new StatePublisher(pModuleName, sysConfig);
     }

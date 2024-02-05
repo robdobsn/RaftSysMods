@@ -24,7 +24,7 @@ NetworkManager* NetworkManager::_pNetworkManager = NULL;
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 NetworkManager::NetworkManager(const char *pModuleName, RaftJsonIF& sysConfig)
-    : SysModBase(pModuleName, sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 {
     // Singleton
     _pNetworkManager = this;

@@ -32,7 +32,7 @@ static const char *MODULE_PREFIX = "MQTTMan";
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 MQTTManager::MQTTManager(const char *pModuleName, RaftJsonIF& sysConfig)
-    : SysModBase(pModuleName, sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 {
     // ChannelID
     _commsChannelID = CommsCoreIF::CHANNEL_ID_UNDEFINED;

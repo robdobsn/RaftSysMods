@@ -10,7 +10,7 @@
 
 #include <list>
 #include "RestAPIEndpointManager.h"
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 
 // #define USE_ASYNC_SOCKET_FOR_COMMAND_SOCKET
 #ifdef USE_ASYNC_SOCKET_FOR_COMMAND_SOCKET
@@ -19,7 +19,7 @@
 
 class CommsChannelMsg;
 
-class CommandSocket : public SysModBase
+class CommandSocket : public RaftSysMod
 {
 public:
     // Constructor/destructor
@@ -27,7 +27,7 @@ public:
     virtual ~CommandSocket();
 
     // Create function (for use by SysManager factory)
-    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new CommandSocket(pModuleName, sysConfig);
     }

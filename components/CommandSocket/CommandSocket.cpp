@@ -22,7 +22,7 @@ static const char *MODULE_PREFIX = "CommandSocket";
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 CommandSocket::CommandSocket(const char *pModuleName, RaftJsonIF& sysConfig)
-    : SysModBase(pModuleName, sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 {
     // Config variables
     _isEnabled = false;

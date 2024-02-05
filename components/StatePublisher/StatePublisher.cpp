@@ -42,7 +42,7 @@ static const char* MODULE_PREFIX = "StatePub";
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 StatePublisher::StatePublisher(const char* pModuleName, RaftJsonIF& sysConfig)
-        : SysModBase(pModuleName, sysConfig)
+        : RaftSysMod(pModuleName, sysConfig)
 {
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
     _worstTimeSetMs = 0;

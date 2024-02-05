@@ -10,18 +10,18 @@
 #pragma once
 
 #include "RaftArduino.h"
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 #include "SpiramAwareAllocator.h"
 #include "APISourceInfo.h"
 #include "RestAPIEndpointManager.h"
 #include "RaftUtils.h"
 #include "FileSystem.h"
 
-class SampleCollectorJSON : public SysModBase
+class SampleCollectorJSON : public RaftSysMod
 {
 public:
     SampleCollectorJSON(const char *pModuleName, RaftJsonIF& sysConfig)
-        :   SysModBase(pModuleName, sysConfig)
+        :   RaftSysMod(pModuleName, sysConfig)
     {
     }
     virtual ~SampleCollectorJSON()
@@ -29,7 +29,7 @@ public:
     }
 
     // Create function (for use by SysManager factory)
-    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new SampleCollectorJSON(pModuleName, sysConfig);
     }    

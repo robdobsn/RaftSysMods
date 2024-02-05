@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 #include "sdkconfig.h"
 #include "BLEGapServer.h"
 
@@ -20,14 +20,14 @@ class APISourceInfo;
 // BLEManager
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-class BLEManager : public SysModBase
+class BLEManager : public RaftSysMod
 {
 public:
     BLEManager(const char *pModuleName, RaftJsonIF& sysConfig);
     virtual ~BLEManager();
 
     // Create function (for use by SysManager factory)
-    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new BLEManager(pModuleName, sysConfig);
     }

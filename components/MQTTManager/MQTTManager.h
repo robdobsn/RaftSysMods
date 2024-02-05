@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 #include "RaftMQTTClient.h"
 #include "CommsChannelMsg.h"
 
@@ -17,13 +17,13 @@ class RaftJsonIF;
 class RestAPIEndpointManager;
 class APISourceInfo;
 
-class MQTTManager : public SysModBase
+class MQTTManager : public RaftSysMod
 {
 public:
     MQTTManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
     // Create function (for use by SysManager factory)
-    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new MQTTManager(pModuleName, sysConfig);
     }

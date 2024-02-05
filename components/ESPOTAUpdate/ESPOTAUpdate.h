@@ -10,7 +10,7 @@
 #pragma once
 
 #include "RaftUtils.h"
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 #include "FileStreamBlock.h"
 #include "SpiramAwareAllocator.h"
 #include "MiniHDLC.h"
@@ -22,13 +22,13 @@
 class RestAPIEndpointManager;
 class APISourceInfo;
 
-class ESPOTAUpdate : public SysModBase
+class ESPOTAUpdate : public RaftSysMod
 {
 public:
     ESPOTAUpdate(const char* pModuleName, RaftJsonIF& sysConfig);
 
     // Create function (for use by SysManager factory)
-    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new ESPOTAUpdate(pModuleName, sysConfig);
     }

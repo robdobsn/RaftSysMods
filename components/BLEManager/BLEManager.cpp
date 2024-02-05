@@ -21,7 +21,7 @@ static const char *MODULE_PREFIX = "BLEMan";
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 BLEManager::BLEManager(const char *pModuleName, RaftJsonIF& sysConfig)
-    : SysModBase(pModuleName, sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 
 #ifdef CONFIG_BT_ENABLED
 

@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -20,13 +20,13 @@
 class RestAPIEndpointManager;
 class APISourceInfo;
 
-class FileManager : public SysModBase
+class FileManager : public RaftSysMod
 {
 public:
     FileManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
     // Create function (for use by SysManager factory)
-    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new FileManager(pModuleName, sysConfig);
     }

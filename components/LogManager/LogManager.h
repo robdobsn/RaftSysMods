@@ -9,19 +9,19 @@
 
 #pragma once
 
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 #include "LogManager.h"
 
 class RaftJsonIF;
 class RestAPIEndpointManager;
 class APISourceInfo;
-class LogManager : public SysModBase
+class LogManager : public RaftSysMod
 {
 public:
     LogManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
     // Create function (for use by SysManager factory)
-    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new LogManager(pModuleName, sysConfig);
     }

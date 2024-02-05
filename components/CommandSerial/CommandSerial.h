@@ -13,11 +13,11 @@
 #include "CommsCoreIF.h"
 #include "CommandSerialPort.h"
 #include "CommsBridgeMsg.h"
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 
 class CommsChannelMsg;
 
-class CommandSerial : public SysModBase
+class CommandSerial : public RaftSysMod
 {
 public:
     // Constructor/destructor
@@ -25,7 +25,7 @@ public:
     virtual ~CommandSerial();
 
     // Create function (for use by SysManager factory)
-    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new CommandSerial(pModuleName, sysConfig);
     }

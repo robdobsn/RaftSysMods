@@ -24,7 +24,7 @@ static const char *MODULE_PREFIX = "LogMan";
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 LogManager::LogManager(const char *pModuleName, RaftJsonIF& sysConfig)
-    : SysModBase(pModuleName, sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 {
 }
 

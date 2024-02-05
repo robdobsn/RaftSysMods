@@ -32,7 +32,7 @@ static const char *MODULE_PREFIX = "SerialConsole";
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 SerialConsole::SerialConsole(const char* pModuleName, RaftJsonIF& sysConfig)
-        : SysModBase(pModuleName, sysConfig)
+        : RaftSysMod(pModuleName, sysConfig)
 {
     _curLine.reserve(MAX_REGULAR_LINE_LEN);
 

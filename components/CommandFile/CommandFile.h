@@ -9,9 +9,9 @@
 #pragma once
 
 #include "RestAPIEndpointManager.h"
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 
-class CommandFile : public SysModBase
+class CommandFile : public RaftSysMod
 {
 public:
     // Constructor/destructor
@@ -19,7 +19,7 @@ public:
     virtual ~CommandFile();
 
     // Create function (for use by SysManager factory)
-    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new CommandFile(pModuleName, sysConfig);
     }

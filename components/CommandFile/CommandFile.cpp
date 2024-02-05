@@ -22,7 +22,7 @@ static const char *MODULE_PREFIX = "CommandFile";
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 CommandFile::CommandFile(const char *pModuleName, RaftJsonIF& sysConfig)
-    : SysModBase(pModuleName, sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 {
     _curState = API_STATE_IDLE;
 }

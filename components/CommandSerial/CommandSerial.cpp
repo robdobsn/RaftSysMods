@@ -25,7 +25,7 @@ static const char *MODULE_PREFIX = "CommandSerial";
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 CommandSerial::CommandSerial(const char *pModuleName, RaftJsonIF& sysConfig)
-    : SysModBase(pModuleName, sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 {
 }
 

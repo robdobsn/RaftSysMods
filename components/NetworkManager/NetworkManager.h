@@ -9,20 +9,20 @@
 
 #pragma once
 
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 #include "NetworkSystem.h"
 
 class RaftJsonIF;
 class RestAPIEndpointManager;
 class APISourceInfo;
 
-class NetworkManager : public SysModBase
+class NetworkManager : public RaftSysMod
 {
 public:
     NetworkManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
     // Create function (for use by SysManager factory)
-    static SysModBase* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new NetworkManager(pModuleName, sysConfig);
     }
