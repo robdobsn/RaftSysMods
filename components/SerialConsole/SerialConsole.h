@@ -96,7 +96,7 @@ private:
     uint32_t _txBufferSize = DEFAULT_TX_BUFFER_SIZE;
 
     // Bytes to process in service call
-    static const uint32_t MAX_BYTES_TO_PROCESS_IN_SERVICE = 100;
+    static const uint32_t MAX_BYTES_TO_PROCESS_IN_LOOP = 100;
 
     // Procotol
     String _protocol;
