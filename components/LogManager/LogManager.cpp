@@ -7,10 +7,10 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <LogManager.h>
-#include <SysManager.h>
-#include <LoggerCore.h>
-#include <LoggerPapertrail.h>
+#include "LogManager.h"
+#include "SysManager.h"
+#include "LoggerCore.h"
+#include "LoggerPapertrail.h"
 
 // #define DEBUG_LOG_MANAGER
 
@@ -23,9 +23,8 @@ static const char *MODULE_PREFIX = "LogMan";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-LogManager::LogManager(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, 
-            ConfigBase *pMutableConfig)
-    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+LogManager::LogManager(const char *pModuleName, RaftJsonIF& sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 {
 }
 
@@ -41,7 +40,7 @@ void LogManager::setup()
     // Get config
     std::vector<String> logDests;
     configGetArrayElems("logDests", logDests);
-    for (const ConfigBase logDestConfig : logDests)
+    for (const RaftJson logDestConfig : logDests)
     {
         // Get type
         bool isEnabled = logDestConfig.getBool("enable", false);
@@ -56,7 +55,7 @@ void LogManager::setup()
         if (logDestType.equalsIgnoreCase("Papertrail"))
         {
             // Construct papertrail logger
-            LoggerPapertrail *pLogger = new LoggerPapertrail(logDestConfig, getSystemUniqueString());
+            LoggerPapertrail *pLogger = new LoggerPapertrail(logDestConfig, getSystemName(), getSystemUniqueString());
             loggerCore.addLogger(pLogger);
             // LOG_I(MODULE_PREFIX, "Added Papertrail logger");
         }
@@ -64,10 +63,10 @@ void LogManager::setup()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service
+// Loop (called frequently)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void LogManager::service()
+void LogManager::loop()
 {
 }
 

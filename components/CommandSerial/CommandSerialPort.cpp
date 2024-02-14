@@ -6,11 +6,11 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <Logger.h>
-#include <CommandSerialPort.h>
-#include <RaftUtils.h>
-#include <driver/uart.h>
-#include <SpiramAwareAllocator.h>
+#include "Logger.h"
+#include "CommandSerialPort.h"
+#include "RaftUtils.h"
+#include "driver/uart.h"
+#include "SpiramAwareAllocator.h"
 
 static const char *MODULE_PREFIX = "CommandSerialPort";
 
@@ -34,7 +34,7 @@ CommandSerialPort::~CommandSerialPort()
 // Setup
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void CommandSerialPort::setup(ConfigBase& config, const char* pModName)
+void CommandSerialPort::setup(RaftJsonIF& config, const char* pModName)
 {
     // Clear previous config if we've been here before
     if (_isInitialised)

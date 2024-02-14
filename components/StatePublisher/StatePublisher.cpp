@@ -7,14 +7,13 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "StatePublisher.h"
-#include <Logger.h>
-#include <RaftArduino.h>
-#include <RaftUtils.h>
-#include <CommsCoreIF.h>
-#include <CommsChannelMsg.h>
-#include <RestAPIEndpointManager.h>
-#include <ConfigBase.h>
-#include <JSONParams.h>
+#include "Logger.h"
+#include "RaftArduino.h"
+#include "RaftUtils.h"
+#include "CommsCoreIF.h"
+#include "CommsChannelMsg.h"
+#include "RestAPIEndpointManager.h"
+#include "RaftJson.h"
 
 // Debug
 // #define DEBUG_PUBLISHING_HANDLE
@@ -42,8 +41,8 @@ static const char* MODULE_PREFIX = "StatePub";
 // Constructor / Destructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-StatePublisher::StatePublisher(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig)
-        : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+StatePublisher::StatePublisher(const char* pModuleName, RaftJsonIF& sysConfig)
+        : RaftSysMod(pModuleName, sysConfig)
 {
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
     _worstTimeSetMs = 0;
@@ -78,7 +77,7 @@ void StatePublisher::setup()
     for (int pubIdx = 0; pubIdx < pubList.size(); pubIdx++)
     {
         // Get the publication info
-        JSONParams pubInfo = pubList[pubIdx];
+        RaftJson pubInfo = pubList[pubIdx];
 
         // Check pub type
         String pubType = pubInfo.getString("type", "");
@@ -106,20 +105,18 @@ void StatePublisher::setup()
             {
                 pubRec._trigger = TRIGGER_ON_TIME_INTERVALS;
             }
-            String ratesJSON = pubInfo.getString("rates", "");
+            RaftJson ratesJson = pubInfo.getString("rates", "");
             pubRec._msgIDStr = pubInfo.getString("msgID", "");
 
             // Check for interfaces
             int numRatesAndInterfaces = 0;
-            if (RaftJson::getType(numRatesAndInterfaces, ratesJSON.c_str()) == JSMN_ARRAY)
+            if (ratesJson.getType("", numRatesAndInterfaces) == RaftJson::RAFT_JSON_ARRAY)
             {
                 // Iterate rates and interfaces
                 for (int rateIdx = 0; rateIdx < numRatesAndInterfaces; rateIdx++)
                 {
-                    // TODO refactor to use JSON paths
-
                     // Get the rate and interface info
-                    ConfigBase rateAndInterfaceInfo = RaftJson::getString(("["+String(rateIdx)+"]").c_str(), "{}", ratesJSON.c_str());
+                    RaftJson rateAndInterfaceInfo = ratesJson.getString(("["+String(rateIdx)+"]").c_str(), "{}");
                     String interface = rateAndInterfaceInfo.getString("if", "");
                     String protocol = rateAndInterfaceInfo.getString("protocol", "");
                     double rateHz = rateAndInterfaceInfo.getDouble("rateHz", 1.0);
@@ -153,10 +150,10 @@ void StatePublisher::setup()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service
+// Loop (called frequently)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void StatePublisher::service()
+void StatePublisher::loop()
 {
     // Check valid
     if (!getCommsCore())
@@ -223,22 +220,25 @@ void StatePublisher::service()
                 continue;
 
             // Check for time to publish
-            bool publishTimePending = rateRec._isPending || 
-                                ((rateRec._rateHz != 0) && Raft::isTimeout(millis(), rateRec._lastPublishMs, 
-                                    reducePublishingRate ? REDUCED_PUB_RATE_WHEN_BUSY_MS : rateRec._betweenPubsMs));
+            bool publishTime = (rateRec._rateHz != 0) && Raft::isTimeout(millis(), rateRec._lastPublishMs, 
+                                    reducePublishingRate ? REDUCED_PUB_RATE_WHEN_BUSY_MS : rateRec._betweenPubsMs);
 
 #ifdef DEBUG_PUBLISHING_REASON
             if (publishDueToStateChange)
             {
-                LOG_I(MODULE_PREFIX, "service publish due to state change for %s", pubRec._name.c_str());
+                LOG_I(MODULE_PREFIX, "service publish due to state change for %s i/f %s", pubRec._name.c_str(), rateRec._interface.c_str());
             }
-            else if (publishTimePending)
+            else if (publishTime)
             {
-                LOG_I(MODULE_PREFIX, "service publish due to timeout/pending for %s", pubRec._name.c_str());
+                LOG_I(MODULE_PREFIX, "service publish due to timeout for %s i/f %s", pubRec._name.c_str(), rateRec._interface.c_str());
+            }
+            else if (rateRec._isPending)
+            {
+                LOG_I(MODULE_PREFIX, "service publish pending for %s i/f %s", pubRec._name.c_str(), rateRec._interface.c_str());
             }
 #endif
             // Check for publish required
-            if (publishDueToStateChange || publishTimePending)
+            if (publishDueToStateChange || publishTime || rateRec._isPending)
             {
                 // Publish is pending
                 rateRec._isPending = true;
@@ -251,7 +251,7 @@ void StatePublisher::service()
 
 #ifdef DEBUG_PUBLISHING_HANDLE
                     // Debug
-                    LOG_I(MODULE_PREFIX, "Got channelID %d for name %s IF %s protocol %s", rateRec._channelID, pubRec._name.c_str(),
+                    LOG_I(MODULE_PREFIX, "Got channelID %d for name %s i/f %s protocol %s", rateRec._channelID, pubRec._name.c_str(),
                             rateRec._interface.c_str(), rateRec._protocol.c_str());
 #endif
 
@@ -295,9 +295,9 @@ void StatePublisher::service()
                     {
                         noConn = true;
                     }
-                    else if (publishRetc == COMMS_CORE_RET_OK)
+                    else
                     {
-                        // Publish no longer pending
+                        // Publish no longer pending (whether successful or not)
                         rateRec._isPending = false;
                         rateRec._lastPublishMs = millis();
                     }
@@ -461,7 +461,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
         cmdName = params[0];
 
     // JSON params and channelID
-    JSONParams jsonParams = RaftJson::getJSONFromNVPairs(nameValues, true); 
+    RaftJson jsonParams = RaftJson::getJSONFromNVPairs(nameValues, true); 
     uint32_t channelID = sourceInfo.channelID;
 
     // Debug
@@ -504,7 +504,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
         for (String& pubRecToMod : pubRecsToMod)
         {
             // Get details of changes
-            ConfigBase pubRecConf = pubRecToMod;
+            RaftJson pubRecConf = pubRecToMod;
             String pubRecName = pubRecConf.getString("name", "");
             double pubRateHz = pubRecConf.getDouble("rateHz", 1.0);
 
@@ -528,6 +528,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                         rateRec.setRateHz(pubRateHz);
                         rateRec._isPending = true;
                         rateRec._lastPublishMs = millis();
+                        rateRec._interface = "Subscr_ch_" + String(channelID);
 #ifdef DEBUG_PUBLISH_SUPPRESS_RESTART
                         if (rateRec._isSuppressed)
                         {

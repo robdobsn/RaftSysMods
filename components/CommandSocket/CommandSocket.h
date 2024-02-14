@@ -8,31 +8,36 @@
 
 #pragma once
 
-#include <ConfigBase.h>
-#include <RestAPIEndpointManager.h>
-#include <SysModBase.h>
 #include <list>
+#include "RestAPIEndpointManager.h"
+#include "RaftSysMod.h"
 
 // #define USE_ASYNC_SOCKET_FOR_COMMAND_SOCKET
 #ifdef USE_ASYNC_SOCKET_FOR_COMMAND_SOCKET
-#include <AsyncTCP.h>
+#include "AsyncTCP.h"
 #endif
 
 class CommsChannelMsg;
 
-class CommandSocket : public SysModBase
+class CommandSocket : public RaftSysMod
 {
 public:
     // Constructor/destructor
-    CommandSocket(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, ConfigBase *pMutableConfig);
+    CommandSocket(const char *pModuleName, RaftJsonIF& sysConfig);
     virtual ~CommandSocket();
 
+    // Create function (for use by SysManager factory)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new CommandSocket(pModuleName, sysConfig);
+    }
+    
 protected:
     // Setup
     virtual void setup() override final;
 
-    // Service - called frequently
-    virtual void service() override final;
+    // Loop - called frequently
+    virtual void loop() override final;
 
     // Add endpoints
     virtual void addRestAPIEndpoints(RestAPIEndpointManager &endpointManager) override final;

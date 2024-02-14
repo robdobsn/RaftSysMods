@@ -7,15 +7,15 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <sdkconfig.h>
+#include "sdkconfig.h"
 #ifdef CONFIG_BT_ENABLED
 
 #include "BLEGapServer.h"
-#include <CommsCoreIF.h>
-#include <CommsChannelMsg.h>
-#include <CommsChannelSettings.h>
-#include <RaftUtils.h>
-#include <ESPUtils.h>
+#include "CommsCoreIF.h"
+#include "CommsChannelMsg.h"
+#include "CommsChannelSettings.h"
+#include "RaftUtils.h"
+#include "ESPUtils.h"
 
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -51,8 +51,8 @@
 
 static const char* MODULE_PREFIX = "BLEGap";
 
-// Singleton
-BLEGapServer* BLEGapServer::_pThis = NULL;
+// Singleton instance
+BLEGapServer* BLEGapServer::_pThis = nullptr;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constructor and destructor
@@ -66,7 +66,7 @@ BLEGapServer::BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn,
                     },
                     _bleStats)
 {
-    _pThis  = this;
+    _pThis = this;
     _getAdvertisingNameFn = getAdvertisingNameFn;
     _statusChangeFn = statusChangeFn;
 }
@@ -703,10 +703,7 @@ bool BLEGapServer::nimbleStart()
     };
 
     // onSync callback
-    ble_hs_cfg.sync_cb = []() {
-        if (_pThis)
-            _pThis->onSync();
-    };
+    ble_hs_cfg.sync_cb = onSyncStatic;
 
     ble_hs_cfg.gatts_register_cb = BLEGattServer::registrationCallbackStatic;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;

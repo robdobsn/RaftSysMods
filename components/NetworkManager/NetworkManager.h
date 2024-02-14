@@ -9,25 +9,30 @@
 
 #pragma once
 
-#include <SysModBase.h>
+#include "RaftSysMod.h"
 #include "NetworkSystem.h"
 
-class ConfigBase;
+class RaftJsonIF;
 class RestAPIEndpointManager;
 class APISourceInfo;
 
-class NetworkManager : public SysModBase
+class NetworkManager : public RaftSysMod
 {
 public:
-    NetworkManager(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, 
-                ConfigBase* pMutableConfig);
+    NetworkManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
+    // Create function (for use by SysManager factory)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new NetworkManager(pModuleName, sysConfig);
+    }
+    
 protected:
     // Setup
     virtual void setup() override final;
 
-    // Service - called frequently
-    virtual void service() override final;
+    // Loop - called frequently
+    virtual void loop() override final;
 
     // Add endpoints
     virtual void addRestAPIEndpoints(RestAPIEndpointManager& pEndpoints) override final;

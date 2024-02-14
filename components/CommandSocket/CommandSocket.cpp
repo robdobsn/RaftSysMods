@@ -6,14 +6,14 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <Logger.h>
-#include <CommandSocket.h>
-#include <RaftUtils.h>
-#include <RestAPIEndpointManager.h>
-#include <NetworkSystem.h>
+#include "Logger.h"
+#include "CommandSocket.h"
+#include "RaftUtils.h"
+#include "RestAPIEndpointManager.h"
+#include "NetworkSystem.h"
 #include "CommsChannelSettings.h"
-#include <CommsCoreIF.h>
-#include <CommsChannelMsg.h>
+#include "CommsCoreIF.h"
+#include "CommsChannelMsg.h"
 
 static const char *MODULE_PREFIX = "CommandSocket";
 
@@ -21,8 +21,8 @@ static const char *MODULE_PREFIX = "CommandSocket";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-CommandSocket::CommandSocket(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, ConfigBase *pMutableConfig)
-    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+CommandSocket::CommandSocket(const char *pModuleName, RaftJsonIF& sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 {
     // Config variables
     _isEnabled = false;
@@ -115,10 +115,10 @@ void CommandSocket::applySetup()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service
+// Loop (called frequently)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void CommandSocket::service()
+void CommandSocket::loop()
 {
     // Check if WiFi is connected and begin if so
     if ((!_begun) && networkSystem.isIPConnected())

@@ -9,24 +9,29 @@
 
 #pragma once
 
-#include <SysModBase.h>
-#include <LogManager.h>
+#include "RaftSysMod.h"
+#include "LogManager.h"
 
-class ConfigBase;
+class RaftJsonIF;
 class RestAPIEndpointManager;
 class APISourceInfo;
-class LogManager : public SysModBase
+class LogManager : public RaftSysMod
 {
 public:
-    LogManager(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, 
-                ConfigBase* pMutableConfig);
+    LogManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
+    // Create function (for use by SysManager factory)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new LogManager(pModuleName, sysConfig);
+    }
+    
 protected:
     // Setup
     virtual void setup() override final;
 
-    // Service - called frequently
-    virtual void service() override final;
+    // Loop - called frequently
+    virtual void loop() override final;
 
     // Add endpoints
     virtual void addRestAPIEndpoints(RestAPIEndpointManager& pEndpoints) override final;

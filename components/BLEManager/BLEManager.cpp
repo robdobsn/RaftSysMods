@@ -7,10 +7,10 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <Logger.h>
+#include "Logger.h"
 #include "BLEManager.h"
-#include <RestAPIEndpointManager.h>
-#include <SysManager.h>
+#include "RestAPIEndpointManager.h"
+#include "SysManager.h"
 #include "BLEGattOutbound.h"
 
 // Log prefix
@@ -20,9 +20,8 @@ static const char *MODULE_PREFIX = "BLEMan";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-BLEManager::BLEManager(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, 
-                ConfigBase *pMutableConfig, const char* defaultAdvName)
-    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+BLEManager::BLEManager(const char *pModuleName, RaftJsonIF& sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 
 #ifdef CONFIG_BT_ENABLED
 
@@ -34,10 +33,6 @@ BLEManager::BLEManager(const char *pModuleName, ConfigBase &defaultConfig, Confi
                     })
 #endif
 {
-#ifdef CONFIG_BT_ENABLED    
-    // BLE interface
-    _defaultAdvName = defaultAdvName;
-#endif
 }
 
 BLEManager::~BLEManager()
@@ -148,10 +143,10 @@ void BLEManager::setup()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service
+// Loop (called frequently)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void BLEManager::service()
+void BLEManager::loop()
 {
 #ifdef CONFIG_BT_ENABLED    
     // Check enabled
@@ -258,8 +253,6 @@ String BLEManager::getAdvertisingName()
         bool friendlyNameIsSet = false;
         adName = getFriendlyName(friendlyNameIsSet);
     }
-    if (adName.length() == 0)
-        adName = _defaultAdvName;
     if (adName.length() == 0)
         adName = getSystemName();
     return adName;

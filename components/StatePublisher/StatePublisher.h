@@ -12,21 +12,26 @@
 #include <vector>
 #include "RaftArduino.h"
 #include "APISourceInfo.h"
-#include "SysModBase.h"
+#include "RaftSysMod.h"
 #include "CommsCoreIF.h"
 
-class ConfigBase;
 class RobotController;
 
 // #define DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS 1
 
-class StatePublisher : public SysModBase
+class StatePublisher : public RaftSysMod
 {
 public:
     // Constructor
-    StatePublisher(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig);
+    StatePublisher(const char* pModuleName, RaftJsonIF& sysConfig);
     ~StatePublisher();
 
+    // Create function (for use by SysManager factory)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new StatePublisher(pModuleName, sysConfig);
+    }
+    
     // Subscription API
     RaftRetCode apiSubscription(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
@@ -40,8 +45,8 @@ protected:
     // Setup
     virtual void setup() override final;
 
-    // Service - called frequently
-    virtual void service() override final;
+    // Loop - called frequently
+    virtual void loop() override final;
 
     // Add endpoints
     virtual void addRestAPIEndpoints(RestAPIEndpointManager& endpointManager) override final;

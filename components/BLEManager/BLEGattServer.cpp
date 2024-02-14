@@ -7,14 +7,13 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <sdkconfig.h>
+#include "sdkconfig.h"
 #ifdef CONFIG_BT_ENABLED
 
-#include <stdio.h>
 #include <string.h>
-#include <Logger.h>
-#include <RaftUtils.h>
-#include <RaftArduino.h>
+#include "Logger.h"
+#include "RaftUtils.h"
+#include "RaftArduino.h"
 #include "BLEGattServer.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"

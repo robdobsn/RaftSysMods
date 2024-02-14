@@ -6,12 +6,11 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <Logger.h>
-#include <CommandSerial.h>
-#include <JSONParams.h>
-#include <RaftUtils.h>
-#include <CommsChannelMsg.h>
-#include <CommsChannelSettings.h>
+#include "Logger.h"
+#include "CommandSerial.h"
+#include "RaftUtils.h"
+#include "CommsChannelMsg.h"
+#include "CommsChannelSettings.h"
 
 static const char *MODULE_PREFIX = "CommandSerial";
 
@@ -25,8 +24,8 @@ static const char *MODULE_PREFIX = "CommandSerial";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-CommandSerial::CommandSerial(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, ConfigBase *pMutableConfig)
-    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+CommandSerial::CommandSerial(const char *pModuleName, RaftJsonIF& sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 {
 }
 
@@ -40,33 +39,39 @@ CommandSerial::~CommandSerial()
 
 void CommandSerial::setup()
 {
-    // Get array of serial port configs
-    std::vector<String> serialPortConfigs;
-    configGetArrayElems("ports", serialPortConfigs);
+    // Get length of serial port configs array
+    int arrayLen = 0;
+    modConfig().getType("ports", arrayLen);
+
+    // Check valid
+    if (arrayLen <= 0)
+        return;
+
+    // Check maximum number of ports
+    if (arrayLen > MAX_SERIAL_PORTS)
+    {
+        LOG_W(MODULE_PREFIX, "setup too many serial ports %d > %d", arrayLen, MAX_SERIAL_PORTS);
+        arrayLen = MAX_SERIAL_PORTS;
+    }
 
     // Clear list of ports
     _serialPorts.clear();
+    _serialPorts.resize(arrayLen);
 
     // Iterate through serial port configs creating ports
-    for (String& portConfigStr : serialPortConfigs)
+    for (int i = 0; i < arrayLen; i++)
     {
-        // Extract port config
-        ConfigBase portConfig(portConfigStr);
-
-        // Create the port
-        CommandSerialPort emptyPort;
-        _serialPorts.push_back(emptyPort);
-
         // Configure the port
+        RaftJsonPrefixed portConfig(modConfig(), "ports[" + String(i) + "]");
         _serialPorts.back().setup(portConfig, modName());
     }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service
+// Loop (called frequently)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void CommandSerial::service()
+void CommandSerial::loop()
 {
     // Check comms channel manager
     if (!_pCommsCoreIF)
@@ -201,7 +206,7 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
     std::vector<String> params;
     std::vector<RaftJson::NameValuePair> nameValues;
     RestAPIEndpointManager::getParamsAndNameValues(reqStr.c_str(), params, nameValues);
-    JSONParams nvJson = RaftJson::getJSONFromNVPairs(nameValues, true);
+    RaftJson nvJson = RaftJson::getJSONFromNVPairs(nameValues, true);
 
     // Check valid
     if (params.size() < 3)
@@ -234,7 +239,7 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
                 if (serialPort.getName().equalsIgnoreCase(portName))
                 {
                     // Get bridge name
-                    String bridgeName = nvJson.getString("name", "Bridge_" + serialPort.getName());
+                    String bridgeName = nvJson.getString("name", ("Bridge_" + serialPort.getName()).c_str());
 
                     // Get idle close time (0 = default)
                     uint32_t idleCloseSecs = nvJson.getLong("idleCloseSecs", 0);

@@ -1,34 +1,27 @@
-# RaftCore
+# RaftSysMods
 
-Raft is a framework for ESP32 development which comprises:
-- Configuration system using JSON config files and overridable options
-- Communications chanels supporting BLE, WiFi & WebSockets and USB serial with consistent messaging protocols
-- WebServer
-- I2C polling and device management model
-- Flexible publishing mechanism for high speed outbound data comms
-- REST API for imperative commands
-- Audio streaming
+Raft is an opinionated operating environment for the Espressif ESP32 family
 
-Supported devices:
-- ESP32
-- ESP32 S3
+Raft currently supports: ESP32, ESP32S3, ESP32C3 with ESP IDF and Arduino frameworks
 
-Supported frameworks:
-- ESP IDF
-- Arduino
+Raft:
 
-This is the SysMods component of Raft which provides a set of services such as BLE, WebServer, Serial comms, etc using a common set of protocols
+* Is a framework to build both simple and complex applications with relative ease
+* Has modules (called System Modules or SysMods) for many common app requirements like:
+    * managing WiFi and BLE networking
+    * web-server for files and REST APIs
+    * web-socket and MQTT communication
+* I2C bus management
+* Uses JSON to configure SysMods and hardware interfaces
+* Provides consistent RPC and publish/subscribe communications over WiFi (websocket and REST API), BLE and serial interfaces
+* Builds on the Arduino setup() and loop() programming convention in a more capable and consistent framework
+* Re-uses and builds upon well known technologies like JSON, REST, MQTT, WebServer, REST and I2C
 
-For ESP IDF based projects the following are provided:
-- Arduino time equivalents (millis(), micros(), etc)
-- Arduino GPIO equivalents (pinMode(), digitialWrite(), etc)
-- Arduino String (WString)
-
-TODO
-- check why BLE doesn't disconnect immediately when terminated from webble
-- try changing the LL_PACKET_TIME param
-- try other MAX_BLE_PACKET_LEN_DEFAULT values
-- use GAP TX indication to manage buffers
-- implement an incremental encode - or encode buffer as much as possible - to maximise MTU
-- BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS ??
-
+This is the SysMods component of Raft which provides a set of common SysMods including:
+* Network management
+* BLE management
+* OTA update
+* MQTT
+* Serial console
+* State publishing (using pub/sub pattern)
+* Logging (including logging to Papertrail)

@@ -8,9 +8,9 @@
 
 #pragma once
 
-#include <ConfigBase.h>
 #include <list>
-#include <SpiramAwareAllocator.h>
+#include "RaftJsonIF.h"
+#include "SpiramAwareAllocator.h"
 
 class CommandSerialPort
 {
@@ -19,7 +19,7 @@ public:
     virtual ~CommandSerialPort();
 
     // Setup
-    void setup(ConfigBase& config, const char* pModName);
+    void setup(RaftJsonIF& config, const char* pModName);
 
     // Set and get commsChannelID
     uint32_t getChannelID() const { return _commsChannelID; }

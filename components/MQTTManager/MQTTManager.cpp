@@ -7,19 +7,16 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef FEATURE_MQTT_MANAGER
-
 #include "MQTTManager.h"
-#include <Logger.h>
-#include <RaftUtils.h>
-#include <JSONParams.h>
-#include <ESPUtils.h>
-#include <CommsCoreIF.h>
-#include <CommsChannelMsg.h>
-#include <CommsChannelSettings.h>
-#include <RestAPIEndpointManager.h>
-#include <CommsCoreIF.h>
-#include <SysManager.h>
+#include "Logger.h"
+#include "RaftUtils.h"
+#include "ESPUtils.h"
+#include "CommsCoreIF.h"
+#include "CommsChannelMsg.h"
+#include "CommsChannelSettings.h"
+#include "RestAPIEndpointManager.h"
+#include "CommsCoreIF.h"
+#include "SysManager.h"
 
 // #define DEBUG_MQTT_MAN_SEND
 // #define DEBUG_MQTT_MAN_COMMS_CHANNELS
@@ -34,9 +31,8 @@ static const char *MODULE_PREFIX = "MQTTMan";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-MQTTManager::MQTTManager(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, 
-            ConfigBase *pMutableConfig)
-    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+MQTTManager::MQTTManager(const char *pModuleName, RaftJsonIF& sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 {
     // ChannelID
     _commsChannelID = CommsCoreIF::CHANNEL_ID_UNDEFINED;
@@ -69,11 +65,11 @@ void MQTTManager::setup()
     for (uint32_t i = 0; i < mqttTopics.size(); i++)
     {
         // Extract topic details
-        JSONParams topicJSON = mqttTopics[i];
+        RaftJson topicJSON = mqttTopics[i];
 
         // Check direction
         String defaultName = "topic" + String(i+1);
-        String topicName = topicJSON.getString("name", defaultName);
+        String topicName = topicJSON.getString("name", defaultName.c_str());
         bool isInbound = topicJSON.getBool("inbound", true);
         String topicPath = topicJSON.getString("path", "");
         uint8_t qos = topicJSON.getLong("qos", 0);
@@ -84,10 +80,10 @@ void MQTTManager::setup()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service
+// Loop - called frequently
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void MQTTManager::service()
+void MQTTManager::loop()
 {
     // Service client
     _mqttClient.service();
@@ -171,5 +167,3 @@ bool MQTTManager::readyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool
 {
     return true;
 }
-
-#endif

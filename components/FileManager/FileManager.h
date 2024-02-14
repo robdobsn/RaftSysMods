@@ -9,8 +9,7 @@
 
 #pragma once
 
-#include <ConfigBase.h>
-#include <SysModBase.h>
+#include "RaftSysMod.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -21,26 +20,26 @@
 class RestAPIEndpointManager;
 class APISourceInfo;
 
-class FileManager : public SysModBase
+class FileManager : public RaftSysMod
 {
 public:
-    FileManager(const char* pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig);
+    FileManager(const char* pModuleName, RaftJsonIF& sysConfig);
 
+    // Create function (for use by SysManager factory)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new FileManager(pModuleName, sysConfig);
+    }
+    
     // // Upload file to file system
     // virtual bool fileStreamDataBlock(FileStreamBlock& fileStreamBlock) override final;
-
-    // Set protocol exchange
-    void setProtocolExchange(ProtocolExchange& protocolExchange)
-    {
-        _pProtocolExchange = &protocolExchange;
-    }
 
 protected:
     // Setup
     virtual void setup() override final;
 
-    // Service - called frequently
-    virtual void service() override final;
+    // Loop - called frequently
+    virtual void loop() override final;
 
     // Add endpoints
     virtual void addRestAPIEndpoints(RestAPIEndpointManager& endpointManager) override final;

@@ -8,23 +8,28 @@
 
 #pragma once
 
-#include <ConfigBase.h>
-#include <RestAPIEndpointManager.h>
-#include <SysModBase.h>
+#include "RestAPIEndpointManager.h"
+#include "RaftSysMod.h"
 
-class CommandFile : public SysModBase
+class CommandFile : public RaftSysMod
 {
 public:
     // Constructor/destructor
-    CommandFile(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, ConfigBase *pMutableConfig);
+    CommandFile(const char* pModuleName, RaftJsonIF& sysConfig);
     virtual ~CommandFile();
 
+    // Create function (for use by SysManager factory)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new CommandFile(pModuleName, sysConfig);
+    }
+    
 protected:
     // Setup
     virtual void setup() override final;
 
-    // Service - called frequently
-    virtual void service() override final;
+    // Loop - called frequently
+    virtual void loop() override final;
 
     // Add endpoints
     virtual void addRestAPIEndpoints(RestAPIEndpointManager &endpointManager) override final;

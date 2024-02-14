@@ -8,29 +8,34 @@
 
 #pragma once
 
-#include <ConfigBase.h>
-#include <RestAPIEndpointManager.h>
-#include <CommsCoreIF.h>
-#include <CommandSerialPort.h>
-#include <CommsBridgeMsg.h>
-#include <SysModBase.h>
 #include <list>
+#include "RestAPIEndpointManager.h"
+#include "CommsCoreIF.h"
+#include "CommandSerialPort.h"
+#include "CommsBridgeMsg.h"
+#include "RaftSysMod.h"
 
 class CommsChannelMsg;
 
-class CommandSerial : public SysModBase
+class CommandSerial : public RaftSysMod
 {
 public:
     // Constructor/destructor
-    CommandSerial(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, ConfigBase *pMutableConfig);
+    CommandSerial(const char *pModuleName, RaftJsonIF& sysConfig);
     virtual ~CommandSerial();
 
+    // Create function (for use by SysManager factory)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new CommandSerial(pModuleName, sysConfig);
+    }
+    
 protected:
     // Setup
     virtual void setup() override final;
 
-    // Service - called frequently
-    virtual void service() override final;
+    // Loop - called frequently
+    virtual void loop() override final;
 
     // Add endpoints
     virtual void addRestAPIEndpoints(RestAPIEndpointManager &endpointManager) override final;
@@ -40,6 +45,8 @@ protected:
 
 private:
 
+    static const int MAX_SERIAL_PORTS = 4;
+    
     // List of serial ports
     std::list<CommandSerialPort> _serialPorts;
 

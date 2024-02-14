@@ -9,9 +9,8 @@
 
 #pragma once
 
-#include <ConfigBase.h>
-#include <SysModBase.h>
-#include <sdkconfig.h>
+#include "RaftSysMod.h"
+#include "sdkconfig.h"
 #include "BLEGapServer.h"
 
 class CommsChannelMsg;
@@ -21,19 +20,24 @@ class APISourceInfo;
 // BLEManager
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-class BLEManager : public SysModBase
+class BLEManager : public RaftSysMod
 {
 public:
-    BLEManager(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, 
-                ConfigBase *pMutableConfig, const char* defaultAdvName);
+    BLEManager(const char *pModuleName, RaftJsonIF& sysConfig);
     virtual ~BLEManager();
+
+    // Create function (for use by SysManager factory)
+    static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
+    {
+        return new BLEManager(pModuleName, sysConfig);
+    }
 
 protected:
     // Setup
     virtual void setup() override final;
 
-    // Service - called frequently
-    virtual void service() override final;
+    // Loop - called frequently
+    virtual void loop() override final;
 
     // Add endpoints
     virtual void addRestAPIEndpoints(RestAPIEndpointManager& endpointManager) override final;
@@ -56,9 +60,6 @@ private:
 
     // BLE enabled
     bool _enableBLE = false;
-
-    // Default advertising name
-    String _defaultAdvName;
 
     // BLE Gap server
     BLEGapServer _gapServer;

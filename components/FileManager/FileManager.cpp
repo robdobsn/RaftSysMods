@@ -6,12 +6,12 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include <FileManager.h>
-#include <FileSystem.h>
-#include <ConfigPinMap.h>
-#include <RestAPIEndpointManager.h>
-#include <Logger.h>
-#include <SysManager.h>
+#include "FileManager.h"
+#include "FileSystem.h"
+#include "ConfigPinMap.h"
+#include "RestAPIEndpointManager.h"
+#include "Logger.h"
+#include "SysManager.h"
 
 static const char* MODULE_PREFIX = "FileManager";
 
@@ -23,8 +23,8 @@ static const char* MODULE_PREFIX = "FileManager";
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-FileManager::FileManager(const char *pModuleName, ConfigBase& defaultConfig, ConfigBase* pGlobalConfig, ConfigBase* pMutableConfig) 
-        : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+FileManager::FileManager(const char *pModuleName, RaftJsonIF& sysConfig) 
+        : RaftSysMod(pModuleName, sysConfig)
 {
     _pProtocolExchange = nullptr;
 }
@@ -46,8 +46,12 @@ void FileManager::setup()
 void FileManager::applySetup()
 {
     // Config settings
-    bool enableSPIFFS = configGetBool("SPIFFSEnabled", false);
-    bool enableLittleFS = configGetBool("LittleFSEnabled", false);
+    String localFsDefaultName = configGetString("LocalFsDefault", "");
+    FileSystem::LocalFileSystemType localFsTypeDefault = FileSystem::LOCAL_FS_DISABLE;
+    if (localFsDefaultName.equalsIgnoreCase("spiffs"))
+        localFsTypeDefault = FileSystem::LOCAL_FS_SPIFFS;
+    else if (localFsDefaultName.equalsIgnoreCase("littlefs"))
+        localFsTypeDefault = FileSystem::LOCAL_FS_LITTLEFS;
     bool localFsFormatIfCorrupt = configGetBool("LocalFsFormatIfCorrupt", false);
     bool enableSD = configGetBool("SDEnabled", false);
     bool defaultToSDIfAvailable = configGetBool("DefaultSD", false);
@@ -63,16 +67,21 @@ void FileManager::applySetup()
     pinName = configGetString("SDCS", "");
     int sdCSPin = ConfigPinMap::getPinFromName(pinName.c_str());
 
+    // Get the Protocol Exchange from the SysManager
+    SysManager* pSysMan = getSysManager();
+    if (pSysMan)
+        _pProtocolExchange = pSysMan->getProtocolExchange();
+
     // Setup file system
-    fileSystem.setup(enableSPIFFS, enableLittleFS, localFsFormatIfCorrupt, enableSD, sdMOSIPin, sdMISOPin, sdCLKPin, sdCSPin, 
+    fileSystem.setup(localFsTypeDefault, localFsFormatIfCorrupt, enableSD, sdMOSIPin, sdMISOPin, sdCLKPin, sdCSPin, 
                 defaultToSDIfAvailable, cacheFileSystemInfo);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service
+// Loop - called frequently
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void FileManager::service()
+void FileManager::loop()
 {
     // Service the file system
     fileSystem.service();

@@ -9,17 +9,17 @@
 
 #pragma once
 
-#include <sdkconfig.h>
+#include "sdkconfig.h"
 #ifdef CONFIG_BT_ENABLED
 
 #include "BLEGattOutbound.h"
-#include <CommsChannelMsg.h>
+#include "CommsChannelMsg.h"
 #include <vector>
 
 #include <functional>
 #undef min
 #undef max
-#include <host/ble_hs.h>
+#include "host/ble_hs.h"
 #undef min
 #undef max
 

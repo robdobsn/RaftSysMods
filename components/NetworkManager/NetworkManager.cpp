@@ -10,7 +10,6 @@
 #include "Logger.h"
 #include "NetworkManager.h"
 #include "RaftUtils.h"
-#include "ConfigNVS.h"
 #include "RestAPIEndpointManager.h"
 #include "SysManager.h"
 
@@ -24,9 +23,8 @@ NetworkManager* NetworkManager::_pNetworkManager = NULL;
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-NetworkManager::NetworkManager(const char *pModuleName, ConfigBase &defaultConfig, ConfigBase *pGlobalConfig, 
-            ConfigBase *pMutableConfig)
-    : SysModBase(pModuleName, defaultConfig, pGlobalConfig, pMutableConfig)
+NetworkManager::NetworkManager(const char *pModuleName, RaftJsonIF& sysConfig)
+    : RaftSysMod(pModuleName, sysConfig)
 {
     // Singleton
     _pNetworkManager = this;
@@ -91,10 +89,10 @@ void NetworkManager::setup()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service
+// Loop - called frequently
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void NetworkManager::service()
+void NetworkManager::loop()
 {
     // Service network system
     networkSystem.service();
@@ -117,7 +115,7 @@ void NetworkManager::service()
 String NetworkManager::getStatusJSON()
 {
     String statusStr = R"({"rslt":"ok")";
-    statusStr += R"(,"v":)" + String(getSysManager() ? getSysManager()->getSystemVersion() : "0.0.0");
+    statusStr += R"(,"v":")" + String(getSysManager() ? getSysManager()->getSystemVersion() + "\"" : "0.0.0");
     statusStr += "," + networkSystem.getConnStateJSON(false, true, true, true, true);
     statusStr += R"(})";
     return statusStr;
