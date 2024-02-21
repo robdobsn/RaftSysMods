@@ -19,14 +19,14 @@ static const char* MODULE_PREFIX = "SampleCollector";
 void SampleCollectorJSON::setup()
 {
     // Get settings
-    _sampleRateLimitHz = _config.getLong("rateLimHz", 0);
-    _maxTotalJSONStringSize = _config.getLong("maxJsonLen", 0);
-    _sampleHeader = _config.getString("jsonHdr", "");
-    _sampleAPIName = _config.getString("apiName", "");
-    _allocateAtStart = _config.getBool("allocAtStart", true);
-    _dumpToConsoleWhenFull = _config.getBool("dumpToConsole", false);
-    _dumpToFileName = _config.getString("dumpToFile", "");
-    _maxFileSize = _config.getLong("maxFileSize", 0);
+    _sampleRateLimitHz = config.getLong("rateLimHz", 0);
+    _maxTotalJSONStringSize = config.getLong("maxJsonLen", 0);
+    _sampleHeader = config.getString("jsonHdr", "");
+    _sampleAPIName = config.getString("apiName", "");
+    _allocateAtStart = config.getBool("allocAtStart", true);
+    _dumpToConsoleWhenFull = config.getBool("dumpToConsole", false);
+    _dumpToFileName = config.getString("dumpToFile", "");
+    _maxFileSize = config.getLong("maxFileSize", 0);
 
     // Settings
     if (_sampleRateLimitHz > 0)

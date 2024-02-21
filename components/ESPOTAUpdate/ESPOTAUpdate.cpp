@@ -211,9 +211,9 @@ bool ESPOTAUpdate::fileStreamStart(const char* fileName, size_t fileLen)
     }
 
     // Extract params
-    UBaseType_t taskCore = _config.getLong("taskCore", DEFAULT_TASK_CORE);
-    BaseType_t taskPriority = _config.getLong("taskPriority", DEFAULT_TASK_PRIORITY);
-    int taskStackSize = _config.getLong("taskStack", DEFAULT_TASK_STACK_SIZE_BYTES);
+    UBaseType_t taskCore = config.getLong("taskCore", DEFAULT_TASK_CORE);
+    BaseType_t taskPriority = config.getLong("taskPriority", DEFAULT_TASK_PRIORITY);
+    int taskStackSize = config.getLong("taskStack", DEFAULT_TASK_STACK_SIZE_BYTES);
 
     // Create a queue for the task
     if (_otaUpdateQueue == nullptr)
