@@ -76,8 +76,8 @@ void NetworkManager::setup()
     // Setup WiFi AP
     if (networkSettings.enableWifiAPMode)
     {
-        String apSSID = configGetString("wifiAPSSID", configGetString("wifiAPSSID", ""));
-        String apPassword = configGetString("WiFiAPPass", "");
+        String apSSID = configGetString("wifiAPSSID", configGetString("WiFiAPSSID", ""));
+        String apPassword = configGetString("wifiAPPW", configGetString("WiFiAPPass", ""));
         if (!apSSID.isEmpty())
         {
             bool rsltOk = networkSystem.configWifiAP(apSSID, apPassword);
