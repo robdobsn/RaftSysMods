@@ -79,69 +79,60 @@ void StatePublisher::setup()
         // Get the publication info
         RaftJson pubInfo = pubList[pubIdx];
 
-        // Check pub type
-        String pubType = pubInfo.getString("type", "");
-#ifdef DEBUG_STATE_PUBLISHER_SETUP
-        LOG_I(MODULE_PREFIX, "setup pubInfo %s type %s", pubInfo.c_str(), pubType.c_str());
-#endif
+        // Create pubrec
+        PubRec pubRec;
 
-        if (pubType.equalsIgnoreCase("HW"))
+        // Get settings
+        pubRec._name = pubInfo.getString("name", "");
+        pubRec._trigger = TRIGGER_NONE;
+        String triggerStr = pubInfo.getString("trigger", "");
+        triggerStr.toLowerCase();
+        if (triggerStr.indexOf("change") >= 0)
         {
-            // Create pubrec
-            PubRec pubRec;
+            pubRec._trigger = TRIGGER_ON_STATE_CHANGE;
+            if (triggerStr.indexOf("time") >= 0)
+                pubRec._trigger = TRIGGER_ON_TIME_OR_CHANGE;
+        }
+        if (pubRec._trigger == TRIGGER_NONE)
+        {
+            pubRec._trigger = TRIGGER_ON_TIME_INTERVALS;
+        }
+        RaftJson ratesJson = pubInfo.getString("rates", "");
+        pubRec._msgIDStr = pubInfo.getString("msgID", "");
 
-            // Get settings
-            pubRec._name = pubInfo.getString("name", "");
-            pubRec._trigger = TRIGGER_NONE;
-            String triggerStr = pubInfo.getString("trigger", "");
-            triggerStr.toLowerCase();
-            if (triggerStr.indexOf("change") >= 0)
+        // Check for interfaces
+        int numRatesAndInterfaces = 0;
+        if (ratesJson.getType("", numRatesAndInterfaces) == RaftJson::RAFT_JSON_ARRAY)
+        {
+            // Iterate rates and interfaces
+            for (int rateIdx = 0; rateIdx < numRatesAndInterfaces; rateIdx++)
             {
-                pubRec._trigger = TRIGGER_ON_STATE_CHANGE;
-                if (triggerStr.indexOf("time") >= 0)
-                    pubRec._trigger = TRIGGER_ON_TIME_OR_CHANGE;
-            }
-            if (pubRec._trigger == TRIGGER_NONE)
-            {
-                pubRec._trigger = TRIGGER_ON_TIME_INTERVALS;
-            }
-            RaftJson ratesJson = pubInfo.getString("rates", "");
-            pubRec._msgIDStr = pubInfo.getString("msgID", "");
+                // Get the rate and interface info
+                RaftJson rateAndInterfaceInfo = ratesJson.getString(("["+String(rateIdx)+"]").c_str(), "{}");
+                String interface = rateAndInterfaceInfo.getString("if", "");
+                String protocol = rateAndInterfaceInfo.getString("protocol", "");
+                double rateHz = rateAndInterfaceInfo.getDouble("rateHz", 1.0);
 
-            // Check for interfaces
-            int numRatesAndInterfaces = 0;
-            if (ratesJson.getType("", numRatesAndInterfaces) == RaftJson::RAFT_JSON_ARRAY)
-            {
-                // Iterate rates and interfaces
-                for (int rateIdx = 0; rateIdx < numRatesAndInterfaces; rateIdx++)
-                {
-                    // Get the rate and interface info
-                    RaftJson rateAndInterfaceInfo = ratesJson.getString(("["+String(rateIdx)+"]").c_str(), "{}");
-                    String interface = rateAndInterfaceInfo.getString("if", "");
-                    String protocol = rateAndInterfaceInfo.getString("protocol", "");
-                    double rateHz = rateAndInterfaceInfo.getDouble("rateHz", 1.0);
+                // Add to list
+                InterfaceRateRec ifRateRec;
+                ifRateRec._interface = interface;
+                ifRateRec._protocol = protocol;
+                ifRateRec.setRateHz(rateHz);
+                ifRateRec._lastPublishMs = millis();
+                ifRateRec._isPersistent = true;
+                ifRateRec._isSuppressed = false;
+                pubRec._interfaceRates.push_back(ifRateRec);
 
-                    // Add to list
-                    InterfaceRateRec ifRateRec;
-                    ifRateRec._interface = interface;
-                    ifRateRec._protocol = protocol;
-                    ifRateRec.setRateHz(rateHz);
-                    ifRateRec._lastPublishMs = millis();
-                    ifRateRec._isPersistent = true;
-                    ifRateRec._isSuppressed = false;
-                    pubRec._interfaceRates.push_back(ifRateRec);
-
-                    // Debug
+                // Debug
 #ifdef DEBUG_STATE_PUBLISHER_SETUP
-                    LOG_I(MODULE_PREFIX, "setup publishIF %s rateHz %.1f msBetween %d name %s protocol %s msgID %s", interface.c_str(),
-                                    rateHz, ifRateRec._betweenPubsMs, pubRec._name.c_str(), ifRateRec._protocol.c_str(), 
-                                    pubRec._msgIDStr.c_str());
+                LOG_I(MODULE_PREFIX, "setup publishIF %s rateHz %.1f msBetween %d name %s protocol %s msgID %s", interface.c_str(),
+                                rateHz, ifRateRec._betweenPubsMs, pubRec._name.c_str(), ifRateRec._protocol.c_str(), 
+                                pubRec._msgIDStr.c_str());
 #endif
-                }
-
-                // Add to the list of publication records
-                _publicationRecs.push_back(pubRec);
             }
+
+            // Add to the list of publication records
+            _publicationRecs.push_back(pubRec);
         }
     }
 
@@ -224,17 +215,18 @@ void StatePublisher::loop()
                                     reducePublishingRate ? REDUCED_PUB_RATE_WHEN_BUSY_MS : rateRec._betweenPubsMs);
 
 #ifdef DEBUG_PUBLISHING_REASON
+            const char* ifStr = rateRec._interface.length() == 0 ? "<ALL>" : rateRec._interface.c_str();
             if (publishDueToStateChange)
             {
-                LOG_I(MODULE_PREFIX, "service publish due to state change for %s i/f %s", pubRec._name.c_str(), rateRec._interface.c_str());
+                LOG_I(MODULE_PREFIX, "service publish due to state change for %s i/f %s", pubRec._name.c_str(), ifStr);
             }
             else if (publishTime)
             {
-                LOG_I(MODULE_PREFIX, "service publish due to timeout for %s i/f %s", pubRec._name.c_str(), rateRec._interface.c_str());
+                LOG_I(MODULE_PREFIX, "service publish due to timeout for %s i/f %s", pubRec._name.c_str(), ifStr);
             }
             else if (rateRec._isPending)
             {
-                LOG_I(MODULE_PREFIX, "service publish pending for %s i/f %s", pubRec._name.c_str(), rateRec._interface.c_str());
+                LOG_I(MODULE_PREFIX, "service publish pending for %s i/f %s", pubRec._name.c_str(), ifStr);
             }
 #endif
             // Check for publish required
@@ -252,7 +244,8 @@ void StatePublisher::loop()
 #ifdef DEBUG_PUBLISHING_HANDLE
                     // Debug
                     LOG_I(MODULE_PREFIX, "Got channelID %d for name %s i/f %s protocol %s", rateRec._channelID, pubRec._name.c_str(),
-                            rateRec._interface.c_str(), rateRec._protocol.c_str());
+                            rateRec._interface.length() == 0 ? "<ALL>" : rateRec._interface.c_str(), 
+                            rateRec._protocol.c_str());
 #endif
 
                     // Still undefined?
@@ -295,12 +288,9 @@ void StatePublisher::loop()
                     {
                         noConn = true;
                     }
-                    else
-                    {
-                        // Publish no longer pending (whether successful or not)
-                        rateRec._isPending = false;
-                        rateRec._lastPublishMs = millis();
-                    }
+                    // Publish no longer pending (whether successful or not)
+                    rateRec._isPending = false;
+                    rateRec._lastPublishMs = millis();
                 }
                 else
                 {
@@ -420,7 +410,9 @@ CommsCoreRetCode StatePublisher::publishData(StatePublisher::PubRec& pubRec, Int
 #else
         Raft::getHexStrFromBytes(endpointMsg.getBuf(), endpointMsg.getBufLen(), outStr);
 #endif
-        LOG_I(MODULE_PREFIX, "sendPublishMsg if %s channelID %d payloadLen %d payload %s", rateRec._interface.c_str(), rateRec._channelID, endpointMsg.getBufLen(), outStr.c_str());
+        LOG_I(MODULE_PREFIX, "sendPublishMsg if %s channelID %d payloadLen %d payload %s", 
+                        rateRec._interface.length() == 0 ? "<ALL>" : rateRec._interface.c_str(), 
+                        rateRec._channelID, endpointMsg.getBufLen(), outStr.c_str());
     }
 #endif
 
