@@ -115,7 +115,7 @@ void NetworkManager::loop()
 String NetworkManager::getStatusJSON()
 {
     String statusStr = R"({"rslt":"ok")";
-    statusStr += R"(,"v":")" + String(getSysManager() ? getSysManager()->getSystemVersion() + "\"" : "0.0.0");
+    statusStr += R"(,"v":")" + String(getSysManagerConst() ? getSysManagerConst()->getSystemVersion() + "\"" : "0.0.0");
     statusStr += "," + networkSystem.getConnStateJSON(false, true, true, true, true);
     statusStr += R"(})";
     return statusStr;
@@ -125,7 +125,7 @@ String NetworkManager::getStatusJSON()
 // Debug
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-String NetworkManager::getDebugJSON()
+String NetworkManager::getDebugJSON() const
 {
     return networkSystem.getConnStateJSON(true, true, true, true, false);
 }

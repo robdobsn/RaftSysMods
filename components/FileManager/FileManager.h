@@ -43,10 +43,6 @@ protected:
 
     // Add endpoints
     virtual void addRestAPIEndpoints(RestAPIEndpointManager& endpointManager) override final;
-
-    // Get debug string
-    virtual String getDebugJSON() override final;
-
 private:
 
     // Protocol exchange

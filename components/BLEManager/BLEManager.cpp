@@ -215,7 +215,7 @@ String BLEManager::getStatusJSON()
 // Debug
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-String BLEManager::getDebugJSON()
+String BLEManager::getDebugJSON() const
 {
 #ifdef CONFIG_BT_ENABLED
     return _gapServer.getStatusJSON(true, true);

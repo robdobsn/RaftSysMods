@@ -77,7 +77,7 @@ void ESPOTAUpdate::loop()
 // Debug
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-String ESPOTAUpdate::getDebugJSON()
+String ESPOTAUpdate::getDebugJSON() const
 {
     // Obtain semaphore
     if (!_fwUpdateStatusSemaphore || (xSemaphoreTake(_fwUpdateStatusSemaphore, 1) != pdTRUE))

@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
 idf_component_register(
+  NAME
+    "RaftSysMods"
   SRCS
     "components/BLEManager/BLEGapServer.cpp"
     "components/BLEManager/BLEGattOutbound.cpp"
@@ -34,7 +36,7 @@ idf_component_register(
     "components/SerialConsole"
     "components/StatePublisher"
   REQUIRES
-    raftcore-src
+    RaftCore
     bt
     spiffs
     fatfs

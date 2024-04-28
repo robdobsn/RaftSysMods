@@ -17,7 +17,7 @@
 
 class RobotController;
 
-// #define DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS 1
+// #define DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
 
 class StatePublisher : public RaftSysMod
 {
@@ -34,9 +34,6 @@ public:
     
     // Subscription API
     RaftRetCode apiSubscription(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
-
-    // Debug
-    virtual String getDebugJSON() override final;
 
     // Receive msg generator callback function
     virtual void receiveMsgGenCB(const char* msgGenID, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB) override final;
@@ -130,8 +127,9 @@ private:
 
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
     // Stats
-    uint64_t _recentWorstTimeUs;
-    uint32_t _worstTimeSetMs;
+    uint64_t _debugSlowestPublishUs = 0;
+    uint64_t _debugSlowestGetHashUs = 0;
+    uint32_t _debugLastShowPerfTimeMs = 0;
 #endif
 
     // Helpers

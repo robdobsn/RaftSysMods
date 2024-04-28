@@ -45,7 +45,7 @@ public:
     virtual bool fileStreamCancelEnd(bool isNormalEnd) override final;
 
     // Get debug string
-    virtual String getDebugJSON() override final;
+    virtual String getDebugJSON() const override final;
 
 protected:
     // Setup

@@ -49,7 +49,7 @@ protected:
     virtual String getStatusJSON() override final;
 
     // Get debug string
-    virtual String getDebugJSON() override final;
+    virtual String getDebugJSON() const override final;
 
     // Get named value
     virtual double getNamedValue(const char* valueName, bool& isValid) override final;

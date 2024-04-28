@@ -29,16 +29,4 @@ public:
 protected:
     // Setup
     virtual void setup() override final;
-
-    // Loop - called frequently
-    virtual void loop() override final;
-
-    // Add endpoints
-    virtual void addRestAPIEndpoints(RestAPIEndpointManager& pEndpoints) override final;
-
-    // Get status JSON
-    virtual String getStatusJSON() override final;
-
-    // Get debug string
-    virtual String getDebugJSON() override final;
 };

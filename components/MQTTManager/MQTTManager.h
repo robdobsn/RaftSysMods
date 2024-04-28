@@ -41,12 +41,6 @@ protected:
     // Add protocol endpoints
     virtual void addCommsChannels(CommsCoreIF& commsCoreIF) override final;
 
-    // Get status JSON
-    virtual String getStatusJSON() override final;
-
-    // Get debug string
-    virtual String getDebugJSON() override final;
-
 private:
     // MQTT client
     RaftMQTTClient _mqttClient;

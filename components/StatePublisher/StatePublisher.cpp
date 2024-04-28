@@ -45,8 +45,8 @@ StatePublisher::StatePublisher(const char* pModuleName, RaftJsonIF& sysConfig)
         : RaftSysMod(pModuleName, sysConfig)
 {
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
-    _worstTimeSetMs = 0;
-    _recentWorstTimeUs = 0;
+    _debugLastShowPerfTimeMs = 0;
+    _debugSlowestPublishUs = 0;
 #endif
 }
 
@@ -152,10 +152,14 @@ void StatePublisher::loop()
 
     // Check if publishing rate is to be throttled back
     bool reducePublishingRate = isSystemMainFWUpdate() || isSystemFileTransferring();
-    
+
     // Check through publishers
     for (PubRec& pubRec : _publicationRecs)
     {
+#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
+        uint64_t getStateHashUs = 0;
+#endif
+
         // Check for state change detection callback
         bool publishDueToStateChange = false;
         if (pubRec._stateDetectFn)
@@ -170,10 +174,20 @@ void StatePublisher::loop()
                 // Last hash check time
                 pubRec._lastHashCheckMs = millis();
 
+#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
+                uint64_t startUs = micros();
+#endif
+
                 // Callback function generates a hash in the form of a std::vector<uint8_t>
                 // If this is not identical to previously returned hash then force message generation
                 std::vector<uint8_t> newStateHash;
                 pubRec._stateDetectFn(pubRec._msgIDStr.c_str(), newStateHash);
+
+#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
+                getStateHashUs = micros() - startUs;
+                if (_debugSlowestGetHashUs < getStateHashUs)
+                    _debugSlowestGetHashUs = getStateHashUs;
+#endif
 
 #ifdef DEBUG_PUBLISHING_HASH
 #ifdef DEBUG_ONLY_THIS_MSG_ID
@@ -273,13 +287,15 @@ void StatePublisher::loop()
 
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
                     uint64_t elapUs = micros() - startUs;
-                    if (_recentWorstTimeUs < elapUs)
-                        _recentWorstTimeUs = elapUs;
-                    if (Raft::isTimeout(millis(), _worstTimeSetMs, 1000))
+                    if (_debugSlowestPublishUs < elapUs)
+                        _debugSlowestPublishUs = elapUs;
+                    if (Raft::isTimeout(millis(), _debugLastShowPerfTimeMs, 1000))
                     {
-                        LOG_I(MODULE_PREFIX, "PubSlowest %lld", _recentWorstTimeUs);
-                        _recentWorstTimeUs = 0;
-                        _worstTimeSetMs = millis();
+                        LOG_I(MODULE_PREFIX, "loop slowest publish %lld slowest stateHash %lld", 
+                                    _debugSlowestPublishUs, _debugSlowestGetHashUs);
+                        _debugSlowestPublishUs = 0;
+                        _debugSlowestGetHashUs = 0;
+                        _debugLastShowPerfTimeMs = millis();
                     }
 #endif
 
@@ -323,16 +339,6 @@ void StatePublisher::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager
     endpointManager.addEndpoint("subscription", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
                 std::bind(&StatePublisher::apiSubscription, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
                 "Subscription to published messages, see docs for details");
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Debug
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-String StatePublisher::getDebugJSON()
-{
-    // Debug string
-    return "{}";
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
