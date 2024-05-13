@@ -131,8 +131,7 @@ void MQTTManager::addCommsChannels(CommsCoreIF& commsCoreIF)
 
 bool MQTTManager::sendMQTTMsg(const String& topicName, CommsChannelMsg& msg)
 {
-    String msgStr;
-    Raft::strFromBuffer(msg.getBuf(), msg.getBufLen(), msgStr);
+    String msgStr(msg.getBuf(), msg.getBufLen());
 #ifdef DEBUG_MQTT_MAN_SEND
     LOG_I(MODULE_PREFIX, "sendMQTTMsg topicName %s msg %s", topicName.c_str(), msgStr.c_str());
 #endif
