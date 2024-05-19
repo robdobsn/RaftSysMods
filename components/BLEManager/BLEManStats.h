@@ -65,7 +65,7 @@ public:
         _rxTestDataErrs += dataOK ? 0 : 1;
     }
 
-    String getJSON(bool includeBraces, bool shortForm)
+    String getJSON(bool includeBraces, bool shortForm) const
     {
         char buf[200];
         if (shortForm)
@@ -105,17 +105,17 @@ public:
         return json;
     }
 
-    double getTestRate()
+    double getTestRate() const
     {
         return _rxTestFrameRate.getRatePerSec();
     }
 
-    uint32_t getTestSeqErrCount()
+    uint32_t getTestSeqErrCount() const
     {
         return _rxTestSeqErrs;
     }
 
-    uint32_t getTestDataErrCount()
+    uint32_t getTestDataErrCount() const
     {
         return _rxTestDataErrs;
     }
