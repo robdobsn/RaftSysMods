@@ -198,7 +198,7 @@ void StatePublisher::loop()
                     Raft::getHexStrFromBytes(pubRec._stateHash.data(), pubRec._stateHash.size(), curHashStr);
                     String newHashStr;
                     Raft::getHexStrFromBytes(newStateHash.data(), newStateHash.size(), newHashStr);
-                    LOG_I(MODULE_PREFIX, "service check hash for %s curHash %s newHash %s", 
+                    LOG_I(MODULE_PREFIX, "loop check hash for %s curHash %s newHash %s", 
                                     pubRec._name.c_str(), curHashStr.c_str(), newHashStr.c_str());
 #ifdef DEBUG_ONLY_THIS_MSG_ID
                 }
@@ -232,15 +232,15 @@ void StatePublisher::loop()
             const char* ifStr = rateRec._interface.length() == 0 ? "<ALL>" : rateRec._interface.c_str();
             if (publishDueToStateChange)
             {
-                LOG_I(MODULE_PREFIX, "service publish due to state change for %s i/f %s", pubRec._name.c_str(), ifStr);
+                LOG_I(MODULE_PREFIX, "loop publish due to state change for %s i/f %s", pubRec._name.c_str(), ifStr);
             }
             else if (publishTime)
             {
-                LOG_I(MODULE_PREFIX, "service publish due to timeout for %s i/f %s", pubRec._name.c_str(), ifStr);
+                LOG_I(MODULE_PREFIX, "loop publish due to timeout for %s i/f %s", pubRec._name.c_str(), ifStr);
             }
             else if (rateRec._isPending)
             {
-                LOG_I(MODULE_PREFIX, "service publish pending for %s i/f %s", pubRec._name.c_str(), ifStr);
+                LOG_I(MODULE_PREFIX, "loop publish pending for %s i/f %s", pubRec._name.c_str(), ifStr);
             }
 #endif
             // Check for publish required
@@ -275,7 +275,7 @@ void StatePublisher::loop()
 #ifdef DEBUG_REDUCED_PUBLISHING_RATE_WHEN_BUSY
                     if (reducePublishingRate)
                     {
-                        LOG_I(MODULE_PREFIX, "service publishing rate reduced for channel %d", rateRec._channelID);
+                        LOG_I(MODULE_PREFIX, "loop publishing rate reduced for channel %d", rateRec._channelID);
                     }
 #endif
 
@@ -311,7 +311,7 @@ void StatePublisher::loop()
                 else
                 {
 #ifdef DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
-                    LOG_I(MODULE_PREFIX, "service cannot accept outbound for channel %d noConn %d", rateRec._channelID, noConn);
+                    LOG_I(MODULE_PREFIX, "loop cannot accept outbound for channel %d noConn %d", rateRec._channelID, noConn);
 #endif
                 }
 
@@ -320,7 +320,7 @@ void StatePublisher::loop()
                 if (noConn && !rateRec._isPersistent)
                 {
 #ifdef DEBUG_PUBLISH_SUPPRESS_RESTART
-                    LOG_I(MODULE_PREFIX, "service suppressing rateRec channelID %d", rateRec._channelID);
+                    LOG_I(MODULE_PREFIX, "loop suppressing rateRec channelID %d", rateRec._channelID);
 #endif
                     rateRec._isSuppressed = true;
                 }

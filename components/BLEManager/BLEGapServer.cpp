@@ -163,7 +163,7 @@ void BLEGapServer::teardown()
 // Service
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void BLEGapServer::service()
+void BLEGapServer::loop()
 {
     // Check we are initialised
     if (!_isInit)
@@ -177,7 +177,7 @@ void BLEGapServer::service()
     serviceTimedAdvertisingCheck();
 
     // Service GATT server
-    _gattServer.service();
+    _gattServer.loop();
 
     // Service getting RSSI value
     serviceGettingRSSI();
@@ -912,7 +912,7 @@ int BLEGapServer::gapEventDisconnect(struct ble_gap_event *event, String& status
     setConnState(false);
 
     // Note that if USE_TIMED_ADVERTISING_CHECK is defined then
-    // advertising will restart due to check in service()
+    // advertising will restart due to check in loop()
 #ifndef USE_TIMED_ADVERTISING_CHECK
     // Restart advertising
     startAdvertising();
@@ -1010,7 +1010,7 @@ void BLEGapServer::serviceTimedAdvertisingCheck()
             {
                 // Debug
 #ifdef WARN_ON_BLE_ADVERTISING
-                LOG_W(MODULE_PREFIX, "service not conn or adv so start advertising");
+                LOG_W(MODULE_PREFIX, "loop not conn or adv so start advertising");
 #endif
 
                 // Start advertising
@@ -1020,20 +1020,20 @@ void BLEGapServer::serviceTimedAdvertisingCheck()
 #ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
                 if (!startAdvOk)
                 {
-                    LOG_W(MODULE_PREFIX, "service started advertising FAILED");
+                    LOG_W(MODULE_PREFIX, "loop started advertising FAILED");
                 }
 #endif
 #ifdef DEBUG_BLE_ADVERTISING
                 if (startAdvOk)
                 {
-                    LOG_W(MODULE_PREFIX, "service started advertising ok");
+                    LOG_W(MODULE_PREFIX, "loop started advertising ok");
                 }
 #endif
             }
             else
             {
 #ifdef DEBUG_BLE_ADVERTISING
-                LOG_I(MODULE_PREFIX, "service BLE already advertising");
+                LOG_I(MODULE_PREFIX, "loop BLE already advertising");
 #endif
                 _advertisingCheckRequired = false;
             }
@@ -1061,13 +1061,13 @@ void BLEGapServer::serviceGettingRSSI()
             uint32_t rslt = ble_gap_conn_rssi(_bleGapConnHandle, &_rssi);
 #ifdef DEBUG_RSSI_GET_TIME
             uint64_t endUs = micros();
-            LOG_I(MODULE_PREFIX, "service get RSSI %d us", (int)(endUs - startUs));
+            LOG_I(MODULE_PREFIX, "loop get RSSI %d us", (int)(endUs - startUs));
 #endif
             if (rslt != 0)
             {
                 _rssi = 0;
                 // Debug
-                // LOG_W(MODULE_PREFIX, "service get RSSI failed");
+                // LOG_W(MODULE_PREFIX, "loop get RSSI failed");
             }
         }
     }

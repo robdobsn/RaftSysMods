@@ -52,7 +52,7 @@ public:
     void teardown();
 
     // Service
-    void service();
+    void loop();
 
     // Get status JSON
     String getStatusJSON(bool includeBraces, bool shortForm) const;
@@ -215,7 +215,7 @@ public:
     void teardown() {}
 
     // Service
-    void service() {}
+    void loop() {}
 
     // Get status JSON
     String getStatusJSON(bool includeBraces, bool shortForm) const

@@ -141,10 +141,10 @@ bool BLEGattServer::setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, boo
 // Service
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void BLEGattServer::service()
+void BLEGattServer::loop()
 {
     // Service outbound queue
-    _bleOutbound.service();
+    _bleOutbound.loop();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -296,7 +296,7 @@ void BLEGattServer::registrationCallbackStatic(struct ble_gatt_register_ctxt *ct
     {
 #ifdef DEBUG_BLE_REG_SERVICES
         char buf[BLE_UUID_STR_LEN];
-        LOG_W(MODULE_PREFIX, "registered service %s with handle=%d",
+        LOG_W(MODULE_PREFIX, "registered loop %s with handle=%d",
                     ble_uuid_to_str(ctxt->svc.svc_def->uuid, buf),
                     ctxt->svc.handle);
 #endif
@@ -445,12 +445,12 @@ int BLEGattServer::start()
     servicesList.resize(2);
     memset(servicesList.data(), 0, sizeof(struct ble_gatt_svc_def) * servicesList.size());
     
-    // Main service
+    // Main loop
     servicesList[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
     servicesList[0].uuid = &_mainServiceUUID128.u;
     servicesList[0].characteristics = mainServiceCharList.data();
 
-    // // Battery service
+    // // Battery loop
     // if (_batteryService)
     // {
     //     batteryServiceCharList.resize(2);

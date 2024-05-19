@@ -154,7 +154,7 @@ void BLEManager::loop()
         return;
 
     // Service BLE GAP
-    _gapServer.service();
+    _gapServer.loop();
 #endif
 }
 

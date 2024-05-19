@@ -92,7 +92,7 @@ void CommandSerial::loop()
 
 #ifdef DEBUG_COMMAND_SERIAL_RX
                 // Debug
-                LOG_I(MODULE_PREFIX, "service channelID %d, len %d", serialPort.getChannelID(), charBuf.size());
+                LOG_I(MODULE_PREFIX, "loop channelID %d, len %d", serialPort.getChannelID(), charBuf.size());
 #endif
             }
         }

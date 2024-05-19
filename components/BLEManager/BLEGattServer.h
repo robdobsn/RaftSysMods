@@ -61,7 +61,7 @@ public:
                 bool heartRate);
 
     // Service
-    void service();
+    void loop();
 
     // Sending
     bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
@@ -102,7 +102,7 @@ public:
         return _bleOutbound;
     }
 
-    // Get UUID for main service
+    // Get UUID for main loop
     ble_uuid128_t& getMainServiceUUID128()
     {
         return _mainServiceUUID128;

@@ -95,7 +95,7 @@ void NetworkManager::setup()
 void NetworkManager::loop()
 {
     // Service network system
-    networkSystem.service();
+    networkSystem.loop();
 
     // Check for status change
     bool isConnWithIP = networkSystem.isIPConnected();

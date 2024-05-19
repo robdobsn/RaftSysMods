@@ -154,7 +154,7 @@ bool CommandSerialPort::getData(std::vector<uint8_t, SpiramAwareAllocator<uint8_
             Raft::getHexStrFromBytes(data.data(), data.size(), outStr);
             LOG_I(MODULE_PREFIX, "getData uartNum %d dataLen %d data %s", _uartNum, data.size(), outStr.c_str());
 #endif
-            // LOG_D(MODULE_PREFIX, "service charsAvail %d ch %02x", numCharsAvailable, buf[0]);
+            // LOG_D(MODULE_PREFIX, "loop charsAvail %d ch %02x", numCharsAvailable, buf[0]);
             return true;
         }
     }

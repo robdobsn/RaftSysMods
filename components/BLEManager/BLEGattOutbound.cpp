@@ -78,7 +78,7 @@ bool BLEGattOutbound::setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, b
     return true;
 }
 
-void BLEGattOutbound::service()
+void BLEGattOutbound::loop()
 {
     // Service the outbound queue
     serviceOutboundQueue();
@@ -164,7 +164,7 @@ bool BLEGattOutbound::handleSendFromOutboundQueue()
             if (Raft::isTimeout(millis(), _outbountMsgInFlightLastMs, BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS))
             {
                 // Debug
-                LOG_W(MODULE_PREFIX, "service outbound msg timeout");
+                LOG_W(MODULE_PREFIX, "loop outbound msg timeout");
 
                 // Timeout so clear the in flight count
                 _outboundMsgsInFlight = 0;

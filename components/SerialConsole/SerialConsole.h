@@ -95,7 +95,7 @@ private:
     uint32_t _rxBufferSize = DEFAULT_RX_BUFFER_SIZE;
     uint32_t _txBufferSize = DEFAULT_TX_BUFFER_SIZE;
 
-    // Bytes to process in service call
+    // Bytes to process in loop call
     static const uint32_t MAX_BYTES_TO_PROCESS_IN_LOOP = 100;
 
     // Procotol

@@ -45,7 +45,7 @@ public:
                 bool sendUsingIndication);
 
     // Service
-    void service();
+    void loop();
 
     // Stop
     void stop();
