@@ -55,7 +55,7 @@ public:
     void service();
 
     // Get status JSON
-    String getStatusJSON(bool includeBraces, bool shortForm);
+    String getStatusJSON(bool includeBraces, bool shortForm) const;
 
     // Restart
     void restart();
@@ -218,7 +218,7 @@ public:
     void service() {}
 
     // Get status JSON
-    String getStatusJSON(bool includeBraces, bool shortForm)
+    String getStatusJSON(bool includeBraces, bool shortForm) const
     {
         return R"({"rslt":"failDisabled"})";
     }

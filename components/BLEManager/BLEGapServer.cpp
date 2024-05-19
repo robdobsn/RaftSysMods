@@ -238,7 +238,7 @@ double BLEGapServer::getRSSI(bool& isValid)
 // Get stats
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm)
+String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
 {
     // Status result
     String statusStr;

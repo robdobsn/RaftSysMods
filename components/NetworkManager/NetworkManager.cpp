@@ -112,7 +112,7 @@ void NetworkManager::loop()
 // Get status JSON
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-String NetworkManager::getStatusJSON()
+String NetworkManager::getStatusJSON() const
 {
     String statusStr = R"({"rslt":"ok")";
     statusStr += R"(,"v":")" + String(getSysManagerConst() ? getSysManagerConst()->getSystemVersion() + "\"" : "0.0.0");

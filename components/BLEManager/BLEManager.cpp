@@ -202,7 +202,7 @@ void BLEManager::addCommsChannels(CommsCoreIF& commsCoreIF)
 // Get status JSON
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-String BLEManager::getStatusJSON()
+String BLEManager::getStatusJSON() const
 {
 #ifdef CONFIG_BT_ENABLED    
     return R"({"rslt":"ok",)" + _gapServer.getStatusJSON(false, false) + "}";

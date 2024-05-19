@@ -46,7 +46,7 @@ protected:
     virtual void addCommsChannels(CommsCoreIF& commsCoreIF) override final;
 
     // Get status JSON
-    virtual String getStatusJSON() override final;
+    virtual String getStatusJSON() const override final;
 
     // Get debug string
     virtual String getDebugJSON() const override final;
