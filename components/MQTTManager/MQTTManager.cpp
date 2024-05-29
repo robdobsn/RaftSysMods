@@ -48,7 +48,9 @@ void MQTTManager::setup()
     bool isMQTTEnabled = configGetBool("enable", false);
     String brokerHostname = configGetString("brokerHostname", "");
     uint32_t brokerPort = configGetLong("brokerPort", RaftMQTTClient::DEFAULT_MQTT_PORT);
-    String mqttClientID = configGetString("clientID", "");
+    String mqttClientID = configGetString("clientID", getSystemName());
+    if (mqttClientID == "")
+        mqttClientID = getSystemName();
 
     // Form unique client ID
     mqttClientID += getSystemUniqueString();
