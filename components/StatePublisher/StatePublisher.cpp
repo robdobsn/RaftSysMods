@@ -90,7 +90,7 @@ void StatePublisher::setup()
         if (triggerStr.indexOf("change") >= 0)
         {
             pubRec._trigger = TRIGGER_ON_STATE_CHANGE;
-            if (triggerStr.indexOf("time") >= 0)
+            if ((triggerStr.indexOf("time") >= 0) || (triggerStr.indexOf("timeorchange") >= 0))
                 pubRec._trigger = TRIGGER_ON_TIME_OR_CHANGE;
         }
         if (pubRec._trigger == TRIGGER_NONE)
@@ -342,19 +342,19 @@ void StatePublisher::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Receive msg generator callback function
+// Register data source (msg generator callback functions)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void StatePublisher::receiveMsgGenCB(const char* msgGenID, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB)
+void StatePublisher::registerDataSource(const char* msgGenID, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB)
 {
     // Search for publication records using this msgGenID
     bool found = false;
     for (PubRec& pubRec : _publicationRecs)
-    {
+    {   
         // Check ID
         if (pubRec._msgIDStr.equals(msgGenID))
         {
-            LOG_I(MODULE_PREFIX, "receiveMsgGenCB registered msgGenFn for msgID %s", msgGenID);
+            LOG_I(MODULE_PREFIX, "registerDataSource registered msgGenFn for msgID %s", msgGenID);
             pubRec._msgGenFn = msgGenCB;
             pubRec._stateDetectFn = stateDetectCB;
             found = true;
@@ -365,7 +365,7 @@ void StatePublisher::receiveMsgGenCB(const char* msgGenID, SysMod_publishMsgGenF
     // Not found?
     if (!found)
     {
-        LOG_W(MODULE_PREFIX, "receiveMsgGenCB msgGenFn not registered for msgID %s", msgGenID);
+        LOG_W(MODULE_PREFIX, "registerDataSource msgGenFn not registered for msgID %s", msgGenID);
     }
 }
 
