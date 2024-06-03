@@ -81,6 +81,21 @@ void SerialConsole::setup()
     // Config required if baud rate specified
     bool configRequired = _baudRate != 0;
 
+    // Check for interrupt allocation flags (IRAM)
+    int intr_alloc_flags = 0;
+#if CONFIG_UART_ISR_IN_IRAM
+    intr_alloc_flags = ESP_INTR_FLAG_IRAM;
+#endif
+
+    // Install UART driver for interrupt-driven reads and writes
+    esp_err_t err = uart_driver_install((uart_port_t)_uartNum, _rxBufferSize, _txBufferSize, 0, 
+                            NULL, intr_alloc_flags);
+    if (err != ESP_OK)
+    {
+        LOG_E(MODULE_PREFIX, "setup FAILED uartNum %d can't install uart driver, err %d", _uartNum, err);
+        return;
+    }
+
     // Check if a config required
     if (configRequired)
     {
@@ -117,21 +132,6 @@ void SerialConsole::setup()
 
         // Delay after UART change
         vTaskDelay(1);
-    }
-
-    // Check for interrupt allocation flags (IRAM)
-    int intr_alloc_flags = 0;
-#if CONFIG_UART_ISR_IN_IRAM
-    intr_alloc_flags = ESP_INTR_FLAG_IRAM;
-#endif
-
-    // Install UART driver for interrupt-driven reads and writes
-    esp_err_t err = uart_driver_install((uart_port_t)_uartNum, _rxBufferSize, _txBufferSize, 0, 
-                            NULL, intr_alloc_flags);
-    if (err != ESP_OK)
-    {
-        LOG_E(MODULE_PREFIX, "setup FAILED uartNum %d can't install uart driver, err %d", _uartNum, err);
-        return;
     }
 
     // Debug
