@@ -1,6 +1,6 @@
 {
   "name": "RaftSysMods",
-  "version": "1.4.7",
+  "version": "1.4.8",
   "description": "System modules for the Raft ESP32 framework",
   "keywords": "esp32, esp32s3, esp32c3, framework",
   "repository": {
@@ -29,7 +29,6 @@
     "includeDir": "components/core",
     "libLDFMode": "deep+",
     "libArchive": false,
-    "extraScript": "lib_script.py",
     "flags": [
       "-DJSMN_PARENT_LINKS",
       "-DJSMN_STRICT",
