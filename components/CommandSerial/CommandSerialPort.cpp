@@ -81,7 +81,7 @@ void CommandSerialPort::setup(RaftJsonIF& config, const char* pModName)
 #if ESP_IDF_VERSION <= ESP_IDF_VERSION_VAL(5, 0, 0)
                 .use_ref_tick = false,
 #else
-                .source_clk = UART_SCLK_APB,
+                .source_clk = UART_SCLK_DEFAULT,
 #endif
         };
         esp_err_t err = uart_param_config((uart_port_t)_uartNum, &uart_config);
