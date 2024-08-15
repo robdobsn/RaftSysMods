@@ -9,8 +9,9 @@
 #include "Logger.h"
 #include "CommandSerialPort.h"
 #include "RaftUtils.h"
-#include "driver/uart.h"
 #include "SpiramAwareAllocator.h"
+#include "driver/uart.h"
+#include "driver/gpio.h"
 
 static const char *MODULE_PREFIX = "CommandSerialPort";
 
@@ -45,7 +46,7 @@ void CommandSerialPort::setup(RaftJsonIF& config, const char* pModName)
     _isEnabled = config.getLong("enable", 0) != 0;
 
     // Port
-    _uartNum = config.getLong("uartNum", 80);
+    _uartNum = config.getLong("uartNum", 1);
 
     // Baud
     _baudRate = config.getLong("baudRate", 921600);
@@ -60,6 +61,9 @@ void CommandSerialPort::setup(RaftJsonIF& config, const char* pModName)
     // Pins
     _rxPin = config.getLong("rxPin", -1);
     _txPin = config.getLong("txPin", -1);
+
+    // Rx pullup
+    bool rxPullup = config.getLong("rxPullup", 0);
 
     // Buffers
     _rxBufSize = config.getLong("rxBufSize", 1024);
@@ -87,8 +91,8 @@ void CommandSerialPort::setup(RaftJsonIF& config, const char* pModName)
         esp_err_t err = uart_param_config((uart_port_t)_uartNum, &uart_config);
         if (err != ESP_OK)
         {
-            LOG_E(MODULE_PREFIX, "Failed to initialize uart param config uartNum %d baudRate %d err %d", 
-                            _uartNum, _baudRate, err);
+            LOG_E(MODULE_PREFIX, "Failed to initialize uart %s param config uartNum %d baudRate %d err %d", 
+                            _name.c_str(), _uartNum, _baudRate, err);
             return;
         }
 
@@ -96,10 +100,13 @@ void CommandSerialPort::setup(RaftJsonIF& config, const char* pModName)
         err = uart_set_pin((uart_port_t)_uartNum, _txPin, _rxPin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
         if (err != ESP_OK)
         {
-            LOG_E(MODULE_PREFIX, "Failed to set uart pins uartNum %d txPin %d rxPin %d err %d", 
-                            _uartNum, _txPin, _rxPin, err);
+            LOG_E(MODULE_PREFIX, "Failed to set uart %s pins uartNum %d txPin %d rxPin %d err %d", 
+                            _name.c_str(), _uartNum, _txPin, _rxPin, err);
             return;
         }
+
+        if (rxPullup)
+            gpio_pullup_en((gpio_num_t)_rxPin);
 
         // Delay before UART change
         vTaskDelay(1);
@@ -108,8 +115,8 @@ void CommandSerialPort::setup(RaftJsonIF& config, const char* pModName)
         err = uart_driver_install((uart_port_t)_uartNum, _rxBufSize, _txBufSize, 0, NULL, 0);
         if (err != ESP_OK)
         {
-            LOG_E(MODULE_PREFIX, "Failed to install uart driver, uartNum %d rxBufSize %d txBufSize %d err %d", 
-                            _uartNum, (int)_rxBufSize, (int)_txBufSize, err);
+            LOG_E(MODULE_PREFIX, "Failed to install uart %s driver, uartNum %d rxBufSize %d txBufSize %d err %d", 
+                            _name.c_str(), _uartNum, (int)_rxBufSize, (int)_txBufSize, err);
             return;
         }
 
@@ -117,11 +124,12 @@ void CommandSerialPort::setup(RaftJsonIF& config, const char* pModName)
         _isInitialised = true;
 
         // Log
-        LOG_I(MODULE_PREFIX, "setup ok uartNum %d baudRate %d txPin %d rxPin %d rxBufSize %d txBufSize %d protocol %s", 
-                    _uartNum, _baudRate, _txPin, _rxPin, (int)_rxBufSize, (int)_txBufSize, _protocol.c_str());
+        LOG_I(MODULE_PREFIX, "setup ok %s uartNum %d baudRate %d txPin %d rxPin %d%s rxBufSize %d txBufSize %d protocol %s", 
+                    _name.c_str(), _uartNum, _baudRate, _txPin, _rxPin, rxPullup ? "(pullup)" : "", 
+                    (int)_rxBufSize, (int)_txBufSize, _protocol.c_str());
     } else {
-        LOG_I(MODULE_PREFIX, "setup enabled %s uartNum %d txPin %d rxPin %d", 
-                    _isEnabled ? "YES" : "NO", _uartNum, _txPin, _rxPin);
+        LOG_I(MODULE_PREFIX, "setup %s enabled %s uartNum %d txPin %d rxPin %d", 
+                    _name.c_str(), _isEnabled ? "YES" : "NO", _uartNum, _txPin, _rxPin);
     }
 }
 
