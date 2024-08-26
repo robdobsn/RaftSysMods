@@ -12,8 +12,6 @@
 #include "CommsChannelMsg.h"
 #include "CommsChannelSettings.h"
 
-static const char *MODULE_PREFIX = "CommandSerial";
-
 #define WARN_ON_COMMAND_SERIAL_TX_NOT_FOUND
 
 // #define DEBUG_COMMAND_SERIAL

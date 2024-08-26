@@ -38,9 +38,6 @@
 // Statics, etc
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Log prefix
-static const char *MODULE_PREFIX = "BLEGattServer";
-
 /**
  * The service consists of the following characteristics:
  *     o motionCommand: used to request motion

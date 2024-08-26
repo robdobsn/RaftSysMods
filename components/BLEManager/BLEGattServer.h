@@ -159,5 +159,8 @@ private:
     bool _batteryService = false;
     bool _deviceInfoService = false;
     bool _heartRate = false;
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "BLEGattSrv";
 };
 #endif // CONFIG_BT_ENABLED

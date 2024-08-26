@@ -49,8 +49,6 @@
 // #define DEBUG_BLE_PERF_CALC_MIN
 // #define DEBUG_BLE_PERF_CALC_FULL_MAY_AFFECT_MEASUREMENT
 
-static const char* MODULE_PREFIX = "BLEGap";
-
 // Singleton instance
 BLEGapServer* BLEGapServer::_pThis = nullptr;
 

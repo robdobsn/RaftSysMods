@@ -136,4 +136,8 @@ private:
         String fileName;
         std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> blockData;
     };
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "ESPOTAUpdate";
+
 };

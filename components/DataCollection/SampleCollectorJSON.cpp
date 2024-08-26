@@ -9,8 +9,6 @@
 
 #include "SampleCollectorJSON.h"
 
-static const char* MODULE_PREFIX = "SampleCollector";
-
 // #define DEBUG_ADD_SAMPLE
 // #define DEBUG_WRITE_TO_FILE
 

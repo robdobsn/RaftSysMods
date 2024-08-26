@@ -81,4 +81,7 @@ private:
 
     // // Handles websocket events
     // static void webSocketCallback(uint8_t num, WEBSOCKET_TYPE_t type, const char* msg, uint64_t len);
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "CmdSock";
 };

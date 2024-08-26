@@ -109,5 +109,8 @@ private:
     void outboundMsgTask();
     
 #endif // CONFIG_BT_ENABLED
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "BLEGattOut";
 };
 

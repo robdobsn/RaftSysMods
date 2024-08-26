@@ -13,8 +13,6 @@
 #include "driver/uart.h"
 #include "driver/gpio.h"
 
-static const char *MODULE_PREFIX = "CommandSerialPort";
-
 // #define DEBUG_COMMAND_SERIAL_DETAIL
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

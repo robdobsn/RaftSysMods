@@ -60,4 +60,7 @@ private:
     // Helpers
     bool sendMsg(CommsChannelMsg& msg);
     RaftRetCode apiCommandSerial(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "CmdSerial";
 };

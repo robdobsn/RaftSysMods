@@ -53,4 +53,7 @@ private:
 
     // Helpers
     bool checkSocket(ip_addr_t& hostIPAddr);
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "LogPapertrail";
 };

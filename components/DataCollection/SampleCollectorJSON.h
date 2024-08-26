@@ -89,4 +89,7 @@ private:
     RaftRetCode apiSample(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
     bool writeToFile(const String& filename, bool append, String& errMsg);
     void writeToConsole();
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "SampleColl";
 };

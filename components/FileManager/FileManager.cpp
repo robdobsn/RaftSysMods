@@ -13,8 +13,6 @@
 #include "Logger.h"
 #include "SysManager.h"
 
-static const char* MODULE_PREFIX = "FileManager";
-
 // #define DEBUG_FILE_MANAGER_FILE_LIST
 // #define DEBUG_FILE_MANAGER_FILE_LIST_DETAIL
 // #define DEBUG_FILE_MANAGER_UPLOAD

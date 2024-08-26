@@ -126,4 +126,7 @@ private:
     bool sendMsg(CommsChannelMsg& msg);
     void processReceivedData(std::vector<uint8_t, SpiramAwareAllocator<uint8_t>>& rxData);
     RaftRetCode apiConsole(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "SerialConsole";
 };

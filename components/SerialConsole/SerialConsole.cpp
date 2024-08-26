@@ -17,13 +17,11 @@
 #include "sdkconfig.h"
 #include "esp_idf_version.h"
 #include "driver/uart.h"
+#include "driver/usb_serial_jtag_vfs.h"
 
 #ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
 #include "driver/usb_serial_jtag.h"
 #endif
-
-// Log prefix
-static const char *MODULE_PREFIX = "SerialConsole";
 
 // #define DEBUG_SERIAL_CONSOLE
 
@@ -71,6 +69,9 @@ void SerialConsole::setup()
         LOG_E(MODULE_PREFIX, "setup FAILED can't install jtag driver, err %d", jtagErr);
         return;
     }
+
+    // Tell vfs to use the driver
+    usb_serial_jtag_vfs_use_driver();
 
     // Debug
     LOG_I(MODULE_PREFIX, "setup USB JTAG OK enabled %s rxBufLen %d txBufLen %d", 
@@ -134,13 +135,15 @@ void SerialConsole::setup()
         vTaskDelay(1);
     }
 
+    // Tell vfs to use the driver
+    uart_vfs_dev_use_driver((uart_port_t)_uartNum);
+
     // Debug
     LOG_I(MODULE_PREFIX, "setup OK enabled %s uartNum %d crlfOnTx %s rxBufLen %d txBufLen %d", 
                 _isEnabled ? "YES" : "NO", _uartNum, _crlfOnTx ? "YES" : "NO",
                 _rxBufferSize, _txBufferSize);
 
 #endif // CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
-
 
     _isInitialised = true;
 }

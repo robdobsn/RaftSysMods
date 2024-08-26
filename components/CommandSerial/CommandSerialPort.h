@@ -75,4 +75,6 @@ private:
     uint32_t _bridgeID = 0;
     bool _isBridged = false;
 
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "CmdSerPort";
 };

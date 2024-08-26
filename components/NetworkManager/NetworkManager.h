@@ -59,4 +59,7 @@ private:
     RaftRetCode apiWifiClear(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
     RaftRetCode apiWiFiPause(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
     RaftRetCode apiWifiScan(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "NetMan";
 };

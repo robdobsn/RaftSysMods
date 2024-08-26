@@ -75,4 +75,7 @@ private:
     // Upload file to file system - part of file (from HTTP POST file)
     RaftRetCode apiUploadFileBlock(const String& req, FileStreamBlock& fileStreamBlock, const APISourceInfo& sourceInfo);
 
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "FileMan";
+
 };

@@ -68,5 +68,8 @@ private:
     //Sleep
     long _stateTimerMilis;
     int _sleepTimeMilis;
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "CmdFile";
 };
 

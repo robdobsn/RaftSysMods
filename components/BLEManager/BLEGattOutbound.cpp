@@ -21,8 +21,6 @@
 // #define DEBUG_BLE_TX_MSG
 // #define DEBUG_BLE_PUBLISH
 
-static const char* MODULE_PREFIX = "BLEOut";
-
 BLEGattOutbound::BLEGattOutbound(BLEGattServer& gattServer, BLEManStats& bleStats) :
         _gattServer(gattServer),
         _bleStats(bleStats),

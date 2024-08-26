@@ -70,4 +70,7 @@ private:
     // Restart API
     RaftRetCode apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
 #endif
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "BLEMan";
 };

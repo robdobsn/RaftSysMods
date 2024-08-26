@@ -12,8 +12,6 @@
 #include "FileSystem.h"
 #include "RestAPIEndpointManager.h"
 
-static const char *MODULE_PREFIX = "CommandFile";
-
 // Debug
 // #define DEBUG_COMMAND_FILE 1
 

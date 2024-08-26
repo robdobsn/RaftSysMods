@@ -15,8 +15,6 @@
 #include "SysManager.h"
 #include "ProtocolExchange.h"
 
-static const char* MODULE_PREFIX = "ESPOTAUpdate";
-
 // Debug
 #define DEBUG_ESP_OTA_UPDATE_FIRST_AND_LAST
 // #define DEBUG_ESP_OTA_UPDATE

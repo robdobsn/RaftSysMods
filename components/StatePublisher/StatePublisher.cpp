@@ -29,9 +29,6 @@
 // #define DEBUG_PUBLISH_SUPPRESS_RESTART
 // #define DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
 
-// Logging
-static const char* MODULE_PREFIX = "StatePub";
-
 // Debug
 #ifdef DEBUG_ONLY_THIS_ROSTOPIC
 #include <algorithm>
@@ -345,7 +342,7 @@ void StatePublisher::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager
 // Register data source (msg generator callback functions)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void StatePublisher::registerDataSource(const char* msgGenID, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB)
+bool StatePublisher::registerDataSource(const char* msgGenID, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB)
 {
     // Search for publication records using this msgGenID
     bool found = false;
@@ -367,6 +364,7 @@ void StatePublisher::registerDataSource(const char* msgGenID, SysMod_publishMsgG
     {
         LOG_W(MODULE_PREFIX, "registerDataSource msgGenFn not registered for msgID %s", msgGenID);
     }
+    return found;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

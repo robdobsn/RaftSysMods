@@ -51,4 +51,7 @@ private:
     // Helpers
     bool sendMQTTMsg(const String& topicName, CommsChannelMsg& msg);
     bool readyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "MQTTMan";
 };

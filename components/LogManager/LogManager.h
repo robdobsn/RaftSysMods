@@ -29,4 +29,9 @@ public:
 protected:
     // Setup
     virtual void setup() override final;
+
+private:
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "LogMan";
+
 };

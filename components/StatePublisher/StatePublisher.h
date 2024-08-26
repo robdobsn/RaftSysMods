@@ -36,7 +36,7 @@ public:
     RaftRetCode apiSubscription(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
     // Receive msg generator callback function
-    virtual void registerDataSource(const char* msgGenID, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB) override final;
+    virtual bool registerDataSource(const char* msgGenID, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB) override final;
 
 protected:
     // Setup
@@ -135,4 +135,7 @@ private:
     // Helpers
     void cleanUp();
     CommsCoreRetCode publishData(PubRec& pubRec, InterfaceRateRec& rateRec);
+
+    // Log prefix
+    static constexpr const char *MODULE_PREFIX = "StatePub";
 };
