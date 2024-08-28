@@ -10,6 +10,7 @@
 #pragma once
 
 #include "sdkconfig.h"
+#include "BLEConfig.h"
 #ifdef CONFIG_BT_ENABLED
 
 #include "BLEGattOutbound.h"
@@ -50,15 +51,7 @@ public:
     virtual ~BLEGattServer();
 
     // Setup
-    bool setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, bool useTaskForSending,
-                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize,
-                bool sendUsingIndication,
-                const String& uuidCmdRespService,
-                const String& uuidCmdRespCommand,
-                const String& uuidCmdRespResponse,
-                bool batteryService,
-                bool deviceInfoService,
-                bool heartRate);
+    bool setup(const BLEConfig& bleConfig);
 
     // Service
     void loop();
@@ -108,7 +101,22 @@ public:
         return _mainServiceUUID128;
     }
 
+    // Get max packet length
+    uint32_t getMaxPacketLen()
+    {
+        return _bleConfig.maxPacketLen;
+    }
+
+    // Get preferred MTU size
+    uint32_t getPreferredMTUSize()
+    {
+        return _bleOutbound.getPreferredMTUSize();
+    }
+
 private:
+
+    // BLE Config
+    BLEConfig _bleConfig;
 
     // At registration time this is filled with the charactteristic's value attribute handle
     uint16_t _characteristicValueAttribHandle = 0;
@@ -158,7 +166,7 @@ private:
     // Standard services
     bool _batteryService = false;
     bool _deviceInfoService = false;
-    bool _heartRate = false;
+    bool _heartRateService = false;
 
     // Log prefix
     static constexpr const char *MODULE_PREFIX = "BLEGattSrv";

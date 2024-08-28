@@ -77,36 +77,21 @@ BLEGapServer::~BLEGapServer()
 // Setup
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF,
-                uint32_t maxPacketLen, 
-                uint32_t outboundQueueSize, bool useTaskForSending,
-                uint32_t taskCore, int32_t taskPriority, int taskStackSize,
-                bool sendUsingIndication,
-                uint32_t advertisingIntervalMs,
-                const String& uuidCmdRespService,
-                const String& uuidCmdRespCommand,
-                const String& uuidCmdRespResponse,
-                bool batteryService,
-                bool deviceInfoService,
-                bool heartRate)
+bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF, const BLEConfig& bleConfig)
 {
     // Settings
     _pCommsCoreIF = pCommsCoreIF;
-    _maxPacketLength = maxPacketLen;
-
-    // Advertising interval
-    _useSpecifiedAdvertisingInterval = false;
-    if (advertisingIntervalMs > 0)
-    {
-        _useSpecifiedAdvertisingInterval = true;
-        _advertisingIntervalMs = advertisingIntervalMs;
-    }
+    _advertisingIntervalMs = bleConfig.advertisingIntervalMs;
+    _connIntervalPrefBLEUnits = BLEConfig::DEFAULT_CONN_INTERVAL_MS / 1.25;
+    if (bleConfig.connIntervalPreferredMs > 0)
+        _connIntervalPrefBLEUnits = bleConfig.connIntervalPreferredMs / 1.25;
+    _connLatencyPref = bleConfig.connLatencyPref;
+    _supvTimeoutPref10msUnits = bleConfig.supvTimeoutPrefMs / 10;
+    _llPacketTimePref = bleConfig.llPacketTimePref;
+    _llPacketLengthPref = bleConfig.llPacketLengthPref;
 
     // Setup GATT server
-    _gattServer.setup(maxPacketLen, outboundQueueSize, useTaskForSending,
-                (UBaseType_t)taskCore, (BaseType_t)taskPriority, taskStackSize, 
-                sendUsingIndication, uuidCmdRespService, uuidCmdRespCommand, uuidCmdRespResponse,
-                batteryService, deviceInfoService, heartRate);
+    _gattServer.setup(bleConfig);
     
     // Start NimBLE if not already started
     if (!_isInit)
@@ -211,7 +196,8 @@ void BLEGapServer::restart()
 void BLEGapServer::registerChannel(CommsCoreIF& commsCoreIF)
 {
     // Comms channel
-    const CommsChannelSettings commsChannelSettings(_maxPacketLength, _maxPacketLength, 0, 0, _maxPacketLength, 0);
+    uint32_t maxPktLen = _gattServer.getMaxPacketLen();
+    const CommsChannelSettings commsChannelSettings(maxPktLen, maxPktLen, 0, 0, maxPktLen, 0);
 
     // Register as a message channel
     _commsChannelID = commsCoreIF.registerChannel("RICSerial", 
@@ -416,7 +402,7 @@ bool BLEGapServer::startAdvertising()
 
 
     // Check if advertising interval is specified
-    if (_useSpecifiedAdvertisingInterval > 0)
+    if (_advertisingIntervalMs > 0)
     {
         // Set advertising interval
         uint16_t advIntv = _advertisingIntervalMs / 0.625;
@@ -834,7 +820,7 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
         connHandle = event->connect.conn_handle;
         
         // Request preferred MTU
-        rc = ble_att_set_preferred_mtu(BLEGattOutbound::PREFERRED_MTU_VALUE);
+        rc = ble_att_set_preferred_mtu(_gattServer.getPreferredMTUSize());
         if (rc != 0) 
         {
             LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to set preferred MTU; rc = %d", rc);
@@ -847,7 +833,7 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
         // Suggested DLE
-        ble_hs_hci_util_write_sugg_def_data_len(LL_PACKET_LENGTH, LL_PACKET_TIME);
+        ble_hs_hci_util_write_sugg_def_data_len(_llPacketLengthPref, _llPacketTimePref);
 
         // Suggested values for read DLE
         uint16_t out_sugg_max_tx_octets = 0, out_sugg_max_tx_time = 0;
@@ -863,8 +849,8 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
 #else
         // Old way of setting DLE
         ble_hs_hci_util_set_data_len(event->connect.conn_handle,
-                            LL_PACKET_LENGTH,
-                            LL_PACKET_TIME);
+                            _llPacketLengthPref,
+                            _llPacketTimePref);
 #endif
         // Conn interval check pending
         _connIntervalCheckPending = true;
@@ -930,7 +916,7 @@ int BLEGapServer::gapEventConnUpdate(struct ble_gap_event *event, String& status
     connHandle = event->conn_update.conn_handle;
     struct ble_gap_conn_desc desc;
     int rc = ble_gap_conn_find(event->conn_update.conn_handle, &desc);
-    if ((rc == 0) && _connIntervalCheckPending && (desc.conn_itvl > PREF_CONN_INTERVAL))
+    if ((rc == 0) && _connIntervalCheckPending && (desc.conn_itvl > _connIntervalPrefBLEUnits))
     {
         // Request conn interval we want
         requestConnInterval();
@@ -1079,10 +1065,10 @@ void BLEGapServer::requestConnInterval()
 {
     struct ble_gap_upd_params params;
     memset(&params, 0, sizeof(params));
-    params.itvl_min = PREF_CONN_INTERVAL;
-    params.itvl_max = PREF_CONN_INTERVAL;
-    params.latency = PREF_CONN_LATENCY;
-    params.supervision_timeout = PREF_SUPERVISORY_TIMEOUT;
+    params.itvl_min = _connIntervalPrefBLEUnits;
+    params.itvl_max = _connIntervalPrefBLEUnits;
+    params.latency = _connLatencyPref;
+    params.supervision_timeout = _supvTimeoutPref10msUnits;
     params.min_ce_len = 0x0001;
     params.max_ce_len = 0x0001;
     int rc = ble_gap_update_params(_bleGapConnHandle, &params);

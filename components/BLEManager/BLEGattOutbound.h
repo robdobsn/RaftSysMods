@@ -12,6 +12,7 @@
 #include "ThreadSafeQueue.h"
 #include "ProtocolRawMsg.h"
 #include "CommsChannelMsg.h"
+#include "BLEConfig.h"
 
 class CommsChannelMsg;
 class BLEGattServer;
@@ -20,18 +21,6 @@ class BLEManStats;
 class BLEGattOutbound
 {
 public:
-    // Defaults
-    static const bool DEFAULT_USE_TASK_FOR_SENDING = false;
-    static const int DEFAULT_TASK_CORE = 0;
-    static const int DEFAULT_TASK_PRIORITY = 1;
-    static const int DEFAULT_TASK_SIZE_BYTES = 4000;
-    static const int DEFAULT_OUTBOUND_MSG_QUEUE_SIZE = 30;
-    static const uint32_t BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS = 50;
-    static const uint32_t MAX_BLE_PACKET_LEN_DEFAULT = 500;
-    static const uint32_t PREFERRED_MTU_VALUE = 512;
-    static const uint32_t DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX = 10;
-    static const uint32_t BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS = 500;
-
 #include "sdkconfig.h"
 #ifdef CONFIG_BT_ENABLED
 
@@ -40,9 +29,7 @@ public:
     virtual ~BLEGattOutbound();
 
     // Setup
-    bool setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, bool useTaskForSending,
-                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize,
-                bool sendUsingIndication);
+    bool setup(const BLEConfig& bleConfig);
 
     // Service
     void loop();
@@ -60,7 +47,13 @@ public:
     // Inform of MTU size
     void onMTUSizeInfo(uint32_t mtuSize)
     {
-        _mtuSize = mtuSize;
+        _actualMtuSize = mtuSize;
+    }
+
+    // Get preferred MTU size
+    uint32_t getPreferredMTUSize()
+    {
+        return _preferredMtuSize;
     }
 
 private:
@@ -77,28 +70,31 @@ private:
     ThreadSafeQueue<ProtocolRawMsg> _outboundQueue;
 
     // Position in current message being sent
-    uint32_t _outboundMsgPos = 0;
+    uint16_t _outboundMsgPos = 0;
 
     // Min time between adjacent outbound messages
     uint32_t _lastOutboundMsgMs = 0;
+    uint32_t _minMsBetweenSends = BLEConfig::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS;
 
     // Task that runs the outbound queue (if enabled)
     volatile TaskHandle_t _outboundMsgTaskHandle = nullptr;
 
     // Outbound messages in flight
     volatile uint32_t _outboundMsgsInFlight = 0;
-    uint32_t _outboundMsgsInFlightMax = DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX;
+    uint16_t _outMsgsInFlightMax = BLEConfig::DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX;
     uint32_t _outbountMsgInFlightLastMs = 0;
+    uint32_t _outMsgsInFlightTimeoutMs = BLEConfig::BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS;
 
     // Mutex for in flight variable
     SemaphoreHandle_t _inFlightMutex = nullptr;
     static const uint32_t WAIT_FOR_INFLIGHT_MUTEX_MAX_MS = 2;
 
     // Max packet len
-    uint32_t _maxPacketLen = MAX_BLE_PACKET_LEN_DEFAULT;
+    uint16_t _maxPacketLen = BLEConfig::MAX_BLE_PACKET_LEN_DEFAULT;
 
     // MTU size
-    uint32_t _mtuSize = PREFERRED_MTU_VALUE;
+    uint16_t _preferredMtuSize = BLEConfig::PREFERRED_MTU_SIZE;
+    uint16_t _actualMtuSize = BLEConfig::PREFERRED_MTU_SIZE;
 
     // Reduce send packet size from MTU by this amount
     static const uint32_t MTU_SIZE_REDUCTION = 12;

@@ -17,6 +17,7 @@
 #include "BLEManStats.h"
 #include "BLEGattServer.h"
 #include "CommsCoreIF.h"
+#include "BLEConfig.h"
 
 #define USE_TIMED_ADVERTISING_CHECK 1
 
@@ -37,18 +38,7 @@ public:
 
     // Setup
     // passing 0 for advertisingIntervalMs will use the default
-    bool setup(CommsCoreIF* pCommsCoreIF,
-                uint32_t maxPacketLen, 
-                uint32_t outboundQueueSize, bool useTaskForSending,
-                uint32_t taskCore, int32_t taskPriority, int taskStackSize,
-                bool sendUsingIndication,
-                uint32_t advertisingIntervalMs = 0,
-                const String& uuidCmdRespService = "",
-                const String& uuidCmdRespCommand = "",
-                const String& uuidCmdRespResponse = "",
-                bool batteryService = false,
-                bool deviceInfoService = false,
-                bool heartRate = false);
+    bool setup(CommsCoreIF* pCommsCoreIF, const BLEConfig& bleConfig);
     void teardown();
 
     // Service
@@ -88,13 +78,13 @@ private:
     uint8_t _ownAddrType = 0;
 
     // Preferred connection params
-    static const uint32_t LL_PACKET_TIME = 2500;
-    static const uint32_t LL_PACKET_LENGTH = 251;
+    uint16_t _llPacketTimePref = BLEConfig::DEFAULT_LL_PACKET_TIME;
+    uint16_t _llPacketLengthPref = BLEConfig::DEFAULT_LL_PACKET_LENGTH;
 
-    // Preferred connection interval
-    static const uint16_t PREF_CONN_INTERVAL = 6; // 7.5ms
-    static const uint16_t PREF_CONN_LATENCY = 0;
-    static const uint16_t PREF_SUPERVISORY_TIMEOUT = 1000; // 10s
+    // Connection parameters
+    uint16_t _connIntervalPrefBLEUnits = BLEConfig::DEFAULT_CONN_INTERVAL_MS / 1.25;
+    uint16_t _connLatencyPref = BLEConfig::DEFAULT_CONN_LATENCY;
+    uint16_t _supvTimeoutPref10msUnits = BLEConfig::PREF_SUPERVISORY_TIMEOUT_MS / 10;
 
     // Gatt server
     BLEGattServer _gattServer;
@@ -111,8 +101,8 @@ private:
     uint32_t _rssiLastMs = 0;
     static const uint32_t RSSI_CHECK_MS = 2000;
 
-    // Max packet length - seems to be OS dependent (iOS seems to truncate at 182?)
-    uint32_t _maxPacketLength = BLEGattOutbound::MAX_BLE_PACKET_LEN_DEFAULT;
+    // Advertising
+    uint32_t _advertisingIntervalMs = 0;
 
     // Stats
     BLEManStats _bleStats;
@@ -133,10 +123,6 @@ private:
     static const uint32_t BLE_RESTART_BEFORE_STOP_MS = 200;
     static const uint32_t BLE_RESTART_BEFORE_START_MS = 200;
     uint32_t _bleRestartLastMs = 0;
-
-    // Advertising interval
-    bool _useSpecifiedAdvertisingInterval = false;
-    uint32_t _advertisingIntervalMs = 1000;
 
 #ifdef USE_TIMED_ADVERTISING_CHECK
     // Advertising check timeout

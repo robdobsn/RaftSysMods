@@ -87,21 +87,14 @@ BLEGattServer::~BLEGattServer()
 // Setup
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool BLEGattServer::setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, bool useTaskForSending,
-                UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize, bool sendUsingIndication,
-                const String& uuidCmdRespService,
-                const String& uuidCmdRespCommand,
-                const String& uuidCmdRespResponse,
-                bool batteryService,
-                bool deviceInfoService,
-                bool heartRate)
+bool BLEGattServer::setup(const BLEConfig& bleConfig)
 {
     // UUIDs
-    if (uuidCmdRespService.length() > 0)
+    if (bleConfig.uuidCmdRespService.length() > 0)
     {
-        Raft::uuid128FromString(uuidCmdRespService.c_str(), _mainServiceUUID128.value);
-        Raft::uuid128FromString(uuidCmdRespCommand.c_str(), _commandUUID128.value);
-        Raft::uuid128FromString(uuidCmdRespResponse.c_str(), _responseUUID128.value);
+        Raft::uuid128FromString(bleConfig.uuidCmdRespService.c_str(), _mainServiceUUID128.value);
+        Raft::uuid128FromString(bleConfig.uuidCmdRespCommand.c_str(), _commandUUID128.value);
+        Raft::uuid128FromString(bleConfig.uuidCmdRespResponse.c_str(), _responseUUID128.value);
 
         // Debug
 #ifdef DEBUG_UUID_CONVERSION_FROM_STR
@@ -112,26 +105,24 @@ bool BLEGattServer::setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, boo
                     ble_uuid_to_str(&_responseUUID128.u, buf));
         String uuidStr;
         Raft::getHexStrFromBytes(_mainServiceUUID128.value, 16, uuidStr);
-        LOG_I(MODULE_PREFIX, "setup serviceUUID config %s converted %s", uuidCmdRespService.c_str(), uuidStr.c_str());
+        LOG_I(MODULE_PREFIX, "setup serviceUUID config %s converted %s", bleConfig.uuidCmdRespService.c_str(), uuidStr.c_str());
         Raft::getHexStrFromBytes(_commandUUID128.value, 16, uuidStr);
-        LOG_I(MODULE_PREFIX, "setup commandUUID config %s converted %s", uuidCmdRespCommand.c_str(), uuidStr.c_str());
+        LOG_I(MODULE_PREFIX, "setup commandUUID config %s converted %s", bleConfig.uuidCmdRespCommand.c_str(), uuidStr.c_str());
         Raft::getHexStrFromBytes(_responseUUID128.value, 16, uuidStr);
-        LOG_I(MODULE_PREFIX, "setup responseUUID config %s converted %s", uuidCmdRespResponse.c_str(), uuidStr.c_str());
+        LOG_I(MODULE_PREFIX, "setup responseUUID config %s converted %s", bleConfig.uuidCmdRespResponse.c_str(), uuidStr.c_str());
 #endif
     }
 
     // Standard services
-    _batteryService = batteryService;
-    _deviceInfoService = deviceInfoService;
-    _heartRate = heartRate;
+    _batteryService = bleConfig.batteryService;
+    _deviceInfoService = bleConfig.deviceInfoService;
+    _heartRateService = bleConfig.heartRateService;
 
     // Send using indication
-    _sendUsingIndication = sendUsingIndication;
+    _sendUsingIndication = bleConfig.sendUsingIndication;
 
     // Setup outbound handler
-    return _bleOutbound.setup(maxPacketLen, outboundQueueSize, 
-                useTaskForSending, taskCore, taskPriority, taskStackSize,
-                sendUsingIndication);
+    return _bleOutbound.setup(bleConfig);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -11,7 +11,7 @@
 #include "BLEManager.h"
 #include "RestAPIEndpointManager.h"
 #include "SysManager.h"
-#include "BLEGattOutbound.h"
+#include "BLEConfig.h"
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constructor
@@ -50,77 +50,84 @@ void BLEManager::setup()
     if (_enableBLE)
     {
         // Settings
-        uint32_t maxPacketLength = configGetLong("maxPktLen", BLEGattOutbound::MAX_BLE_PACKET_LEN_DEFAULT);
-        uint32_t outboundQueueSize = configGetLong("outQSize", BLEGattOutbound::DEFAULT_OUTBOUND_MSG_QUEUE_SIZE);
+        BLEConfig bleConfig;
+        bleConfig.maxPacketLen = configGetLong("maxPktLen", BLEConfig::MAX_BLE_PACKET_LEN_DEFAULT);
+        bleConfig.outboundQueueSize = configGetLong("outQSize", BLEConfig::DEFAULT_OUTBOUND_MSG_QUEUE_SIZE);
+        bleConfig.preferredMTUSize = configGetLong("mtuSize", BLEConfig::PREFERRED_MTU_SIZE);
 
         // Separate task for sending
-        bool useTaskForSending = configGetBool("taskEnable", BLEGattOutbound::DEFAULT_USE_TASK_FOR_SENDING);
-        uint32_t taskCore = configGetLong("taskCore", BLEGattOutbound::DEFAULT_TASK_CORE);
-        int32_t taskPriority = configGetLong("taskPriority", BLEGattOutbound::DEFAULT_TASK_PRIORITY);
-        int taskStackSize = configGetLong("taskStack", BLEGattOutbound::DEFAULT_TASK_SIZE_BYTES);
+        bleConfig.useTaskForSending = configGetBool("taskEnable", BLEConfig::DEFAULT_USE_TASK_FOR_SENDING);
+        bleConfig.taskCore = configGetLong("taskCore", BLEConfig::DEFAULT_TASK_CORE);
+        bleConfig.taskPriority = configGetLong("taskPriority", BLEConfig::DEFAULT_TASK_PRIORITY);
+        bleConfig.taskStackSize = configGetLong("taskStack", BLEConfig::DEFAULT_TASK_SIZE_BYTES);
 
         // Send using indication
-        bool sendUsingIndication = configGetBool("sendUseInd", true);
+        bleConfig.sendUsingIndication = configGetBool("sendUseInd", true);
+        bleConfig.minMsBetweenSends = configGetLong("minMsBetweenSends", BLEConfig::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS);
+        bleConfig.outMsgsInFlightMax = configGetLong("outMsgsInFlightMax", BLEConfig::DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX);
 
+        // LL packet time and length
+        bleConfig.llPacketTimePref = configGetLong("llPacketTimePref", BLEConfig::DEFAULT_LL_PACKET_TIME);
+        bleConfig.llPacketLengthPref = configGetLong("llPacketLengthPref", BLEConfig::DEFAULT_LL_PACKET_LENGTH);
+        
         // Check if advertising interval is specified (0 if not which sets default)
-        uint32_t advertisingIntervalMs = configGetLong("advIntervalMs", 0);
+        bleConfig.advertisingIntervalMs = configGetLong("advIntervalMs", 0);
+
+        // Connection params
+        bleConfig.connIntervalPreferredMs = configGetLong("connIntvPrefMs", BLEConfig::DEFAULT_CONN_INTERVAL_MS);
+        bleConfig.connLatencyPref = configGetLong("connLatencyPref", BLEConfig::DEFAULT_CONN_LATENCY);
 
         // Get UUIDs for cmd/resp service
-        String uuidCmdRespService = configGetString("uuidCmdRespService", "");
-        String uuidCmdRespCommand = configGetString("uuidCmdRespCommand", "");
-        String uuidCmdRespResponse = configGetString("uuidCmdRespResponse", "");
+        bleConfig.uuidCmdRespService = configGetString("uuidCmdRespService", "");
+        bleConfig.uuidCmdRespCommand = configGetString("uuidCmdRespCommand", "");
+        bleConfig.uuidCmdRespResponse = configGetString("uuidCmdRespResponse", "");
 
         // Check for stdServices (such as Battery, Device Info, etc)
         std::vector<String> stdServices;
         configGetArrayElems("stdServices", stdServices);
-        bool batteryService = false;
-        bool deviceInfoService = false;
-        bool heartRate = false;
+        bleConfig.batteryService = false;
+        bleConfig.deviceInfoService = false;
+        bleConfig.heartRateService = false;
         for (auto it = stdServices.begin(); it != stdServices.end(); ++it)
         {
             if ((*it).equalsIgnoreCase("battery"))
-                batteryService = true;
+                bleConfig.batteryService = true;
             else if ((*it).equalsIgnoreCase("devInfo"))
-                deviceInfoService = true;
+                bleConfig.deviceInfoService = true;
             else if ((*it).equalsIgnoreCase("heartRate"))
-                heartRate = true;
+                bleConfig.heartRateService = true;
         }
 
         // Setup BLE GAP
-        bool isOk = _gapServer.setup(getCommsCore(),
-                    maxPacketLength, outboundQueueSize, 
-                    useTaskForSending, taskCore, taskPriority, taskStackSize,
-                    sendUsingIndication, advertisingIntervalMs,
-                    uuidCmdRespService, uuidCmdRespCommand, uuidCmdRespResponse,
-                    batteryService, deviceInfoService, heartRate);
+        bool isOk = _gapServer.setup(getCommsCore(), bleConfig);
 
         // Log level
         String nimbleLogLevel = configGetString("nimLogLev", "");
         setModuleLogLevel("NimBLE", nimbleLogLevel);
 
         // Debug
-        if (useTaskForSending)
+        if (bleConfig.useTaskForSending)
         {
             LOG_I(MODULE_PREFIX, "setup maxPktLen %d task %s core %d priority %d stack %d outQSlots %d minMsBetweenSends %d advIntervalMs %d",
-                        maxPacketLength,
+                        bleConfig.maxPacketLen,
                         isOk ? "OK" : "FAILED",
-                        taskCore, taskPriority, taskStackSize,
-                        outboundQueueSize,
-                        BLEGattOutbound::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS,
-                        (int)advertisingIntervalMs);
+                        bleConfig.taskCore, bleConfig.taskPriority, bleConfig.taskStackSize,
+                        bleConfig.outboundQueueSize,
+                        bleConfig.minMsBetweenSends,
+                        (int)bleConfig.advertisingIntervalMs);
         }
         else
         {
             LOG_I(MODULE_PREFIX, "setup maxPktLen %d using service loop outQSlots %d minMsBetweenSends %d advIntervalMs %d",
-                        maxPacketLength,
-                        outboundQueueSize,
-                        BLEGattOutbound::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS,
-                        (int)advertisingIntervalMs);
+                        bleConfig.maxPacketLen,
+                        bleConfig.outboundQueueSize,
+                        bleConfig.minMsBetweenSends,
+                        (int)bleConfig.advertisingIntervalMs);
         }
-        if (!uuidCmdRespService.isEmpty())
+        if (!bleConfig.uuidCmdRespService.isEmpty())
         {
             LOG_I(MODULE_PREFIX, "setup uuidCmdRespService %s uuidCmdRespCommand %s uuidCmdRespResponse %s",
-                        uuidCmdRespService.c_str(), uuidCmdRespCommand.c_str(), uuidCmdRespResponse.c_str());
+                        bleConfig.uuidCmdRespService.c_str(), bleConfig.uuidCmdRespCommand.c_str(), bleConfig.uuidCmdRespResponse.c_str());
         }
     }
     else

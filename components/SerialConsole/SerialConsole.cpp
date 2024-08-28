@@ -135,9 +135,6 @@ void SerialConsole::setup()
         vTaskDelay(1);
     }
 
-    // Tell vfs to use the driver
-    uart_vfs_dev_use_driver((uart_port_t)_uartNum);
-
     // Debug
     LOG_I(MODULE_PREFIX, "setup OK enabled %s uartNum %d crlfOnTx %s rxBufLen %d txBufLen %d", 
                 _isEnabled ? "YES" : "NO", _uartNum, _crlfOnTx ? "YES" : "NO",

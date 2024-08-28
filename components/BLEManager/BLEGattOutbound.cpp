@@ -24,7 +24,7 @@
 BLEGattOutbound::BLEGattOutbound(BLEGattServer& gattServer, BLEManStats& bleStats) :
         _gattServer(gattServer),
         _bleStats(bleStats),
-        _outboundQueue(DEFAULT_OUTBOUND_MSG_QUEUE_SIZE)
+        _outboundQueue(BLEConfig::DEFAULT_OUTBOUND_MSG_QUEUE_SIZE)
 {
     _inFlightMutex = xSemaphoreCreateMutex();
 }
@@ -36,21 +36,24 @@ BLEGattOutbound::~BLEGattOutbound()
 }
 
 // Setup
-bool BLEGattOutbound::setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, bool useTaskForSending,
-            UBaseType_t taskCore, BaseType_t taskPriority, int taskStackSize,
-            bool sendUsingIndication)
+bool BLEGattOutbound::setup(const BLEConfig& bleConfig)
 {
     // Max len
-    _maxPacketLen = maxPacketLen;
+    _maxPacketLen = bleConfig.maxPacketLen;
+    _preferredMtuSize = bleConfig.preferredMTUSize;
+    _actualMtuSize = bleConfig.preferredMTUSize;
 
-    // Send using indication
-    _sendUsingIndication = sendUsingIndication;
+    // Send params
+    _sendUsingIndication = bleConfig.sendUsingIndication;
+    _outMsgsInFlightMax = bleConfig.outMsgsInFlightMax;
+    _outMsgsInFlightTimeoutMs = bleConfig.outMsgsInFlightTimeoutMs;
+    _minMsBetweenSends = bleConfig.minMsBetweenSends;
 
     // Setup queue
-    _outboundQueue.setMaxLen(outboundQueueSize);
+    _outboundQueue.setMaxLen(bleConfig.outboundQueueSize);
 
     // Check if a thread should be started for sending
-    if (useTaskForSending)
+    if (bleConfig.useTaskForSending)
     {
         // Start the worker task
         BaseType_t retc = pdPASS;
@@ -61,11 +64,11 @@ bool BLEGattOutbound::setup(uint32_t maxPacketLen, uint32_t outboundQueueSize, b
                             ((BLEGattOutbound*)pArg)->outboundMsgTask();
                         },
                         "BLEOutQ",                              // task name
-                        taskStackSize,                          // stack size of task
+                        bleConfig.taskStackSize,                          // stack size of task
                         this,                                   // parameter passed to task on execute
-                        taskPriority,                           // priority
+                        bleConfig.taskPriority,                           // priority
                         (TaskHandle_t*)&_outboundMsgTaskHandle, // task handle
-                        taskCore);                              // pin task to core N
+                        bleConfig.taskCore);                              // pin task to core N
             if (retc != pdPASS)
             {
                 LOG_W(MODULE_PREFIX, "setup outbound msg task failed");
@@ -159,7 +162,7 @@ bool BLEGattOutbound::handleSendFromOutboundQueue()
         if (_outboundMsgsInFlight > 0)
         {
             // Check for timeout on in flight messages
-            if (Raft::isTimeout(millis(), _outbountMsgInFlightLastMs, BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS))
+            if (Raft::isTimeout(millis(), _outbountMsgInFlightLastMs, _outMsgsInFlightTimeoutMs))
             {
                 // Debug
                 LOG_W(MODULE_PREFIX, "loop outbound msg timeout");
@@ -174,7 +177,7 @@ bool BLEGattOutbound::handleSendFromOutboundQueue()
     // Check time since last send
     if (!_sendUsingIndication)
     {
-        if (!Raft::isTimeout(millis(), _lastOutboundMsgMs, BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS))
+        if (!Raft::isTimeout(millis(), _lastOutboundMsgMs, _minMsBetweenSends))
             return false;
     }
 
@@ -188,7 +191,7 @@ bool BLEGattOutbound::handleSendFromOutboundQueue()
     bool removeFromQueue = true;
     if (bleOutMsg.getBufLen() > _outboundMsgPos)
         toSendLen = bleOutMsg.getBufLen() - _outboundMsgPos;
-    uint32_t maxLen = ((_mtuSize != 0) && (_mtuSize > MTU_SIZE_REDUCTION+1)) ? _mtuSize - MTU_SIZE_REDUCTION : _maxPacketLen;
+    uint32_t maxLen = ((_actualMtuSize != 0) && (_actualMtuSize > MTU_SIZE_REDUCTION+1)) ? _actualMtuSize - MTU_SIZE_REDUCTION : _maxPacketLen;
     if (toSendLen > maxLen)
         toSendLen = maxLen;
     if (bleOutMsg.getBufLen() > _outboundMsgPos + toSendLen)
