@@ -17,7 +17,9 @@
 #include "sdkconfig.h"
 #include "esp_idf_version.h"
 #include "driver/uart.h"
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
 #include "driver/usb_serial_jtag_vfs.h"
+#endif
 
 #ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
 #include "driver/usb_serial_jtag.h"
@@ -71,7 +73,9 @@ void SerialConsole::setup()
     }
 
     // Tell vfs to use the driver
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0) 
     usb_serial_jtag_vfs_use_driver();
+#endif
 
     // Debug
     LOG_I(MODULE_PREFIX, "setup USB JTAG OK enabled %s rxBufLen %d txBufLen %d", 
