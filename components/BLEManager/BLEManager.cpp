@@ -237,7 +237,10 @@ double BLEManager::getNamedValue(const char* valueName, bool& isValid)
     switch(valueName[0])
     {
 #ifdef CONFIG_BT_ENABLED
-        case 'R': { return _gapServer.getRSSI(isValid); }
+        case 'R': 
+        case 'r': { return _gapServer.getRSSI(isValid); }
+        case 'C':
+        case 'c': { isValid = true; return _gapServer.isConnected(); }
 #endif
         default: { isValid = false; return 0; }
     }

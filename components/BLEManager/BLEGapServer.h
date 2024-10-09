@@ -56,6 +56,12 @@ public:
     // Get RSSI
     double getRSSI(bool& isValid);
 
+    // Is connected
+    bool isConnected() const
+    {
+        return _isConnected;
+    }
+
 private:
     // Singleton (used for event callbacks)
     static BLEGapServer* _pThis;
