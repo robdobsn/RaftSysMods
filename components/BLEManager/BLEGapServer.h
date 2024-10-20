@@ -14,6 +14,7 @@
 
 #include "host/ble_uuid.h"
 #endif
+#include "BLEConsts.h"
 #include "BLEManStats.h"
 #include "BLEGattServer.h"
 #include "CommsCoreIF.h"
@@ -162,11 +163,11 @@ private:
     // GATT access callback
     void gattAccessCallback(const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength);
 
-    // Service handling
-    bool serviceRestartIfRequired();
+    // Loop over restart handler
+    bool loopRestartHandler();
 
     // RSSI value
-    void serviceGettingRSSI();
+    void updateRSSICachedValue();
 
     // GAP event helpers
     String getGapEventName(int eventType);
@@ -185,7 +186,6 @@ private:
     static void print_addr(const uint8_t *addr);
     bool nimbleStart();
     bool nimbleStop();
-    uint32_t parkmiller_next(uint32_t seed) const;
     void requestConnInterval();
 
 #else // CONFIG_BT_ENABLED

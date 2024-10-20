@@ -51,52 +51,7 @@ void BLEManager::setup()
     {
         // Settings
         BLEConfig bleConfig;
-        bleConfig.maxPacketLen = configGetLong("maxPktLen", BLEConfig::MAX_BLE_PACKET_LEN_DEFAULT);
-        bleConfig.outboundQueueSize = configGetLong("outQSize", BLEConfig::DEFAULT_OUTBOUND_MSG_QUEUE_SIZE);
-        bleConfig.preferredMTUSize = configGetLong("mtuSize", BLEConfig::PREFERRED_MTU_SIZE);
-
-        // Separate task for sending
-        bleConfig.useTaskForSending = configGetBool("taskEnable", BLEConfig::DEFAULT_USE_TASK_FOR_SENDING);
-        bleConfig.taskCore = configGetLong("taskCore", BLEConfig::DEFAULT_TASK_CORE);
-        bleConfig.taskPriority = configGetLong("taskPriority", BLEConfig::DEFAULT_TASK_PRIORITY);
-        bleConfig.taskStackSize = configGetLong("taskStack", BLEConfig::DEFAULT_TASK_SIZE_BYTES);
-
-        // Send using indication
-        bleConfig.sendUsingIndication = configGetBool("sendUseInd", true);
-        bleConfig.minMsBetweenSends = configGetLong("minMsBetweenSends", BLEConfig::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS);
-        bleConfig.outMsgsInFlightMax = configGetLong("outMsgsInFlightMax", BLEConfig::DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX);
-
-        // LL packet time and length
-        bleConfig.llPacketTimePref = configGetLong("llPacketTimePref", BLEConfig::DEFAULT_LL_PACKET_TIME);
-        bleConfig.llPacketLengthPref = configGetLong("llPacketLengthPref", BLEConfig::DEFAULT_LL_PACKET_LENGTH);
-        
-        // Check if advertising interval is specified (0 if not which sets default)
-        bleConfig.advertisingIntervalMs = configGetLong("advIntervalMs", 0);
-
-        // Connection params
-        bleConfig.connIntervalPreferredMs = configGetLong("connIntvPrefMs", BLEConfig::DEFAULT_CONN_INTERVAL_MS);
-        bleConfig.connLatencyPref = configGetLong("connLatencyPref", BLEConfig::DEFAULT_CONN_LATENCY);
-
-        // Get UUIDs for cmd/resp service
-        bleConfig.uuidCmdRespService = configGetString("uuidCmdRespService", "");
-        bleConfig.uuidCmdRespCommand = configGetString("uuidCmdRespCommand", "");
-        bleConfig.uuidCmdRespResponse = configGetString("uuidCmdRespResponse", "");
-
-        // Check for stdServices (such as Battery, Device Info, etc)
-        std::vector<String> stdServices;
-        configGetArrayElems("stdServices", stdServices);
-        bleConfig.batteryService = false;
-        bleConfig.deviceInfoService = false;
-        bleConfig.heartRateService = false;
-        for (auto it = stdServices.begin(); it != stdServices.end(); ++it)
-        {
-            if ((*it).equalsIgnoreCase("battery"))
-                bleConfig.batteryService = true;
-            else if ((*it).equalsIgnoreCase("devInfo"))
-                bleConfig.deviceInfoService = true;
-            else if ((*it).equalsIgnoreCase("heartRate"))
-                bleConfig.heartRateService = true;
-        }
+        bleConfig.setup(getConfig());
 
         // Setup BLE GAP
         bool isOk = _gapServer.setup(getCommsCore(), bleConfig);

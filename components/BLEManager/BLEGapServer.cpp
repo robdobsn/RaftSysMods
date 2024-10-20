@@ -53,9 +53,9 @@
 BLEGapServer* BLEGapServer::_pThis = nullptr;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Constructor and destructor
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Constructor for BLEGapServer
+/// @param getAdvertisingNameFn function pointer to get the advertising name
+/// @param statusChangeFn function pointer to handle status changes
 BLEGapServer::BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn, 
                 StatusChangeFnType statusChangeFn) :
       _gattServer([this](const char* characteristicName, bool readOp, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg)
@@ -69,14 +69,17 @@ BLEGapServer::BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn,
     _statusChangeFn = statusChangeFn;
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Destructor for BLEGapServer
 BLEGapServer::~BLEGapServer()
 {
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Setup
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Setup BLEGapServer
+/// @param pCommsCoreIF pointer to the CommsCore interface (part of Raft libraries)
+/// @param bleConfig configuration parameters for BLE
+/// @return true if setup was successful
 bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF, const BLEConfig& bleConfig)
 {
     // Settings
@@ -108,9 +111,8 @@ bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF, const BLEConfig& bleConfig)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Teardown
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Tears down the BLEGapServer, stopping advertising and deinitializing NimBLE
+/// This function ensures that BLE services are properly stopped before shutting down the server
 void BLEGapServer::teardown()
 {
     // Check initialised
@@ -143,17 +145,16 @@ void BLEGapServer::teardown()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Services the BLEGapServer by handling advertising, GATT server, and RSSI polling
+/// This method should be called frequently from the main loop task to keep the BLE services running and responsive.
 void BLEGapServer::loop()
 {
     // Check we are initialised
     if (!_isInit)
         return;
 
-    // Service restart if required
-    if (serviceRestartIfRequired())
+    // Loop over restart handler
+    if (loopRestartHandler())
         return;
 
     // Service timed advertising check
@@ -162,8 +163,8 @@ void BLEGapServer::loop()
     // Service GATT server
     _gattServer.loop();
 
-    // Service getting RSSI value
-    serviceGettingRSSI();
+    // Update cached RSSI value
+    updateRSSICachedValue();
 
     // Check connection interval some time after connection
     if (_connIntervalCheckPending && 
@@ -176,9 +177,7 @@ void BLEGapServer::loop()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Restart
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Restart the BLEGapServer (by stopping and restarting the BLE stack)
 void BLEGapServer::restart()
 {
     // Stop advertising
@@ -190,9 +189,8 @@ void BLEGapServer::restart()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Register channel
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Register BLEGapServer as a communication channel with the Raft CommsCore interface
+/// @param commsCoreIF reference to the CommsCore interface
 void BLEGapServer::registerChannel(CommsCoreIF& commsCoreIF)
 {
     // Comms channel
@@ -209,9 +207,9 @@ void BLEGapServer::registerChannel(CommsCoreIF& commsCoreIF)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Get RSSI
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Get the RSSI (Received Signal Strength Indicator) value for the BLE link
+/// @param isValid returns true if the RSSI value is valid
+/// @return The RSSI value in dBm.
 double BLEGapServer::getRSSI(bool& isValid)
 {
     isValid = _isConnected && (_rssi != 0);
@@ -219,9 +217,10 @@ double BLEGapServer::getRSSI(bool& isValid)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Get stats
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Get the status of the BLEGapServer as a JSON string
+/// @param includeBraces if true, the JSON string will be enclosed in braces
+/// @param shortForm if true, the JSON string will be in a short form
+/// @return The status of the BLEGapServer as a JSON string
 String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
 {
     // Status result
@@ -286,9 +285,8 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// onSync callback
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Callback function triggered when the BLE stack synchronization occurs
+/// Validate the device's BLE address and start advertising (if not required)
 void BLEGapServer::onSync()
 {
     if (!_isInit)
@@ -325,12 +323,10 @@ void BLEGapServer::onSync()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// startAdvertising
-// Enables advertising with the following parameters:
-//     o General discoverable mode.
-//     o Undirected connectable mode.
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Start BLE advertising
+/// It uses a general discoverable mode and undirected connectable mode. The advertising interval is
+/// set if specified in the configuration
+/// @return true if advertising started successfully
 bool BLEGapServer::startAdvertising()
 {
     if (!_isInit)
@@ -426,9 +422,7 @@ bool BLEGapServer::startAdvertising()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// stopAdvertising
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Stop BLE advertising
 void BLEGapServer::stopAdvertising()
 {
     if (!_isInit)
@@ -437,23 +431,15 @@ void BLEGapServer::stopAdvertising()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// GAP event
-//
-// The nimble host executes this callback when a GAP event occurs.  The
-// application associates a GAP event callback with each connection that forms.
-// The same callback is used for all connections.
-// 
-// @param event                 The type of event being signalled.
-// @param ctxt                  Various information pertaining to the event.
-// @param arg                   Application-specified argument; unused
-// 
-// @return                      0 if the application successfully handled the
-//                                  event; nonzero on failure.  The semantics
-//                                  of the return code is specific to the
-//                                  particular GAP event being signalled.
-//
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////   
-   
+/// @brief Callback handler for GAP events in the BLE stack
+/// The NimBLE host calls this function when a GAP (Generic Access Profile) event occurs.
+/// It handles various GAP events such as connection, disconnection, advertisement complete,
+/// encryption changes, notification transmission, subscription updates, and others
+/// The same callback is used for all BLE connections
+///
+/// @param event the type of GAP event being signaled, which can include events such as connection,
+///              disconnection, advertisement completion, etc.
+/// @return 0 if the event was handled successfully, or a non-zero value on failure, depending on the event type.
 int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
 {
     int connHandle = -1;
@@ -522,9 +508,11 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// BLE task - runs until nimble_port_stop
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief BLE host task
+/// This function runs the NimBLE host task, which handles the BLE stack's internal processing. 
+/// It runs in a FreeRTOS task context and will not return until `nimble_port_stop()` is executed.
+/// After the task ends, it deinitializes the NimBLE port.
+/// @param param Pointer to a parameter passed to the task (unused in this implementation).
 void BLEGapServer::bleHostTask(void *param)
 {
     // This function will return only when nimble_port_stop() is executed
@@ -536,9 +524,14 @@ void BLEGapServer::bleHostTask(void *param)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Callback for GATT access
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Callback function for GATT characteristic access
+/// This function is called when a GATT read or write operation is performed on a characteristic.
+/// It handles test frames used to determine link performance, and for write operations, it sends
+/// the received message to the communication core interface
+/// @param characteristicName name of the GATT characteristic being accessed
+/// @param readOp true if the operation is a read; false if it is a write
+/// @param payloadbuffer pointer to the buffer containing the data being read or written
+/// @param payloadlength length of the data in the payload buffer
 void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength)
 {
     // Check for test frames (used to determine performance of the link)
@@ -562,7 +555,7 @@ void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readO
         // Check test message valid
         bool isDataOk = true;
         for (uint32_t i = 10; i < payloadlength; i++) {
-            _testPerfPrbsState = parkmiller_next(_testPerfPrbsState);
+            _testPerfPrbsState = Raft::parkMillerNext(_testPerfPrbsState);
             if (payloadbuffer[i] != (_testPerfPrbsState & 0xff)) {
                 isDataOk = false;
             }
@@ -608,9 +601,11 @@ void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readO
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Check ready to send
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Check if the BLE server is ready to send a message
+/// @param channelID identifier of the communication channel
+/// @param msgType type of the message being sent
+/// @param noConn parameter set to true if there is no valid BLE connection, false otherwise
+/// @return true if the BLE server is ready to send a message
 bool BLEGapServer::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn)
 {
     noConn = false;
@@ -623,9 +618,9 @@ bool BLEGapServer::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, b
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Send message over BLE
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Sends a message over BLE
+/// @param msg message to be sent over BLE, encapsulated in a `CommsChannelMsg` object
+/// @return true if the message was successfully sent
 bool BLEGapServer::sendBLEMsg(CommsChannelMsg& msg)
 {
     if (!_isInit)
@@ -634,9 +629,11 @@ bool BLEGapServer::sendBLEMsg(CommsChannelMsg& msg)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Set connection state
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Set the connection state of the BLE server
+/// This function updates the internal state to reflect whether a BLE connection is active and sets the connection handle.
+/// It also updates the GATT server's connection state and notifies any registered status change handlers.
+/// @param isConnected True if the BLE connection is established, false otherwise.
+/// @param connHandle The connection handle associated with the current BLE connection.
 void BLEGapServer::setConnState(bool isConnected, uint16_t connHandle)
 {
 #ifdef USE_TIMED_ADVERTISING_CHECK
@@ -658,9 +655,11 @@ void BLEGapServer::setConnState(bool isConnected, uint16_t connHandle)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Start the BLE stack
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Starts the BLE stack and initializes the NimBLE port
+/// This function starts the NimBLE BLE stack and sets up necessary callbacks for events like reset and synchronization.
+/// It configures the GATT server and starts the FreeRTOS task that runs the NimBLE host.
+/// If an error occurs during initialization, the function returns false.
+/// @return true if the BLE stack was successfully started
 bool BLEGapServer::nimbleStart()
 {
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
@@ -681,7 +680,7 @@ bool BLEGapServer::nimbleStart()
 
     // onReset callback
     ble_hs_cfg.reset_cb = [](int reason) {
-#ifdef WARN_BLE_ON_RESET_EVENT            
+#ifdef WARN_BLE_ON_RESET_EVENT
         LOG_I(MODULE_PREFIX, "onReset() reason=%d", reason);
 #endif
     };
@@ -715,9 +714,7 @@ bool BLEGapServer::nimbleStart()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Stop the BLE stack
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Stop the BLE stack and deinitialize the NimBLE port
 bool BLEGapServer::nimbleStop()
 {
     int ret = nimble_port_stop();
@@ -739,25 +736,11 @@ bool BLEGapServer::nimbleStop()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// PRBS for throughput testing
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-uint32_t BLEGapServer::parkmiller_next(uint32_t seed) const
-{
-    uint32_t hi = 16807 * (seed & 0xffff);
-    uint32_t lo = 16807 * (seed >> 16);
-    lo += (hi & 0x7fff) << 16;
-    lo += hi >> 15;
-    if (lo > 0x7fffffff)
-        lo -= 0x7fffffff;
-    return lo;
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Log information about a connection
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Log detailed information about a BLE connection
+/// @param prefix string prefix for the log message
+/// @param desc pointer to a `ble_gap_conn_desc` structure containing detailed information about the connection
 void BLEGapServer::debugLogConnInfo(const char* prefix, struct ble_gap_conn_desc *desc)
+{
 {
     LOG_I(MODULE_PREFIX, "%shdl=%d Itvl %d Latcy %d Timo %d Enc %d Auth %d Bond %d OurOTA(%d) %s OurID(%d) %s PeerOTA(%d) %s PeerID(%d) %s", 
                     prefix,
@@ -775,9 +758,9 @@ void BLEGapServer::debugLogConnInfo(const char* prefix, struct ble_gap_conn_desc
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Get name of GAP event
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Get the name of a GAP event based on its event type
+/// @param eventType integer value representing the GAP event type
+/// @return string containing the name of the GAP event
 String BLEGapServer::getGapEventName(int eventType)
 {
     switch (eventType)
@@ -806,13 +789,18 @@ String BLEGapServer::getGapEventName(int eventType)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Handle GAP connect event
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Handle a GAP connection event when a new BLE connection is established or a connection attempt fails
+/// This function processes the connection event, updates the connection handle, and sets the connection state.
+/// If the connection is successful, it sets the preferred MTU size and connection parameters. If the connection fails,
+/// it attempts to resume advertising.
+/// @param event GAP event structure containing details about the connection event
+/// @param statusStr string reference that will be updated with the connection status (e.g., "conn-ok" or "conn-fail")
+/// @param connHandle reference to the connection handle that will be updated if the connection is established
+/// @return NIMBLE_RETC_OK if the event was handled successfully, or a NimBLE error code defined in host/ble_hs.h on error
 int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr, int& connHandle)
 {
     // A new connection was established or a connection attempt failed
-    int rc = 0;
+    int rc = NIMBLE_RETC_OK;
     if (event->connect.status == 0)
     {
         // Return values
@@ -821,7 +809,7 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
         
         // Request preferred MTU
         rc = ble_att_set_preferred_mtu(_gattServer.getPreferredMTUSize());
-        if (rc != 0) 
+        if (rc != NIMBLE_RETC_OK) 
         {
             LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to set preferred MTU; rc = %d", rc);
         }
@@ -838,7 +826,7 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
         // Suggested values for read DLE
         uint16_t out_sugg_max_tx_octets = 0, out_sugg_max_tx_time = 0;
         rc = ble_hs_hci_util_read_sugg_def_data_len(&out_sugg_max_tx_octets, &out_sugg_max_tx_time);
-        if (rc != 0)
+        if (rc != NIMBLE_RETC_OK)
         {
             LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn failed to read suggested data len; rc = %d", rc);
         }
@@ -883,9 +871,13 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Handle GAP disconnect event
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Handle GAP disconnection event when a BLE connection is terminated
+/// This function processes the disconnection event, logs the disconnection reason, and sets the connection state to disconnected
+/// It then restarts advertising if appropriate based on configuration.
+/// @param event GAP event structure containing details about the disconnection event, including the reason for disconnection
+/// @param statusStr string reference that will be updated with the disconnection status and reason
+/// @param connHandle reference to the connection handle that will be updated with the handle of the disconnected connection
+/// @return NIMBLE_RETC_OK if the event was handled successfully
 int BLEGapServer::gapEventDisconnect(struct ble_gap_event *event, String& statusStr, int& connHandle)
 {
     // Return values
@@ -901,13 +893,17 @@ int BLEGapServer::gapEventDisconnect(struct ble_gap_event *event, String& status
     // Restart advertising
     startAdvertising();
 #endif
-    return 0;
+    return NIMBLE_RETC_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Handle GAP connection update event
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Handle a GAP connection update event, which occurs when the connection parameters (e.g., interval, latency) are updated.
+/// This function processes the connection update, checks if the new connection interval meets the preferred interval,
+/// and requests a new connection interval if necessary.
+/// @param event GAP event structure containing details about the connection update, including the updated parameters.
+/// @param statusStr string reference that will be updated with the status of the connection update.
+/// @param connHandle reference to the connection handle that will be updated with the handle of the updated connection.
+/// @return NIMBLE_RETC_OK if the event was handled successfully.
 int BLEGapServer::gapEventConnUpdate(struct ble_gap_event *event, String& statusStr, int& connHandle)
 {
     // Status
@@ -916,19 +912,20 @@ int BLEGapServer::gapEventConnUpdate(struct ble_gap_event *event, String& status
     connHandle = event->conn_update.conn_handle;
     struct ble_gap_conn_desc desc;
     int rc = ble_gap_conn_find(event->conn_update.conn_handle, &desc);
-    if ((rc == 0) && _connIntervalCheckPending && (desc.conn_itvl > _connIntervalPrefBLEUnits))
+    if ((rc == NIMBLE_RETC_OK) && _connIntervalCheckPending && (desc.conn_itvl > _connIntervalPrefBLEUnits))
     {
         // Request conn interval we want
         requestConnInterval();
     }
     _connIntervalCheckPending = false;
-    return 0;
+    return NIMBLE_RETC_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Handle GAP repeat pairing event
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Handle a GAP repeat pairing event, which occurs when the peer device attempts to establish a new secure link despite already being paired.
+/// This function handles the repeat pairing request by deleting the old bond with the peer and allowing the new pairing to proceed.
+/// @param event GAP event structure containing details about the repeat pairing event.
+/// @return BLE_GAP_REPEAT_PAIRING_RETRY to indicate that the pairing operation should continue.
 int BLEGapServer::gapEventRepeatPairing(struct ble_gap_event *event)
 {
     // We already have a bond with the peer, but it is attempting to
@@ -944,10 +941,12 @@ int BLEGapServer::gapEventRepeatPairing(struct ble_gap_event *event)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service restart if required
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Check if a restart of the BLE service is required and handles the restart process.
+/// This function checks the current restart state and manages the stopping and restarting of the BLE stack if needed.
+/// It handles timing to ensure that the BLE stack is properly stopped and restarted after a set delay.
+/// @return true if a restart was in progress and handled
+bool BLEGapServer::loopRestartHandler()
 
-bool BLEGapServer::serviceRestartIfRequired()
 {
     // Check if restart in progress
     switch(_bleRestartState)
@@ -977,9 +976,9 @@ bool BLEGapServer::serviceRestartIfRequired()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service timed advertising check
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Periodically check if BLE advertising needs to be restarted if the device is not connected.
+/// This function handles the timed advertising check and ensures that advertising is restarted if it's not already active and the device is not connected.
+/// It is expected to be called on the main task loop and uses a timeout mechanism to periodically perform the check and restart advertising if necessary.
 void BLEGapServer::serviceTimedAdvertisingCheck()
 {
 #ifdef USE_TIMED_ADVERTISING_CHECK
@@ -1027,10 +1026,10 @@ void BLEGapServer::serviceTimedAdvertisingCheck()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Service getting RSSI
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void BLEGapServer::serviceGettingRSSI()
+/// @brief periodically retrieves the RSSI (Received Signal Strength Indicator) value and caches it
+/// It ensures that RSSI is polled at defined intervals to avoid overloading the system with frequent requests.
+/// If the RSSI retrieval fails, the RSSI value is set to 0.
+void BLEGapServer::updateRSSICachedValue()
 {
     // Get RSSI value if connected - not too often as getting RSSI info can take ~2ms
     if (Raft::isTimeout(millis(), _rssiLastMs, RSSI_CHECK_MS))
@@ -1058,9 +1057,8 @@ void BLEGapServer::serviceGettingRSSI()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Request connection interval
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Request update to the BLE connection interval params based on the preferred connection parameters
+/// This function sends a request to update the connection interval, latency, and supervision timeout to the preferred values.
 void BLEGapServer::requestConnInterval()
 {
     struct ble_gap_upd_params params;

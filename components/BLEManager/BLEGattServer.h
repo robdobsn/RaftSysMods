@@ -115,6 +115,9 @@ public:
 
 private:
 
+    // Enabled flag
+    bool _isEnabled = false;
+
     // BLE Config
     BLEConfig _bleConfig;
 

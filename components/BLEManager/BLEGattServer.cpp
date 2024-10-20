@@ -89,6 +89,10 @@ BLEGattServer::~BLEGattServer()
 
 bool BLEGattServer::setup(const BLEConfig& bleConfig)
 {
+    // Check if peripheral role enabled
+    if (!bleConfig.enPeripheral)
+        return false;
+
     // UUIDs
     if (bleConfig.uuidCmdRespService.length() > 0)
     {
@@ -122,7 +126,8 @@ bool BLEGattServer::setup(const BLEConfig& bleConfig)
     _sendUsingIndication = bleConfig.sendUsingIndication;
 
     // Setup outbound handler
-    return _bleOutbound.setup(bleConfig);
+    _isEnabled = _bleOutbound.setup(bleConfig);
+    return _isEnabled;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -131,6 +136,9 @@ bool BLEGattServer::setup(const BLEConfig& bleConfig)
 
 void BLEGattServer::loop()
 {
+    // Check enabled
+    if (!_isEnabled)
+        return;
     // Service outbound queue
     _bleOutbound.loop();
 }
@@ -142,7 +150,7 @@ void BLEGattServer::loop()
 bool BLEGattServer::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn)
 {
     // Check state of gatt server
-    noConn = !isNotificationEnabled();
+    noConn = !_isEnabled || !isNotificationEnabled();
     if (noConn)
         return false;
     return _bleOutbound.isReadyToSend(channelID, msgType, noConn);
@@ -154,6 +162,9 @@ bool BLEGattServer::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, 
 
 bool BLEGattServer::sendMsg(CommsChannelMsg& msg)
 {
+    // Check if enabled
+    if (!_isEnabled)
+        return false;
     return _bleOutbound.sendMsg(msg);
 }
 
@@ -398,6 +409,9 @@ BLEGattServerSendResult BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32
 
 int BLEGattServer::start()
 {
+    // Check enabled
+    if (!_isEnabled)
+        return -1;
     // Characteristics (zero all entries initially, the last entry must remain all zeros)
     mainServiceCharList.resize(3);
     memset(mainServiceCharList.data(), 0, sizeof(struct ble_gatt_chr_def) * mainServiceCharList.size());
@@ -489,6 +503,9 @@ void BLEGattServer::stop()
 
 void BLEGattServer::handleSubscription(struct ble_gap_event * pEvent, String& statusStr)
 {
+    // Check enabled
+    if (!_isEnabled)
+        return;
     if (pEvent->subscribe.attr_handle == _characteristicValueAttribHandle) {
         _responseNotifyState = pEvent->subscribe.cur_notify != 0;
         // debug_test_nofify_reset();
