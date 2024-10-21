@@ -16,15 +16,19 @@
 #include "CommsChannelSettings.h"
 #include "RaftUtils.h"
 #include "ESPUtils.h"
+#include "BLEAdDecode.h"
 
+#undef min
+#undef max
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
-
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
 #include "esp_nimble_hci.h"
 #endif
+#undef min
+#undef max
 
 // Use a separate thread to send over BLE
 // #define USE_SEPARATE_THREAD_FOR_BLE_SENDING
@@ -37,10 +41,12 @@
 #define WARN_ON_BLE_ADVERTISING_START_FAILURE
 #define WARN_ON_ONSYNC_ADDR_ERROR
 #define WARN_BLE_ON_RESET_EVENT
+#define WARN_ON_BLE_ADV_DATA_PARSE_ERROR
 
 // Debug
 // #define DEBUG_BLE_SETUP
 // #define DEBUG_BLE_ADVERTISING
+// #define DEBUG_NIMBLE_START
 // #define DEBUG_BLE_RX_PAYLOAD
 // #define DEBUG_BLE_CONNECT
 // #define DEBUG_BLE_GAP_EVENT
@@ -48,6 +54,9 @@
 // #define DEBUG_BLE_GAP_EVENT_RX_TX
 // #define DEBUG_BLE_PERF_CALC_MIN
 // #define DEBUG_BLE_PERF_CALC_FULL_MAY_AFFECT_MEASUREMENT
+// #define DEBUG_BLE_ON_SYNC
+// #define DEBUG_BLE_SCAN_START_STOP
+// #define DEBUG_BLE_SCAN_EVENT
 
 // Singleton instance
 BLEGapServer* BLEGapServer::_pThis = nullptr;
@@ -83,30 +92,37 @@ BLEGapServer::~BLEGapServer()
 bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF, const BLEConfig& bleConfig)
 {
     // Settings
+    _bleConfig = bleConfig;
     _pCommsCoreIF = pCommsCoreIF;
-    _advertisingIntervalMs = bleConfig.advertisingIntervalMs;
-    _connIntervalPrefBLEUnits = BLEConfig::DEFAULT_CONN_INTERVAL_MS / 1.25;
-    if (bleConfig.connIntervalPreferredMs > 0)
-        _connIntervalPrefBLEUnits = bleConfig.connIntervalPreferredMs / 1.25;
-    _connLatencyPref = bleConfig.connLatencyPref;
-    _supvTimeoutPref10msUnits = bleConfig.supvTimeoutPrefMs / 10;
-    _llPacketTimePref = bleConfig.llPacketTimePref;
-    _llPacketLengthPref = bleConfig.llPacketLengthPref;
 
-    // Setup GATT server
-    _gattServer.setup(bleConfig);
+    // Check if peripheral role enabled
+    if (_bleConfig.enPeripheral)
+    {
+        // GATT server
+        _gattServer.setup(_bleConfig);
+    }
     
     // Start NimBLE if not already started
     if (!_isInit)
     {
         // Start NimBLE
-        if (!nimbleStart())
-            return false;
         _isInit = true;
+        if (!nimbleStart())
+        {
+            _isInit = false;
+#ifdef WARN_ON_BLE_INIT_FAILED
+            LOG_W(MODULE_PREFIX, "setup failed to start NimBLE");
+            return false;
+#endif
+        }
     }
 
     // Currently disconnected
     setConnState(false);
+
+#ifdef DEBUG_BLE_SETUP
+        LOG_I(MODULE_PREFIX, "setup OK %s", bleConfig.debugStr().c_str());
+#endif
     return true;
 }
 
@@ -289,36 +305,51 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
 /// Validate the device's BLE address and start advertising (if not required)
 void BLEGapServer::onSync()
 {
+#ifdef DEBUG_BLE_ON_SYNC
+    LOG_I(MODULE_PREFIX, "onSync isInit %d isCentral %d isPeripheral %d", _isInit, _bleConfig.enCentral, _bleConfig.enPeripheral);
+#endif
+
     if (!_isInit)
         return;
 
     // Validate address
     ble_hs_util_ensure_addr(0);
 
-    // Figure out address to use while advertising (no privacy for now)
-    int rc = ble_hs_id_infer_auto(0, &_ownAddrType);
-    if (rc != 0)
+    // Check if peripheral mode is enabled
+    if (_bleConfig.enPeripheral)
     {
+        // Figure out address to use while advertising (no privacy for now)
+        int rc = ble_hs_id_infer_auto(0, &_ownAddrType);
+        if (rc != NIMBLE_RETC_OK)
+        {
 #ifdef WARN_ON_ONSYNC_ADDR_ERROR
-        LOG_W(MODULE_PREFIX, "onSync() error determining address type; rc=%d", rc);
+            LOG_W(MODULE_PREFIX, "onSync() error determining address type; rc=%d", rc);
 #endif
-        return;
+            return;
+        }
+
+        // Debug showing addr
+        uint8_t addrVal[6] = {0};
+        rc = ble_hs_id_copy_addr(_ownAddrType, addrVal, NULL);
+#ifdef DEBUG_BLE_CONNECT
+        LOG_I(MODULE_PREFIX, "onSync() Device Address: %x:%x:%x:%x:%x:%x",
+                addrVal[5], addrVal[4], addrVal[3], addrVal[2], addrVal[1], addrVal[0]);
+#endif
+
+        // Start advertising
+        if (!startAdvertising())
+        {
+#ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
+            LOG_W(MODULE_PREFIX, "onSync started advertising FAILED");
+#endif
+        }
     }
 
-    // Debug showing addr
-    uint8_t addrVal[6] = {0};
-    rc = ble_hs_id_copy_addr(_ownAddrType, addrVal, NULL);
-#ifdef DEBUG_BLE_CONNECT
-    LOG_I(MODULE_PREFIX, "onSync() Device Address: %x:%x:%x:%x:%x:%x",
-              addrVal[5], addrVal[4], addrVal[3], addrVal[2], addrVal[1], addrVal[0]);
-#endif
-
-    // Start advertising
-    if (!startAdvertising())
+    // Check if central mode is enabled
+    if (_bleConfig.enCentral)
     {
-#ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
-        LOG_W(MODULE_PREFIX, "onSync started advertising FAILED");
-#endif
+        // Start scanning
+        startScanning();
     }
 }
 
@@ -360,7 +391,7 @@ bool BLEGapServer::startAdvertising()
 
     // Set the advertising data
     int rc = ble_gap_adv_set_fields(&fields);
-    if (rc != 0)
+    if (rc != NIMBLE_RETC_OK)
     {
         LOG_E(MODULE_PREFIX, "error setting adv fields; rc=%d", rc);
         return false;
@@ -372,7 +403,7 @@ bool BLEGapServer::startAdvertising()
     // Set the advertising name
     if (_getAdvertisingNameFn)
     {
-        if (ble_svc_gap_device_name_set(_getAdvertisingNameFn().c_str()) != 0)
+        if (ble_svc_gap_device_name_set(_getAdvertisingNameFn().c_str()) != NIMBLE_RETC_OK)
         {
             LOG_E(MODULE_PREFIX, "error setting adv name rc=%d", rc);
         }
@@ -384,7 +415,7 @@ bool BLEGapServer::startAdvertising()
     fields.name_len = strnlen(name, BLE_GAP_MAX_ADV_NAME_LEN);
     fields.name_is_complete = 1;
     rc = ble_gap_adv_rsp_set_fields(&fields);
-    if (rc != 0)
+    if (rc != NIMBLE_RETC_OK)
     {
         LOG_E(MODULE_PREFIX, "error setting adv rsp fields; rc=%d", rc);
         return false;
@@ -398,10 +429,10 @@ bool BLEGapServer::startAdvertising()
 
 
     // Check if advertising interval is specified
-    if (_advertisingIntervalMs > 0)
+    if (_bleConfig.advertisingIntervalMs > 0)
     {
         // Set advertising interval
-        uint16_t advIntv = _advertisingIntervalMs / 0.625;
+        uint16_t advIntv = _bleConfig.advertisingIntervalMs / 0.625;
         adv_params.itvl_min = advIntv;
         adv_params.itvl_max = advIntv;
     }
@@ -413,7 +444,7 @@ bool BLEGapServer::startAdvertising()
                                  return ((BLEGapServer*)arg)->nimbleGapEvent(event);
                            }, 
                            this);
-    if (rc != 0)
+    if (rc != NIMBLE_RETC_OK)
     {
         LOG_E(MODULE_PREFIX, "error enabling adv; rc=%d", rc);
         return false;
@@ -480,6 +511,12 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
             break;
         case BLE_GAP_EVENT_REPEAT_PAIRING:
             errorCode = gapEventRepeatPairing(event);
+            break;
+        case BLE_GAP_EVENT_DISC:
+            errorCode = gapEventDisc(event, statusStr);
+            break;
+        case BLE_GAP_EVENT_DISC_COMPLETE:
+            errorCode = gapEventDiscComplete(event, statusStr);
             break;
     }
 
@@ -676,7 +713,14 @@ bool BLEGapServer::nimbleStart()
 
     // Log level for NimBLE module is set in here so if we want to override it
     // we have to do so after this call
-    nimble_port_init();
+    esp_err_t err = nimble_port_init();
+    if (err != ESP_OK)
+    {
+#ifdef WARN_ON_BLE_INIT_FAILED
+        LOG_E(MODULE_PREFIX, "nimbleStart nimble_port_init failed err=%d", err);
+#endif
+        return false;
+    }
 
     // onReset callback
     ble_hs_cfg.reset_cb = [](int reason) {
@@ -687,25 +731,37 @@ bool BLEGapServer::nimbleStart()
 
     // onSync callback
     ble_hs_cfg.sync_cb = onSyncStatic;
-
-    ble_hs_cfg.gatts_register_cb = BLEGattServer::registrationCallbackStatic;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
-    // Not really explained here
-    // https://microchipdeveloper.com/wireless:ble-gap-security
-    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_KEYBOARD_DISP;
-    ble_hs_cfg.sm_sc = 0;
+    // Check if gatt server is to be used (peripheral role)
+    if (_bleConfig.enPeripheral)
+    {
+        // Callback for GATT registration
+        ble_hs_cfg.gatts_register_cb = _bleConfig.enPeripheral ? BLEGattServer::registrationCallbackStatic : nullptr;
 
-    int rc = _gattServer.start();
-    if (rc == 0)
-    {
-        // Set the advertising name
-        if (_getAdvertisingNameFn)
-            rc = ble_svc_gap_device_name_set(_getAdvertisingNameFn().c_str());
-    }
-    else
-    {
-        LOG_W(MODULE_PREFIX, "nimbleStart _gattServer.initServer() failed rc=%d", rc);
+        // Settings to use for pairing
+        ble_hs_cfg.sm_io_cap = _bleConfig.pairingSMIOCap;
+        ble_hs_cfg.sm_sc = _bleConfig.pairingSecureConn;
+
+        // Initialize the GATT server
+        int rc = _gattServer.start();
+        if (rc == 0)
+        {
+            // Set the advertising name
+            int rcAdv = -1;
+            if (_getAdvertisingNameFn)
+                rcAdv = ble_svc_gap_device_name_set(_getAdvertisingNameFn().c_str());
+
+#ifdef DEBUG_NIMBLE_START
+            LOG_I(MODULE_PREFIX, "nimbleStart OK advNameSetOk=%s (%d)", rcAdv == -1 ? "no name specified" : (rcAdv == 0 ? "OK" : "FAILED"), rcAdv);
+#else
+            (void)rcAdv;
+#endif
+        }
+        else
+        {
+            LOG_W(MODULE_PREFIX, "nimbleStart _gattServer.initServer() failed rc=%d", rc);
+        }
     }
 
     // Start the host task
@@ -717,10 +773,11 @@ bool BLEGapServer::nimbleStart()
 /// @brief Stop the BLE stack and deinitialize the NimBLE port
 bool BLEGapServer::nimbleStop()
 {
-    int ret = nimble_port_stop();
-    if (ret != 0)
+
+    esp_err_t err = nimble_port_stop();
+    if (err != ESP_OK)
     {
-        LOG_W(MODULE_PREFIX, "nimbleStop nimble_port_stop() failed ret=%d", ret);
+        LOG_W(MODULE_PREFIX, "nimbleStop nimble_port_stop() failed esp_err=%d", err);
         return false;
     }
     nimble_port_deinit();
@@ -741,7 +798,6 @@ bool BLEGapServer::nimbleStop()
 /// @param desc pointer to a `ble_gap_conn_desc` structure containing detailed information about the connection
 void BLEGapServer::debugLogConnInfo(const char* prefix, struct ble_gap_conn_desc *desc)
 {
-{
     LOG_I(MODULE_PREFIX, "%shdl=%d Itvl %d Latcy %d Timo %d Enc %d Auth %d Bond %d OurOTA(%d) %s OurID(%d) %s PeerOTA(%d) %s PeerID(%d) %s", 
                     prefix,
                     desc->conn_handle, 
@@ -755,6 +811,24 @@ void BLEGapServer::debugLogConnInfo(const char* prefix, struct ble_gap_conn_desc
                     desc->our_id_addr.type, Raft::formatMACAddr(desc->our_id_addr.val, ":").c_str(),
                     desc->peer_ota_addr.type, Raft::formatMACAddr(desc->peer_ota_addr.val, ":").c_str(),
                     desc->peer_id_addr.type, Raft::formatMACAddr(desc->peer_id_addr.val, ":").c_str());
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Debug log discovery event details
+/// @param event pointer to the `ble_gap_event` structure containing the discovery event details
+void BLEGapServer::debugLogDiscEvent(const char* prefix, struct ble_gap_event *event)
+{
+    String hexStr;
+    Raft::getHexStrFromBytes(event->disc.data, event->disc.length_data, hexStr);
+
+    // Log discovery event
+    LOG_I(MODULE_PREFIX, "%saddr %s (type %d) event %s rssi %d data %s",
+                prefix,
+                Raft::formatMACAddr(event->disc.addr.val, ":", true).c_str(),
+                event->disc.addr.type,
+                getGapEventName(event->type).c_str(),
+                event->disc.rssi,
+                hexStr.c_str());
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -821,7 +895,7 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
         // Suggested DLE
-        ble_hs_hci_util_write_sugg_def_data_len(_llPacketLengthPref, _llPacketTimePref);
+        ble_hs_hci_util_write_sugg_def_data_len(_bleConfig.llPacketLengthPref, _bleConfig.llPacketTimePref);
 
         // Suggested values for read DLE
         uint16_t out_sugg_max_tx_octets = 0, out_sugg_max_tx_time = 0;
@@ -837,8 +911,8 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
 #else
         // Old way of setting DLE
         ble_hs_hci_util_set_data_len(event->connect.conn_handle,
-                            _llPacketLengthPref,
-                            _llPacketTimePref);
+                            _bleConfig.llPacketLengthPref,
+                            _bleConfig.llPacketTimePref);
 #endif
         // Conn interval check pending
         _connIntervalCheckPending = true;
@@ -855,16 +929,20 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
         // Not connected
         setConnState(false);
 
-        // Connection failed; resume advertising
-        if (!startAdvertising())
+        // Check if peripheral mode is enabled
+        if (_bleConfig.enPeripheral)
         {
+            // Connection failed; resume advertising
+            if (!startAdvertising())
+            {
 #ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
-            LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn start advertising FAILED");
+                LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn start advertising FAILED");
 #endif
-        }
-        else
-        {
-            LOG_I(MODULE_PREFIX, "GAPEvent conn resumed advertising after connection failure");
+            }
+            else
+            {
+                LOG_I(MODULE_PREFIX, "GAPEvent conn resumed advertising after connection failure");
+            }
         }
     }
     return rc;
@@ -887,12 +965,16 @@ int BLEGapServer::gapEventDisconnect(struct ble_gap_event *event, String& status
     // Connection terminated
     setConnState(false);
 
-    // Note that if USE_TIMED_ADVERTISING_CHECK is defined then
-    // advertising will restart due to check in loop()
+    // Check if we should restart - peripheral mode
+    if (_bleConfig.enPeripheral)
+    {
+        // Note that if USE_TIMED_ADVERTISING_CHECK is defined then
+        // advertising will restart due to check in loop()
 #ifndef USE_TIMED_ADVERTISING_CHECK
-    // Restart advertising
-    startAdvertising();
+        // Restart advertising
+        startAdvertising();
 #endif
+    }
     return NIMBLE_RETC_OK;
 }
 
@@ -912,7 +994,7 @@ int BLEGapServer::gapEventConnUpdate(struct ble_gap_event *event, String& status
     connHandle = event->conn_update.conn_handle;
     struct ble_gap_conn_desc desc;
     int rc = ble_gap_conn_find(event->conn_update.conn_handle, &desc);
-    if ((rc == NIMBLE_RETC_OK) && _connIntervalCheckPending && (desc.conn_itvl > _connIntervalPrefBLEUnits))
+    if ((rc == NIMBLE_RETC_OK) && _connIntervalCheckPending && (desc.conn_itvl != _bleConfig.getConnIntervalPrefBLEUnits()))
     {
         // Request conn interval we want
         requestConnInterval();
@@ -938,6 +1020,56 @@ int BLEGapServer::gapEventRepeatPairing(struct ble_gap_event *event)
     // Return BLE_GAP_REPEAT_PAIRING_RETRY to indicate that the host should
     // continue with the pairing operation.
     return BLE_GAP_REPEAT_PAIRING_RETRY;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Handle a GAP discovery event, which occurs when the BLE stack is actively scanning for devices
+/// This function processes the discovery event and logs the discovery status.
+/// @param event GAP event structure containing details about the discovery event.
+/// @param statusStr string reference that will be updated with the status of the discovery event.
+/// @return NIMBLE_RETC_OK if the event was handled successfully.
+int BLEGapServer::gapEventDisc(struct ble_gap_event *event, String& statusStr)
+{
+    // Parse the advertisement data
+    struct ble_hs_adv_fields fields;
+    int rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
+                                    event->disc.length_data);
+    if (rc != NIMBLE_RETC_OK) {
+#ifdef WARN_ON_BLE_ADV_DATA_PARSE_ERROR
+        LOG_W(MODULE_PREFIX, "gapEventDisc FAILED to parse advertisement data; rc=%d", rc);
+#endif
+        return rc;
+    }
+
+    // Check if BTHome is supported - in which case decode the packet
+    if (_bleConfig.scanBTHome)
+    {
+        BLEAdDecode::decodeAdEvent(event, fields);
+    }
+
+    // Debug
+#ifdef DEBUG_BLE_SCAN_EVENT
+    debugLogDiscEvent("GAPDiscInfo ", event);
+#endif
+
+    // Debug
+    return NIMBLE_RETC_OK;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Handle a GAP discovery complete event, which occurs when the BLE stack has completed a device discovery operation
+/// This function processes the discovery complete event and logs the discovery status.
+/// @param event GAP event structure containing details about the discovery complete event.
+/// @param statusStr string reference that will be updated with the status of the discovery completion.
+/// @return NIMBLE_RETC_OK if the event was handled successfully.
+int BLEGapServer::gapEventDiscComplete(struct ble_gap_event *event, String& statusStr)
+{
+    // Debug
+#ifdef DEBUG_BLE_SCAN_START_STOP
+    LOG_I(MODULE_PREFIX, "gapEventDiscComplete status=%d", event->disc_complete.reason);
+#endif
+
+    return NIMBLE_RETC_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -983,7 +1115,7 @@ void BLEGapServer::serviceTimedAdvertisingCheck()
 {
 #ifdef USE_TIMED_ADVERTISING_CHECK
     // Handle advertising check
-    if ((!_isConnected) && (_advertisingCheckRequired))
+    if (_bleConfig.enPeripheral && (!_isConnected) && (_advertisingCheckRequired))
     {
         if (Raft::isTimeout(millis(), _advertisingCheckMs, ADVERTISING_CHECK_MS))
         {
@@ -1041,12 +1173,12 @@ void BLEGapServer::updateRSSICachedValue()
 #ifdef DEBUG_RSSI_GET_TIME
             uint64_t startUs = micros();
 #endif
-            uint32_t rslt = ble_gap_conn_rssi(_bleGapConnHandle, &_rssi);
+            int rslt = ble_gap_conn_rssi(_bleGapConnHandle, &_rssi);
 #ifdef DEBUG_RSSI_GET_TIME
             uint64_t endUs = micros();
             LOG_I(MODULE_PREFIX, "loop get RSSI %d us", (int)(endUs - startUs));
 #endif
-            if (rslt != 0)
+            if (rslt != NIMBLE_RETC_OK)
             {
                 _rssi = 0;
                 // Debug
@@ -1063,17 +1195,73 @@ void BLEGapServer::requestConnInterval()
 {
     struct ble_gap_upd_params params;
     memset(&params, 0, sizeof(params));
-    params.itvl_min = _connIntervalPrefBLEUnits;
-    params.itvl_max = _connIntervalPrefBLEUnits;
-    params.latency = _connLatencyPref;
-    params.supervision_timeout = _supvTimeoutPref10msUnits;
+    params.itvl_min = _bleConfig.getConnIntervalPrefBLEUnits();
+    params.itvl_max = _bleConfig.getConnIntervalPrefBLEUnits();
+    params.latency = _bleConfig.connLatencyPref;
+    params.supervision_timeout = _bleConfig.supvTimeoutPrefMs / 10;
     params.min_ce_len = 0x0001;
     params.max_ce_len = 0x0001;
     int rc = ble_gap_update_params(_bleGapConnHandle, &params);
-    if (rc != 0)
+    if (rc != NIMBLE_RETC_OK)
     {
         LOG_W(MODULE_PREFIX, "requestConnInterval FAILED rc = %d", rc);
     }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Start BLE scanning
+/// This function starts BLE scanning in the central role to discover nearby BLE devices.
+/// It uses the general discovery mode and sets the scanning interval and window to the specified values.
+/// @return true if scanning was started successfully
+bool BLEGapServer::startScanning()
+{
+    // TODO - REMOVE
+    LOG_I(MODULE_PREFIX, "startScanning");
+
+    if (!_isInit)
+        return false;
+
+    // Check if already scanning
+    if (ble_gap_disc_active())
+    {
+#ifdef DEBUG_BLE_SCAN_START_STOP
+        LOG_I(MODULE_PREFIX, "startScanning - already scanning");
+#endif
+        return true;
+    }
+
+    // Set scanning parameters
+    struct ble_gap_disc_params disc_params;
+    memset(&disc_params, 0, sizeof disc_params);
+    disc_params.passive = _bleConfig.scanPassive;
+    disc_params.itvl = _bleConfig.scanningIntervalMs / 0.625;
+    disc_params.window = _bleConfig.scanningWindowMs / 0.625;
+    disc_params.filter_duplicates = _bleConfig.scanNoDuplicates;
+
+    // Check how long to scan for
+    uint32_t scanForMs = ((uint32_t)_bleConfig.scanForSecs) * 1000;
+    if (scanForMs == 0)
+    {
+        // Scan indefinitely
+        scanForMs = INT32_MAX;
+    }
+
+    // Start scanning
+    int rc = ble_gap_disc(_ownAddrType, scanForMs, &disc_params,
+                          [](struct ble_gap_event *event, void *arg) {
+                                return ((BLEGapServer*)arg)->nimbleGapEvent(event);
+                          },
+                          this);
+    if (rc != NIMBLE_RETC_OK)
+    {
+        LOG_E(MODULE_PREFIX, "startScanning FAILED enabling scan; rc=%d", rc);
+        return false;
+    }
+
+#ifdef DEBUG_BLE_SCAN_START_STOP
+    LOG_I(MODULE_PREFIX, "startScanning - started OK");
+#endif
+    return true;
 }
 
 #endif // CONFIG_BT_ENABLED

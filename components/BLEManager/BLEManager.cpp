@@ -51,7 +51,7 @@ void BLEManager::setup()
     {
         // Settings
         BLEConfig bleConfig;
-        bleConfig.setup(getConfig());
+        bleConfig.setup(modConfig());
 
         // Setup BLE GAP
         bool isOk = _gapServer.setup(getCommsCore(), bleConfig);

@@ -10,7 +10,11 @@
 
 #include "sdkconfig.h"
 #ifdef CONFIG_BT_ENABLED
+#undef min
+#undef max
 #include "host/ble_hs.h"
+#undef min
+#undef max
 #endif
 
 #define NIMBLE_RETC_OK 0

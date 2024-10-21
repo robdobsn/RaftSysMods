@@ -11,8 +11,11 @@
 
 #include "sdkconfig.h"
 #ifdef CONFIG_BT_ENABLED
-
+#undef min
+#undef max
 #include "host/ble_uuid.h"
+#undef min
+#undef max
 #endif
 #include "BLEConsts.h"
 #include "BLEManStats.h"
@@ -32,32 +35,57 @@ public:
 
 #ifdef CONFIG_BT_ENABLED
 
-    // Constructor
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Constructor for BLEGapServer
+    /// @param getAdvertisingNameFn function pointer to get the advertising name
+    /// @param statusChangeFn function pointer to handle status changes
     BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn, 
                 StatusChangeFnType statusChangeFn);
+    
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Destructor for BLEGapServer
     virtual ~BLEGapServer();
 
-    // Setup
-    // passing 0 for advertisingIntervalMs will use the default
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Setup BLEGapServer
+    /// @param pCommsCoreIF pointer to the CommsCore interface (part of Raft libraries)
+    /// @param bleConfig configuration parameters for BLE
+    /// @return true if setup was successful
     bool setup(CommsCoreIF* pCommsCoreIF, const BLEConfig& bleConfig);
+    
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Tears down the BLEGapServer, stopping advertising and deinitializing NimBLE
     void teardown();
 
-    // Service
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Services the BLEGapServer by handling advertising, GATT server, and RSSI polling
     void loop();
 
-    // Get status JSON
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Get the status of the BLEGapServer as a JSON string
+    /// @param includeBraces if true, the JSON string will be enclosed in braces
+    /// @param shortForm if true, the JSON string will be in a short form
+    /// @return The status of the BLEGapServer as a JSON string
     String getStatusJSON(bool includeBraces, bool shortForm) const;
 
-    // Restart
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Restart the BLEGapServer (by stopping and restarting the BLE stack)
     void restart();
 
-    // Get max packet len
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Register BLEGapServer as a communication channel with the Raft CommsCore interface
+    /// @param commsCoreIF reference to the CommsCore interface
     void registerChannel(CommsCoreIF& commsCoreIF);
 
-    // Get RSSI
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Get the RSSI (Received Signal Strength Indicator) value for the BLE link
+    /// @param isValid returns true if the RSSI value is valid
+    /// @return The RSSI value in dBm.
     double getRSSI(bool& isValid);
 
-    // Is connected
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Check if the BLE server is connected
+    /// @return true if the BLE server is connected
     bool isConnected() const
     {
         return _isConnected;
@@ -70,6 +98,9 @@ private:
     // Comms core interface
     CommsCoreIF* _pCommsCoreIF = nullptr;
 
+    // Config
+    BLEConfig _bleConfig;
+
     // BLE device initialised
     bool _isInit = false;
 
@@ -80,18 +111,13 @@ private:
     // Status change function
     StatusChangeFnType _statusChangeFn = nullptr;
     
-    // Addr type - this is discovered using ble_hs_id_infer_auto() and somehow
-    // relates to bonding
+    // Addr type - this is filled in when the BLE stack is synchronised
+    // Possible types are:
+    // BLE_OWN_ADDR_PUBLIC - Public address (48 bit like a MAC address and unique to each device)
+    // BLE_OWN_ADDR_RANDOM - Random address for privacy (48 bit but stays the same across connections)
+    // BLE_OWN_ADDR_RPA_RANDOM_DEFAULT - Random address for privacy (48 bit but changes regularly)
+    // BLE_OWN_ADDR_RPA_PUBLIC_DEFAULT - Public address (48 bit like a MAC address and unique to each device)
     uint8_t _ownAddrType = 0;
-
-    // Preferred connection params
-    uint16_t _llPacketTimePref = BLEConfig::DEFAULT_LL_PACKET_TIME;
-    uint16_t _llPacketLengthPref = BLEConfig::DEFAULT_LL_PACKET_LENGTH;
-
-    // Connection parameters
-    uint16_t _connIntervalPrefBLEUnits = BLEConfig::DEFAULT_CONN_INTERVAL_MS / 1.25;
-    uint16_t _connLatencyPref = BLEConfig::DEFAULT_CONN_LATENCY;
-    uint16_t _supvTimeoutPref10msUnits = BLEConfig::PREF_SUPERVISORY_TIMEOUT_MS / 10;
 
     // Gatt server
     BLEGattServer _gattServer;
@@ -103,13 +129,10 @@ private:
     bool _isConnected = false;
     uint16_t _bleGapConnHandle = 0;
 
-    // RSSI - updated regularly
+    // Cached RSSI value - updated regularly in loop()
     int8_t _rssi = 0;
     uint32_t _rssiLastMs = 0;
     static const uint32_t RSSI_CHECK_MS = 2000;
-
-    // Advertising
-    uint32_t _advertisingIntervalMs = 0;
 
     // Stats
     BLEManStats _bleStats;
@@ -143,39 +166,103 @@ private:
     uint32_t _connIntervalCheckPendingStartMs = 0;
     static const uint32_t CONN_INTERVAL_CHECK_MS = 200;
 
-    // Advertising
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Start BLE advertising
+    /// @return true if advertising started successfully
     bool startAdvertising();
-    void stopAdvertising();
-    void serviceTimedAdvertisingCheck();
     
-    // Callbacks
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Stop BLE advertising
+    void stopAdvertising();
+    
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Periodically check if BLE advertising needs to be restarted
+    void serviceTimedAdvertisingCheck();
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Start BLE scanning
+    /// @return true if scanning was started successfully
+    bool startScanning();
+    
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Callback function triggered when the BLE stack synchronization occurs
     static void onSyncStatic()
     {
         if (_pThis)
             _pThis->onSync();
     }
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Callback function triggered when the BLE stack synchronization occurs
     void onSync();
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Callback handler for GAP events in the BLE stack
+    /// @param event the type of GAP event being signaled
+    /// @return 0 if the event was handled successfully, or a non-zero value on failure
     int nimbleGapEvent(struct ble_gap_event *event);
 
-    // Set connection state
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Set the connection state of the BLE server
+    /// @param isConnected True if the BLE connection is established, false otherwise.
+    /// @param connHandle The connection handle associated with the current BLE connection.
     void setConnState(bool isConnected, uint16_t connHandle = 0);
 
-    // GATT access callback
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Callback function for GATT characteristic access
+    /// @param characteristicName name of the GATT characteristic being accessed
+    /// @param readOp true if the operation is a read; false if it is a write
+    /// @param payloadbuffer pointer to the buffer containing the data being read or written
+    /// @param payloadlength length of the data in the payload buffer
     void gattAccessCallback(const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength);
 
-    // Loop over restart handler
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Check if a restart of the BLE service is required and handles the restart process.
+    /// @return true if a restart was in progress and handled
     bool loopRestartHandler();
 
-    // RSSI value
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Periodically retrieves the RSSI (Received Signal Strength Indicator) value and caches it
     void updateRSSICachedValue();
 
-    // GAP event helpers
-    String getGapEventName(int eventType);
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Get the name of a GAP event based on its event type
+    /// @param eventType integer value representing the GAP event type
+    /// @return string containing the name of the GAP event
+    static String getGapEventName(int eventType);
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Handle a GAP connection event
     int gapEventConnect(struct ble_gap_event *event, String& statusStr, int& connHandle);
+    
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Handle a GAP disconnection event
     int gapEventDisconnect(struct ble_gap_event *event, String& statusStr, int& connHandle);
+    
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Handle a GAP connection update event
     int gapEventConnUpdate(struct ble_gap_event *event, String& statusStr, int& connHandle);
+    
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Handle a GAP repeat pairing event
     int gapEventRepeatPairing(struct ble_gap_event *event);
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Handle a GAP discovery event
+    int gapEventDisc(struct ble_gap_event *event, String& statusStr);
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Handle a GAP discovery complete event
+    int gapEventDiscComplete(struct ble_gap_event *event, String& statusStr);
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Log detailed information about a BLE connection
     static void debugLogConnInfo(const char* prefix, struct ble_gap_conn_desc *desc);
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Debug log discovery event details
+    /// @param event pointer to the `ble_gap_event` structure containing the discovery event details
+    static void debugLogDiscEvent(const char* prefix, struct ble_gap_event *event);
 
     // Message sending
     bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);

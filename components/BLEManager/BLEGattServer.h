@@ -10,6 +10,7 @@
 #pragma once
 
 #include "sdkconfig.h"
+#include "BLEConsts.h"
 #include "BLEConfig.h"
 #ifdef CONFIG_BT_ENABLED
 

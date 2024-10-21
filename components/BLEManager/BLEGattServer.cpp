@@ -89,10 +89,6 @@ BLEGattServer::~BLEGattServer()
 
 bool BLEGattServer::setup(const BLEConfig& bleConfig)
 {
-    // Check if peripheral role enabled
-    if (!bleConfig.enPeripheral)
-        return false;
-
     // UUIDs
     if (bleConfig.uuidCmdRespService.length() > 0)
     {
@@ -469,12 +465,12 @@ int BLEGattServer::start()
 
     // Prepare for services to be added
     int rc = ble_gatts_count_cfg(servicesList.data());
-    if (rc != 0)
+    if (rc != NIMBLE_RETC_OK)
         return rc;
 
     // Add services
     rc = ble_gatts_add_svcs(servicesList.data());
-    if (rc != 0)
+    if (rc != NIMBLE_RETC_OK)
         return rc;
 
     // Register 
@@ -484,7 +480,7 @@ int BLEGattServer::start()
     gpio_set_direction(LED_OUTPUT_TEST, GPIO_MODE_OUTPUT);
 #endif
 
-    return 0;
+    return NIMBLE_RETC_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
