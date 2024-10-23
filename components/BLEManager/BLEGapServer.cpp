@@ -16,7 +16,8 @@
 #include "CommsChannelSettings.h"
 #include "RaftUtils.h"
 #include "ESPUtils.h"
-#include "BLEAdDecode.h"
+#include "BLEAdvertDecoder.h"
+#include "RaftBusSystem.h"
 
 #undef min
 #undef max
@@ -67,11 +68,12 @@ BLEGapServer* BLEGapServer::_pThis = nullptr;
 /// @param statusChangeFn function pointer to handle status changes
 BLEGapServer::BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn, 
                 StatusChangeFnType statusChangeFn) :
-      _gattServer([this](const char* characteristicName, bool readOp, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg)
+        _gattServer([this](const char* characteristicName, bool readOp, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg)
                     {
                         return gattAccessCallback(characteristicName, readOp, rxMsg.data(), rxMsg.size());
                     },
-                    _bleStats)
+                    _bleStats),
+        _bleAdvertDecoder()
 {
     _pThis = this;
     _getAdvertisingNameFn = getAdvertisingNameFn;
@@ -513,7 +515,7 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
             errorCode = gapEventRepeatPairing(event);
             break;
         case BLE_GAP_EVENT_DISC:
-            errorCode = gapEventDisc(event, statusStr);
+            errorCode = gapEventDiscovery(event, statusStr);
             break;
         case BLE_GAP_EVENT_DISC_COMPLETE:
             errorCode = gapEventDiscComplete(event, statusStr);
@@ -1028,7 +1030,7 @@ int BLEGapServer::gapEventRepeatPairing(struct ble_gap_event *event)
 /// @param event GAP event structure containing details about the discovery event.
 /// @param statusStr string reference that will be updated with the status of the discovery event.
 /// @return NIMBLE_RETC_OK if the event was handled successfully.
-int BLEGapServer::gapEventDisc(struct ble_gap_event *event, String& statusStr)
+int BLEGapServer::gapEventDiscovery(struct ble_gap_event *event, String& statusStr)
 {
     // Parse the advertisement data
     struct ble_hs_adv_fields fields;
@@ -1036,15 +1038,28 @@ int BLEGapServer::gapEventDisc(struct ble_gap_event *event, String& statusStr)
                                     event->disc.length_data);
     if (rc != NIMBLE_RETC_OK) {
 #ifdef WARN_ON_BLE_ADV_DATA_PARSE_ERROR
-        LOG_W(MODULE_PREFIX, "gapEventDisc FAILED to parse advertisement data; rc=%d", rc);
+        LOG_W(MODULE_PREFIX, "gapEventDiscovery FAILED to parse advertisement data; rc=%d", rc);
 #endif
         return rc;
     }
 
-    // Check if BTHome is supported - in which case decode the packet
+    // Check if BTHome is enabled - in which case decode the packet
     if (_bleConfig.scanBTHome)
     {
-        BLEAdDecode::decodeAdEvent(event, fields);
+        // Check if bus already identified
+        if (!_pBusDevicesIF)
+        {
+            // Check if a bus is specified to disseminate data through
+            if (_bleConfig.busConnName.length() > 0)
+            {
+                // Get the bus
+                RaftBus* pBus = raftBusSystem.getBusByName(_bleConfig.busConnName);
+                _pBusDevicesIF = pBus ? pBus->getBusDevicesIF() : nullptr;
+            }
+        }
+
+        // Decode the packet
+        _bleAdvertDecoder.decodeAdEvent(event, fields, _pBusDevicesIF);
     }
 
     // Debug

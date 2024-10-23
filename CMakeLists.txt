@@ -4,11 +4,13 @@ idf_component_register(
   NAME
     "RaftSysMods"
   SRCS
+    "components/BLEManager/BLEAdvertDecoder.cpp"
+    "components/BLEManager/BLEBusDeviceManager.cpp"
     "components/BLEManager/BLEGapServer.cpp"
     "components/BLEManager/BLEGattOutbound.cpp"
     "components/BLEManager/BLEGattServer.cpp"
     "components/BLEManager/BLEManager.cpp"
-    "components/BLEManager/BLEAdDecode.cpp"
+    "components/BLEManager/BusBLE.cpp"
     "components/CommandFile/CommandFile.cpp"
     "components/CommandSerial/CommandSerial.cpp"
     "components/CommandSerial/CommandSerialPort.cpp"

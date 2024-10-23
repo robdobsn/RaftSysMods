@@ -70,6 +70,9 @@ public:
         pairingSMIOCap = config.getLong("pairIO", 3);
         pairingSecureConn = config.getBool("pairSecureConn", false);
 
+        // Bus connection name - for central role to dissemninate data
+        busConnName = config.getString("busConnName", "");
+
         // Get UUIDs for cmd/resp service
         uuidCmdRespService = config.getString("uuidCmdRespService", "");
         uuidCmdRespCommand = config.getString("uuidCmdRespCommand", "");
@@ -129,6 +132,7 @@ public:
                     " llPktTPref:" + String(llPacketTimePref) + 
                     " llPktLPref:" + String(llPacketLengthPref) + 
                     " supvTOMs:" + String(supvTimeoutPrefMs) +
+                    " busConnName:\"" + busConnName + String("\"") +
                     " uuidCmdRspSvc:" + uuidCmdRespService +
                     " uuidCmdRspCmd:" + uuidCmdRespCommand +
                     " uuidCmdRspResp:" + uuidCmdRespResponse +
@@ -181,7 +185,6 @@ public:
     bool pairingSecureConn:1 = false;
     uint8_t pairingSMIOCap = 3;
 
-
     // Connection params
     uint16_t maxPacketLen = MAX_BLE_PACKET_LEN_DEFAULT;
     uint16_t preferredMTUSize = PREFERRED_MTU_SIZE;
@@ -198,6 +201,9 @@ public:
     uint16_t scanningIntervalMs = DEFAULT_SCAN_INTERVAL_MS;
     uint16_t scanningWindowMs = DEFAULT_SCAN_WINDOW_MS;
     int32_t scanForSecs = 0;
+
+    // Bus connection name
+    String busConnName;
 
     // UUIDs
     String uuidCmdRespService;

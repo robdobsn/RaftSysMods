@@ -22,6 +22,7 @@
 #include "BLEGattServer.h"
 #include "CommsCoreIF.h"
 #include "BLEConfig.h"
+#include "BLEAdvertDecoder.h"
 
 #define USE_TIMED_ADVERTISING_CHECK 1
 
@@ -121,6 +122,12 @@ private:
 
     // Gatt server
     BLEGattServer _gattServer;
+
+    // BLE advertisement decoder
+    BLEAdvertDecoder _bleAdvertDecoder;
+
+    // BLE Bus device manager
+    RaftBusDevicesIF* _pBusDevicesIF = nullptr;
 
     // ChannelID used to identify this message channel to the CommsCoreIF
     uint32_t _commsChannelID = CommsCoreIF::CHANNEL_ID_UNDEFINED;
@@ -249,7 +256,7 @@ private:
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Handle a GAP discovery event
-    int gapEventDisc(struct ble_gap_event *event, String& statusStr);
+    int gapEventDiscovery(struct ble_gap_event *event, String& statusStr);
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Handle a GAP discovery complete event
@@ -263,6 +270,16 @@ private:
     /// @brief Debug log discovery event details
     /// @param event pointer to the `ble_gap_event` structure containing the discovery event details
     static void debugLogDiscEvent(const char* prefix, struct ble_gap_event *event);
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Convert BLE address to a BusELemAddrType
+    /// @param bleAddr BLE address
+    /// @return BusElemAddrType
+    BusElemAddrType convertToBusAddr(ble_addr_t bleAddr)
+    {
+        return ((bleAddr.val[5] ^ bleAddr.val[4] ^ bleAddr.val[3]) << 24) | 
+            (bleAddr.val[2] << 16) | (bleAddr.val[1] << 8) | bleAddr.val[0];
+    }
 
     // Message sending
     bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
