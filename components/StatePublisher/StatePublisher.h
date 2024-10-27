@@ -109,7 +109,7 @@ private:
     class PubRec
     {
     public:
-        String _name;
+        String _recordName;
         TriggerType_t _trigger = TRIGGER_ON_TIME_INTERVALS;
         String _msgIDStr;
         SysMod_publishMsgGenFn _msgGenFn = nullptr;

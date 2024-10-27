@@ -80,7 +80,7 @@ void StatePublisher::setup()
         PubRec pubRec;
 
         // Get settings
-        pubRec._name = pubInfo.getString("name", "");
+        pubRec._recordName = pubInfo.getString("name", "");
         pubRec._trigger = TRIGGER_NONE;
         String triggerStr = pubInfo.getString("trigger", "");
         triggerStr.toLowerCase();
@@ -511,7 +511,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
             for (PubRec& pubRec : _publicationRecs)
             {
                 // Check name
-                if (!pubRec._name.equals(pubRecName))
+                if (!pubRec._recordName.equals(pubRecName))
                     continue;
 
                 // Update interface-rate record (if there is one)
