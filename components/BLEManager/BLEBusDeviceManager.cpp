@@ -12,9 +12,12 @@
 #include "DeviceStatus.h"
 #include "Logger.h"
 
-// #define DEBUG_DEVICE_IDENT_MGR
-// #define DEBUG_DEVICE_IDENT_MGR_DETAIL
-// #define DEBUG_HANDLE_BUS_DEVICE_INFO
+// #define DEBUG_GET_DEVICE_ADDRESSES
+// #define DEBUG_GET_DEVICE_DATA_JSON
+// #define DEBUG_GET_DEVICE_DATA_TIMESTAMP
+// #define DEBUG_HANDLE_POLL_RESULT
+// #define DEBUG_GET_DEVICE_STATE_BY_ADDR
+// #define DEBUG_GET_DEVICE_JSON_BY_ADDR
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief BLE Bus Device Manager
@@ -61,6 +64,15 @@ void BLEBusDeviceManager::getDeviceAddresses(std::vector<BusElemAddrType>& addre
 
     // Return semaphore
     xSemaphoreGive(_accessMutex);
+
+#ifdef DEBUG_GET_DEVICE_ADDRESSES
+    String logStr;
+    for (BusElemAddrType addr : addresses)
+    {
+        logStr += String(addr) + " ";
+    }
+    LOG_I(MODULE_PREFIX, "getDeviceAddresses %s", logStr.c_str());
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -95,6 +107,13 @@ String BLEBusDeviceManager::getQueuedDeviceDataJson() const
 
     // Return semaphore
     xSemaphoreGive(_accessMutex);
+
+    // Debug
+#ifdef DEBUG_GET_DEVICE_DATA_JSON
+    LOG_I(MODULE_PREFIX, "getQueuedDeviceDataJson %s", (jsonStr + "}").c_str());
+#endif
+
+    // Return JSON
     return jsonStr.length() == 0 ? "{}" : jsonStr + "}";
 }
 
@@ -108,6 +127,10 @@ uint32_t BLEBusDeviceManager::getDeviceInfoTimestampMs(bool includeElemOnlineSta
     // Check if any updates required
     if (!includeDeviceDataUpdates)
         return 0;
+
+#ifdef DEBUG_GET_DEVICE_DATA_TIMESTAMP
+    LOG_I(MODULE_PREFIX, "getDeviceInfoTimestampMs %d", _deviceDataLastSetMs);
+#endif
 
     // Return time of last set
     return _deviceDataLastSetMs;
@@ -168,6 +191,17 @@ bool BLEBusDeviceManager::handlePollResult(uint64_t timeNowUs, BusElemAddrType a
 
     // Return semaphore
     xSemaphoreGive(_accessMutex);
+
+    // Debug
+#ifdef DEBUG_HANDLE_POLL_RESULT
+    String pollResultStr;
+    Raft::getHexStrFromBytes(pollResultData.data(), pollResultData.size(), pollResultStr);
+    LOG_I(MODULE_PREFIX, "handlePollResult %04x %s %s", 
+                address, 
+                pollResultStr.c_str(), 
+                storeReqd ? "STORED" : "NOT_STORED");
+#endif
+
     return true;
 }
 
@@ -182,9 +216,18 @@ BLEBusDeviceManager::BLEBusDeviceState* BLEBusDeviceManager::getBLEBusDeviceStat
     {
         if (devState.busElemAddr == busElemAddr)
         {
+#ifdef DEBUG_GET_DEVICE_STATE_BY_ADDR
+            LOG_I(MODULE_PREFIX, "getBLEBusDeviceState found %04x lastSeenTimeMs %dms ago lastDataLen %d", 
+                    busElemAddr, 
+                    Raft::timeElapsed(millis(), devState.lastSeenTimeMs),
+                    devState.lastDataReceived.size());
+#endif
             return &devState;
         }
     }
+#ifdef DEBUG_GET_DEVICE_STATE_BY_ADDR
+    LOG_I(MODULE_PREFIX, "getBLEBusDeviceState not found %04x", busElemAddr);
+#endif
     return nullptr;
 }
 
@@ -200,6 +243,12 @@ String BLEBusDeviceManager::deviceStatusToJson(BusElemAddrType address, bool isO
                 const std::vector<uint8_t>& devicePollResponseData, uint32_t responseSize) const
 {
     // Get the poll response JSON
-    return deviceTypeRecords.deviceStatusToJson(address, isOnline, &_devTypeRec, devicePollResponseData);
+    String devJson = deviceTypeRecords.deviceStatusToJson(address, isOnline, &_devTypeRec, devicePollResponseData);
+
+    // Debug
+#ifdef DEBUG_GET_DEVICE_JSON_BY_ADDR
+    LOG_I(MODULE_PREFIX, "deviceStatusToJson %04x %s %s", address, isOnline ? "ONLINE" : "OFFLINE", devJson.c_str());
+#endif
+    return devJson;
 }
 

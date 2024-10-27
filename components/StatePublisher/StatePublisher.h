@@ -36,7 +36,7 @@ public:
     RaftRetCode apiSubscription(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
     // Receive msg generator callback function
-    virtual bool registerDataSource(const char* msgGenID, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB) override final;
+    virtual bool registerDataSource(const char* pubTopic, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB) override final;
 
 protected:
     // Setup
@@ -66,10 +66,10 @@ private:
     static const uint32_t REDUCED_PUB_RATE_WHEN_BUSY_MS = 1000;
     static const uint32_t MIN_MS_BETWEEN_STATE_CHANGE_PUBLISHES = 100;
 
-    class InterfaceRateRec
+    class PubInterfaceRec
     {
     public:
-        InterfaceRateRec()
+        PubInterfaceRec()
         {
         }
         void setRateHz(double rateHz)
@@ -109,12 +109,12 @@ private:
     class PubRec
     {
     public:
-        String _recordName;
+        // Name used to refer to this publication record in the API
+        String _pubTopic;
         TriggerType_t _trigger = TRIGGER_ON_TIME_INTERVALS;
-        String _msgIDStr;
         SysMod_publishMsgGenFn _msgGenFn = nullptr;
         SysMod_stateDetectCB _stateDetectFn = nullptr;;
-        std::list<InterfaceRateRec> _interfaceRates;
+        std::list<PubInterfaceRec> _interfaceRecs;
         uint32_t _lastHashCheckMs = 0;
 
         // This is used by _stateDetectFn callback for state change
@@ -134,7 +134,7 @@ private:
 
     // Helpers
     void cleanUp();
-    CommsCoreRetCode publishData(PubRec& pubRec, InterfaceRateRec& rateRec);
+    CommsCoreRetCode publishData(PubRec& pubRec, PubInterfaceRec& rateRec);
 
     // Log prefix
     static constexpr const char *MODULE_PREFIX = "StatePub";

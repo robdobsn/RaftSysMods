@@ -20,7 +20,7 @@
 // #define DEBUG_PUBLISHING_MESSAGE
 // #define DEBUG_PUBLISHING_REASON
 // #define DEBUG_PUBLISHING_HASH
-// #define DEBUG_ONLY_THIS_MSG_ID "ScaderOpener"
+// #define DEBUG_ONLY_THIS_TOPIC "ScaderOpener"
 // #define DEBUG_SHOW_ONLY_FIRST_N_BYTES_OF_MSG 16
 // #define DEBUG_API_SUBSCRIPTION
 // #define DEBUG_STATE_PUBLISHER_SETUP
@@ -80,51 +80,49 @@ void StatePublisher::setup()
         PubRec pubRec;
 
         // Get settings
-        pubRec._recordName = pubInfo.getString("name", "");
+        pubRec._pubTopic = pubInfo.getString("topic", pubInfo.getString("name", "").c_str());
         pubRec._trigger = TRIGGER_NONE;
-        String triggerStr = pubInfo.getString("trigger", "");
+        String triggerStr = pubInfo.getString("trigger", "timeorchange");
         triggerStr.toLowerCase();
         if (triggerStr.indexOf("change") >= 0)
         {
             pubRec._trigger = TRIGGER_ON_STATE_CHANGE;
-            if ((triggerStr.indexOf("time") >= 0) || (triggerStr.indexOf("timeorchange") >= 0))
+            if (triggerStr.indexOf("time") >= 0)
                 pubRec._trigger = TRIGGER_ON_TIME_OR_CHANGE;
         }
         if (pubRec._trigger == TRIGGER_NONE)
         {
             pubRec._trigger = TRIGGER_ON_TIME_INTERVALS;
         }
-        RaftJson ratesJson = pubInfo.getString("rates", "");
-        pubRec._msgIDStr = pubInfo.getString("msgID", "");
+        RaftJson interfacesJson = pubInfo.getString("ifs", pubInfo.getString("rates", "").c_str());
 
         // Check for interfaces
-        int numRatesAndInterfaces = 0;
-        if (ratesJson.getType("", numRatesAndInterfaces) == RaftJson::RAFT_JSON_ARRAY)
+        int numInterfaces = 0;
+        if (interfacesJson.getType("", numInterfaces) == RaftJson::RAFT_JSON_ARRAY)
         {
-            // Iterate rates and interfaces
-            for (int rateIdx = 0; rateIdx < numRatesAndInterfaces; rateIdx++)
+            // Iterate interfaces
+            for (int rateIdx = 0; rateIdx < numInterfaces; rateIdx++)
             {
-                // Get the rate and interface info
-                RaftJson rateAndInterfaceInfo = ratesJson.getString(("["+String(rateIdx)+"]").c_str(), "{}");
-                String interface = rateAndInterfaceInfo.getString("if", "");
-                String protocol = rateAndInterfaceInfo.getString("protocol", "");
-                double rateHz = rateAndInterfaceInfo.getDouble("rateHz", 1.0);
+                // Get the interface info
+                RaftJson interfaceInfo = interfacesJson.getString(("["+String(rateIdx)+"]").c_str(), "{}");
+                String interface = interfaceInfo.getString("if", "");
+                String protocol = interfaceInfo.getString("protocol", "");
+                double rateHz = interfaceInfo.getDouble("rateHz", 1.0);
 
                 // Add to list
-                InterfaceRateRec ifRateRec;
-                ifRateRec._interface = interface;
-                ifRateRec._protocol = protocol;
-                ifRateRec.setRateHz(rateHz);
-                ifRateRec._lastPublishMs = millis();
-                ifRateRec._isPersistent = true;
-                ifRateRec._isSuppressed = false;
-                pubRec._interfaceRates.push_back(ifRateRec);
+                PubInterfaceRec ifRec;
+                ifRec._interface = interface;
+                ifRec._protocol = protocol;
+                ifRec.setRateHz(rateHz);
+                ifRec._lastPublishMs = millis();
+                ifRec._isPersistent = true;
+                ifRec._isSuppressed = false;
+                pubRec._interfaceRecs.push_back(ifRec);
 
                 // Debug
 #ifdef DEBUG_STATE_PUBLISHER_SETUP
-                LOG_I(MODULE_PREFIX, "setup publishIF %s rateHz %.1f msBetween %d name %s protocol %s msgID %s", interface.c_str(),
-                                rateHz, ifRateRec._betweenPubsMs, pubRec._name.c_str(), ifRateRec._protocol.c_str(), 
-                                pubRec._msgIDStr.c_str());
+                LOG_I(MODULE_PREFIX, "setup publishIF %s rateHz %.1f msBetween %d topic %s protocol %s", interface.c_str(),
+                                rateHz, ifRec._betweenPubsMs, pubRec._pubTopic.c_str(), ifRec._protocol.c_str());
 #endif
             }
 
@@ -178,7 +176,7 @@ void StatePublisher::loop()
                 // Callback function generates a hash in the form of a std::vector<uint8_t>
                 // If this is not identical to previously returned hash then force message generation
                 std::vector<uint8_t> newStateHash;
-                pubRec._stateDetectFn(pubRec._msgIDStr.c_str(), newStateHash);
+                pubRec._stateDetectFn(pubRec._pubTopic.c_str(), newStateHash);
 
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
                 getStateHashUs = micros() - startUs;
@@ -187,17 +185,17 @@ void StatePublisher::loop()
 #endif
 
 #ifdef DEBUG_PUBLISHING_HASH
-#ifdef DEBUG_ONLY_THIS_MSG_ID
-                if (pubRec._msgIDStr.equals(DEBUG_ONLY_THIS_MSG_ID))
+#ifdef DEBUG_ONLY_THIS_TOPIC
+                if (pubRec._pubTopic.equals(DEBUG_ONLY_THIS_TOPIC))
                 {
 #endif
                     String curHashStr;
                     Raft::getHexStrFromBytes(pubRec._stateHash.data(), pubRec._stateHash.size(), curHashStr);
                     String newHashStr;
                     Raft::getHexStrFromBytes(newStateHash.data(), newStateHash.size(), newHashStr);
-                    LOG_I(MODULE_PREFIX, "loop check hash for %s curHash %s newHash %s", 
-                                    pubRec._name.c_str(), curHashStr.c_str(), newHashStr.c_str());
-#ifdef DEBUG_ONLY_THIS_MSG_ID
+                    LOG_I(MODULE_PREFIX, "loop check hash for topic %s curHash %s newHash %s", 
+                                    pubRec._pubTopic.c_str(), curHashStr.c_str(), newHashStr.c_str());
+#ifdef DEBUG_ONLY_THIS_TOPIC
                 }
 #endif
 #endif
@@ -208,14 +206,14 @@ void StatePublisher::loop()
                     publishDueToStateChange = true;
                     pubRec._stateHash = newStateHash;
 #ifdef DEBUG_FORCE_GENERATION_OF_PUBLISH_MSGS
-                    LOG_I(MODULE_PREFIX, "Force generation on state change for %s", pubRec._name.c_str());
+                    LOG_I(MODULE_PREFIX, "Force generation on state change for topic %s", pubRec._pubTopic.c_str());
 #endif
                 }
             }
         }
 
         // And each interface
-        for (InterfaceRateRec& rateRec : pubRec._interfaceRates)
+        for (PubInterfaceRec& rateRec : pubRec._interfaceRecs)
         {
             // Check if interface is suppressed
             if (rateRec._isSuppressed)
@@ -229,15 +227,15 @@ void StatePublisher::loop()
             const char* ifStr = rateRec._interface.length() == 0 ? "<ALL>" : rateRec._interface.c_str();
             if (publishDueToStateChange)
             {
-                LOG_I(MODULE_PREFIX, "loop publish due to state change for %s i/f %s", pubRec._name.c_str(), ifStr);
+                LOG_I(MODULE_PREFIX, "loop publish due to state change for topic %s i/f %s", pubRec._pubTopic.c_str(), ifStr);
             }
             else if (publishTime)
             {
-                LOG_I(MODULE_PREFIX, "loop publish due to timeout for %s i/f %s", pubRec._name.c_str(), ifStr);
+                LOG_I(MODULE_PREFIX, "loop publish due to timeout for topic %s i/f %s", pubRec._pubTopic.c_str(), ifStr);
             }
             else if (rateRec._isPending)
             {
-                LOG_I(MODULE_PREFIX, "loop publish pending for %s i/f %s", pubRec._name.c_str(), ifStr);
+                LOG_I(MODULE_PREFIX, "loop publish pending for topic %s i/f %s", pubRec._pubTopic.c_str(), ifStr);
             }
 #endif
             // Check for publish required
@@ -254,7 +252,7 @@ void StatePublisher::loop()
 
 #ifdef DEBUG_PUBLISHING_HANDLE
                     // Debug
-                    LOG_I(MODULE_PREFIX, "Got channelID %d for name %s i/f %s protocol %s", rateRec._channelID, pubRec._name.c_str(),
+                    LOG_I(MODULE_PREFIX, "Got channelID %d for topic %s i/f %s protocol %s", rateRec._channelID, pubRec._pubTopic.c_str(),
                             rateRec._interface.length() == 0 ? "<ALL>" : rateRec._interface.c_str(), 
                             rateRec._protocol.c_str());
 #endif
@@ -342,16 +340,16 @@ void StatePublisher::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager
 // Register data source (msg generator callback functions)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool StatePublisher::registerDataSource(const char* msgGenID, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB)
+bool StatePublisher::registerDataSource(const char* pubTopic, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB)
 {
-    // Search for publication records using this msgGenID
+    // Search for publication records using this pubTopic
     bool found = false;
     for (PubRec& pubRec : _publicationRecs)
     {   
         // Check ID
-        if (pubRec._msgIDStr.equals(msgGenID))
+        if (pubRec._pubTopic.equals(pubTopic))
         {
-            LOG_I(MODULE_PREFIX, "registerDataSource registered msgGenFn for msgID %s", msgGenID);
+            LOG_I(MODULE_PREFIX, "registerDataSource registered msgGenFn for topic %s", pubTopic);
             pubRec._msgGenFn = msgGenCB;
             pubRec._stateDetectFn = stateDetectCB;
             found = true;
@@ -362,7 +360,7 @@ bool StatePublisher::registerDataSource(const char* msgGenID, SysMod_publishMsgG
     // Not found?
     if (!found)
     {
-        LOG_W(MODULE_PREFIX, "registerDataSource msgGenFn not registered for msgID %s", msgGenID);
+        LOG_W(MODULE_PREFIX, "registerDataSource msgGenFn not registered for topic %s", pubTopic);
     }
     return found;
 }
@@ -371,7 +369,7 @@ bool StatePublisher::registerDataSource(const char* msgGenID, SysMod_publishMsgG
 // Publish data
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-CommsCoreRetCode StatePublisher::publishData(StatePublisher::PubRec& pubRec, InterfaceRateRec& rateRec)
+CommsCoreRetCode StatePublisher::publishData(StatePublisher::PubRec& pubRec, PubInterfaceRec& rateRec)
 {
     // Check comms core
     if (!getCommsCore())
@@ -384,15 +382,15 @@ CommsCoreRetCode StatePublisher::publishData(StatePublisher::PubRec& pubRec, Int
     bool msgOk = false;
     if (pubRec._msgGenFn)
     {
-        msgOk = pubRec._msgGenFn(pubRec._msgIDStr.c_str(), endpointMsg);
+        msgOk = pubRec._msgGenFn(pubRec._pubTopic.c_str(), endpointMsg);
     }
 
 #ifdef DEBUG_PUBLISHING_MESSAGE
-#ifdef DEBUG_ONLY_THIS_MSG_ID
-    if (pubRec._msgIDStr.equals(DEBUG_ONLY_THIS_MSG_ID))
+#ifdef DEBUG_ONLY_THIS_TOPIC
+    if (pubRec._pubTopic.equals(DEBUG_ONLY_THIS_TOPIC))
 #endif
     {
-        LOG_I(MODULE_PREFIX, "MsgGen len %d msgID %s %s", endpointMsg.getBufLen(), pubRec._msgIDStr.c_str(), msgOk ? "msgGenOk" : "msgGenFail");
+        LOG_I(MODULE_PREFIX, "publishData len %d topic %s %s", endpointMsg.getBufLen(), pubRec._pubTopic.c_str(), msgOk ? "msgGenOk" : "msgGenFail");
     }
 #endif
     if (!msgOk)
@@ -401,8 +399,8 @@ CommsCoreRetCode StatePublisher::publishData(StatePublisher::PubRec& pubRec, Int
         return COMMS_CORE_RET_FAIL;
 
 #ifdef DEBUG_PUBLISHING_MESSAGE
-#ifdef DEBUG_ONLY_THIS_MSG_ID
-    if (pubRec._msgIDStr.equals(DEBUG_ONLY_THIS_MSG_ID))
+#ifdef DEBUG_ONLY_THIS_TOPIC
+    if (pubRec._pubTopic.equals(DEBUG_ONLY_THIS_TOPIC))
 #endif
     {
         // Debug
@@ -414,7 +412,7 @@ CommsCoreRetCode StatePublisher::publishData(StatePublisher::PubRec& pubRec, Int
 #else
         Raft::getHexStrFromBytes(endpointMsg.getBuf(), endpointMsg.getBufLen(), outStr);
 #endif
-        LOG_I(MODULE_PREFIX, "sendPublishMsg if %s channelID %d payloadLen %d payload %s", 
+        LOG_I(MODULE_PREFIX, "publishData if %s channelID %d payloadLen %d payload %s", 
                         rateRec._interface.length() == 0 ? "<ALL>" : rateRec._interface.c_str(), 
                         rateRec._channelID, endpointMsg.getBufLen(), outStr.c_str());
     }
@@ -424,12 +422,12 @@ CommsCoreRetCode StatePublisher::publishData(StatePublisher::PubRec& pubRec, Int
     CommsCoreRetCode retc = getCommsCore()->outboundHandleMsg(endpointMsg);
 
 #ifdef DEBUG_PUBLISHING_MESSAGE
-#ifdef DEBUG_ONLY_THIS_MSG_ID
-    if (pubRec._msgIDStr.equals(DEBUG_ONLY_THIS_MSG_ID))
+#ifdef DEBUG_ONLY_THIS_TOPIC
+    if (pubRec._pubTopic.equals(DEBUG_ONLY_THIS_TOPIC))
 #endif
     {
         // Debug
-        LOG_I(MODULE_PREFIX, "sendPublishMsg channelID %d payloadLen %d retc %d", 
+        LOG_I(MODULE_PREFIX, "publishData channelID %d payloadLen %d retc %d", 
                     rateRec._channelID, endpointMsg.getBufLen(), retc);
     }
 #endif
@@ -490,9 +488,9 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
         {
             // That failed so try to see if a single value is present and create an array with
             // a single element if so
-            String pubRecName = jsonParams.getString("name", "");
+            String pubTopic = jsonParams.getString("topic", jsonParams.getString("name", "").c_str());
             double pubRateHz = jsonParams.getDouble("rateHz", 1.0);
-            String pubRec = R"({"name":")" + pubRecName + R"(","rateHz":)" + String(pubRateHz) + R"(})";
+            String pubRec = R"({"topic":")" + pubTopic + R"(","rateHz":)" + String(pubRateHz) + R"(})";
             pubRecsToMod.push_back(pubRec);
         }
 
@@ -501,7 +499,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
         {
             // Get details of changes
             RaftJson pubRecConf = pubRecToMod;
-            String pubRecName = pubRecConf.getString("name", "");
+            String pubTopic = pubRecConf.getString("topic", pubRecConf.getString("name", "").c_str());
             double pubRateHz = pubRecConf.getDouble("rateHz", 1.0);
 
             // Find the existing publication record to update
@@ -511,16 +509,16 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
             for (PubRec& pubRec : _publicationRecs)
             {
                 // Check name
-                if (!pubRec._recordName.equals(pubRecName))
+                if (!pubRec._pubTopic.equals(pubTopic))
                     continue;
 
                 // Update interface-rate record (if there is one)
-                bool interfaceRateFound = false;
-                for (InterfaceRateRec& rateRec : pubRec._interfaceRates)
+                bool interfaceRecFound = false;
+                for (PubInterfaceRec& rateRec : pubRec._interfaceRecs)
                 {
                     if (rateRec._channelID == channelID)
                     {
-                        interfaceRateFound = true;
+                        interfaceRecFound = true;
                         rateRec.setRateHz(pubRateHz);
                         rateRec._isPending = true;
                         rateRec._lastPublishMs = millis();
@@ -539,16 +537,16 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                 }
 
                 // Check we found an existing record
-                if (!interfaceRateFound)
+                if (!interfaceRecFound)
                 {
                     // No record found so create one
-                    InterfaceRateRec ifRateRec;
-                    ifRateRec._channelID = channelID;
-                    ifRateRec.setRateHz(pubRateHz);
-                    ifRateRec._lastPublishMs = millis();
-                    ifRateRec._isPending = true;
-                    ifRateRec._isSuppressed = false;
-                    pubRec._interfaceRates.push_back(ifRateRec);
+                    PubInterfaceRec ifRec;
+                    ifRec._channelID = channelID;
+                    ifRec.setRateHz(pubRateHz);
+                    ifRec._lastPublishMs = millis();
+                    ifRec._isPending = true;
+                    ifRec._isSuppressed = false;
+                    pubRec._interfaceRecs.push_back(ifRec);
 #ifdef DEBUG_API_SUBSCRIPTION
                     LOG_I(MODULE_PREFIX, "apiSubscription created rateRec channelID %d rateHz %.2f", channelID, pubRateHz);
 #endif
