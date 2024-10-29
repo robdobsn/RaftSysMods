@@ -55,9 +55,9 @@ bool BLEAdvertDecoder::decodeAdEvent(struct ble_gap_event *event, struct ble_hs_
     int32_t remainingDataLen = ((int)event->disc.length_data);
 
     // String to accumulate log messages
+#ifdef DEBUG_BLE_ADVERT_DECODER
     String hexStr;
     Raft::getHexStrFromBytes(pData, remainingDataLen, hexStr);
-#ifdef DEBUG_BLE_ADVERT_DECODER
     String logString = "decodeAdEvent " + Raft::formatMACAddr(event->disc.addr.val, ":", true) + " " + hexStr + " ";
 #endif
 

@@ -26,13 +26,13 @@ public:
         serviceSettings = config.getString("settings", "{}");
 
         // Get properties
-        enable = config.getBool("enable", false);
+        enable = config.getBool("enable", true);
         notify = config.getBool("notify", false);
         indicate = config.getBool("indicate", false);
-        read = config.getBool("read", false);
+        read = config.getBool("read", true);
 
         // Timing
-        updateIntervalMs = config.getLong("updateIntervalMs", 0);
+        updateIntervalMs = config.getLong("updateIntervalMs", 1000);
     }
 
     bool enable:1 = false;
