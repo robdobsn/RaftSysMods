@@ -60,7 +60,8 @@ public:
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Services the BLEGapServer by handling advertising, GATT server, and RSSI polling
-    void loop();
+    /// @param pNamedValueProvider pointer to the NamedValueProvider interface
+    void loop(NamedValueProvider* pNamedValueProvider);
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Get the status of the BLEGapServer as a JSON string

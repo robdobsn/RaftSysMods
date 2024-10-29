@@ -165,7 +165,7 @@ void BLEGapServer::teardown()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Services the BLEGapServer by handling advertising, GATT server, and RSSI polling
 /// This method should be called frequently from the main loop task to keep the BLE services running and responsive.
-void BLEGapServer::loop()
+void BLEGapServer::loop(NamedValueProvider* pNamedValueProvider)
 {
     // Check we are initialised
     if (!_isInit)
@@ -179,7 +179,7 @@ void BLEGapServer::loop()
     serviceTimedAdvertisingCheck();
 
     // Service GATT server
-    _gattServer.loop();
+    _gattServer.loop(pNamedValueProvider);
 
     // Update cached RSSI value
     updateRSSICachedValue();
@@ -1230,9 +1230,6 @@ void BLEGapServer::requestConnInterval()
 /// @return true if scanning was started successfully
 bool BLEGapServer::startScanning()
 {
-    // TODO - REMOVE
-    LOG_I(MODULE_PREFIX, "startScanning");
-
     if (!_isInit)
         return false;
 

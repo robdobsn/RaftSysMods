@@ -10,6 +10,7 @@ idf_component_register(
     "components/BLEManager/BLEGattOutbound.cpp"
     "components/BLEManager/BLEGattServer.cpp"
     "components/BLEManager/BLEManager.cpp"
+    "components/BLEManager/BLEStdServices.cpp"
     "components/BLEManager/BusBLE.cpp"
     "components/CommandFile/CommandFile.cpp"
     "components/CommandSerial/CommandSerial.cpp"

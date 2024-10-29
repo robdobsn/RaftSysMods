@@ -12,6 +12,7 @@
 #include "RestAPIEndpointManager.h"
 #include "SysManager.h"
 #include "BLEConfig.h"
+#include "BLEStdServices.h"
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constructor
@@ -49,6 +50,17 @@ void BLEManager::setup()
     // Setup if enabled
     if (_enableBLE)
     {
+        // Set system information (must not be changed after setup)
+        SysManager* pSysManager = getSysManager();
+        if (pSysManager)
+        {
+            BLEStdServices::systemManufacturer = pSysManager->getSystemManufacturer();
+            BLEStdServices::systemModel = pSysManager->getSystemName();
+            BLEStdServices::systemSerialNumber = pSysManager->getSystemSerialNo();
+            BLEStdServices::firmwareVersionNumber = pSysManager->getSystemVersion();
+            BLEStdServices::hardwareRevisionNumber = pSysManager->getBaseSysTypeVersion();
+        }
+
         // Settings
         BLEConfig bleConfig;
         bleConfig.setup(modConfig());
@@ -113,7 +125,7 @@ void BLEManager::loop()
         return;
 
     // Service BLE GAP
-    _gapServer.loop();
+    _gapServer.loop(getSysManager());
 #endif
 }
 

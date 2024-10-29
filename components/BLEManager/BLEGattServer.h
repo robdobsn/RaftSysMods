@@ -12,8 +12,12 @@
 #include "sdkconfig.h"
 #include "BLEConsts.h"
 #include "BLEConfig.h"
+#include "BLEStdServices.h"
+
+// Only compile in this code if BLE is enabled to reduce code size
 #ifdef CONFIG_BT_ENABLED
 
+#include "BLEStdServices.h"
 #include "BLEGattOutbound.h"
 #include "CommsChannelMsg.h"
 #include <vector>
@@ -55,7 +59,7 @@ public:
     bool setup(const BLEConfig& bleConfig);
 
     // Service
-    void loop();
+    void loop(NamedValueProvider* pNamedValueProvider);
 
     // Sending
     bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
@@ -105,7 +109,7 @@ public:
     // Get max packet length
     uint32_t getMaxPacketLen()
     {
-        return _bleConfig.maxPacketLen;
+        return _maxPacketLen;
     }
 
     // Get preferred MTU size
@@ -119,14 +123,14 @@ private:
     // Enabled flag
     bool _isEnabled = false;
 
-    // BLE Config
-    BLEConfig _bleConfig;
-
     // At registration time this is filled with the charactteristic's value attribute handle
     uint16_t _characteristicValueAttribHandle = 0;
 
     // Send using indication
     bool _sendUsingIndication = false;
+
+    // Max packet length
+    uint32_t _maxPacketLen = 0;
 
     // Access callback
     BLEGattServerAccessCBType _accessCallback = nullptr;
@@ -137,11 +141,6 @@ private:
 
     // State of notify (send from peripheral)
     bool _responseNotifyState = false;
-
-    // Services and characteristics lists
-    std::vector<struct ble_gatt_svc_def> servicesList;
-    std::vector<struct ble_gatt_chr_def> mainServiceCharList;
-    std::vector<struct ble_gatt_chr_def> batteryServiceCharList;
 
     // Get data that has been written to characteristic (sent by central/client)
     int getDataWrittenToCharacteristic(struct os_mbuf *om, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>>& rxMsg);
@@ -167,10 +166,17 @@ private:
     ble_uuid128_t _commandUUID128 = DEFAULT_MESSAGE_COMMAND_UUID;
     ble_uuid128_t _responseUUID128 = DEFAULT_MESSAGE_RESPONSE_UUID;
 
+    // All services
+    std::vector<struct ble_gatt_svc_def> _servicesList;
+
+    // Custom service and characteristics
+    std::vector<struct ble_gatt_chr_def> _mainServiceCharList;
+
+    // Standard services config
+    std::vector<BLEStandardServiceConfig> _stdServicesConfig;
+
     // Standard services
-    bool _batteryService = false;
-    bool _deviceInfoService = false;
-    bool _heartRateService = false;
+    BLEStdServices _stdServices;
 
     // Log prefix
     static constexpr const char *MODULE_PREFIX = "BLEGattSrv";

@@ -10,8 +10,39 @@
 
 #include "sdkconfig.h"
 #include "RaftJsonIF.h"
+#include "RaftJson.h"
 #include <stdint.h>
 #include <vector>
+
+class BLEStandardServiceConfig
+{
+public:
+    void setup(const RaftJsonIF& config)
+    {
+        // Get service name
+        name = config.getString("name", "");
+
+        // Service settings
+        serviceSettings = config.getString("settings", "{}");
+
+        // Get properties
+        enable = config.getBool("enable", false);
+        notify = config.getBool("notify", false);
+        indicate = config.getBool("indicate", false);
+        read = config.getBool("read", false);
+
+        // Timing
+        updateIntervalMs = config.getLong("updateIntervalMs", 0);
+    }
+
+    bool enable:1 = false;
+    bool notify:1 = false;
+    bool indicate:1 = false;
+    bool read:1 = false;
+    String name;
+    String serviceSettings;
+    uint32_t updateIntervalMs = 0;
+};
 
 class BLEConfig
 {
@@ -91,21 +122,14 @@ public:
         useTaskForSending = config.getBool("taskEnable", DEFAULT_USE_TASK_FOR_SENDING);
 
         // Standard services (battery, device info, etc.)
-        std::vector<String> stdServices;
-        config.getArrayElems("stdServices", stdServices);
-        batteryService = false;
-        deviceInfoService = false;
-        heartRateService = false;
-        for (const auto& service : stdServices)
+        std::vector<String> stdServiceConfigs;
+        config.getArrayElems("stdServices", stdServiceConfigs);
+        for (const auto& stdServiceConfig : stdServiceConfigs)
         {
-            if (service.equalsIgnoreCase("battery"))
-                batteryService = true;
-            else if (service.equalsIgnoreCase("devInfo"))
-                deviceInfoService = true;
-            else if (service.equalsIgnoreCase("heartRate"))
-                heartRateService = true;
+            BLEStandardServiceConfig stdServiceCfg;
+            stdServiceCfg.setup(RaftJson(stdServiceConfig));
+            stdServices.push_back(stdServiceCfg);
         }
-
         return true;
     }
 
@@ -136,9 +160,6 @@ public:
                     " uuidCmdRspSvc:" + uuidCmdRespService +
                     " uuidCmdRspCmd:" + uuidCmdRespCommand +
                     " uuidCmdRspResp:" + uuidCmdRespResponse +
-                    " battSvc:" + String(batteryService) +
-                    " devInfSvc:" + String(deviceInfoService) + 
-                    " hrmSvc:" + String(heartRateService) +
                     " outQSz:" + String(outboundQueueSize) +
                     " minSndMs:" + String(minMsBetweenSends) + 
                     " inFlghtMax:" + String(outMsgsInFlightMax) +
@@ -177,9 +198,7 @@ public:
     bool scanBTHome:1 = false;
 
     // Standard services
-    bool batteryService:1 = false;
-    bool deviceInfoService:1 = false;
-    bool heartRateService:1 = false;
+    std::vector<BLEStandardServiceConfig> stdServices;
 
     // Pairing parameters
     bool pairingSecureConn:1 = false;

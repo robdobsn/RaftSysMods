@@ -14,6 +14,7 @@
 #include "Logger.h"
 #include "RaftUtils.h"
 #include "RaftArduino.h"
+#include "NamedValueProvider.h"
 #include "BLEGattServer.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
@@ -113,13 +114,14 @@ bool BLEGattServer::setup(const BLEConfig& bleConfig)
 #endif
     }
 
-    // Standard services
-    _batteryService = bleConfig.batteryService;
-    _deviceInfoService = bleConfig.deviceInfoService;
-    _heartRateService = bleConfig.heartRateService;
+    // Max packet length
+    _maxPacketLen = bleConfig.maxPacketLen;
 
     // Send using indication
     _sendUsingIndication = bleConfig.sendUsingIndication;
+
+    // Save standard services config
+    _stdServicesConfig = bleConfig.stdServices;
 
     // Setup outbound handler
     _isEnabled = _bleOutbound.setup(bleConfig);
@@ -130,13 +132,17 @@ bool BLEGattServer::setup(const BLEConfig& bleConfig)
 // Service
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void BLEGattServer::loop()
+void BLEGattServer::loop(NamedValueProvider* pNamedValueProvider)
 {
     // Check enabled
     if (!_isEnabled)
         return;
     // Service outbound queue
     _bleOutbound.loop();
+
+    // Update standard services
+    if (_bleIsConnected)
+        _stdServices.updateStdServices(_bleGapConnHandle, pNamedValueProvider);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -364,11 +370,11 @@ BLEGattServerSendResult BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32
     int rc = 0;
     if (_sendUsingIndication)
     {
-        rc = ble_gatts_indicate_custom(BLEGattServer::_bleGapConnHandle, BLEGattServer::_characteristicValueAttribHandle, om);
+        rc = ble_gatts_indicate_custom(_bleGapConnHandle, _characteristicValueAttribHandle, om);
     }
     else
     {
-        rc = ble_gatts_notify_custom(BLEGattServer::_bleGapConnHandle, BLEGattServer::_characteristicValueAttribHandle, om);
+        rc = ble_gatts_notify_custom(_bleGapConnHandle, _characteristicValueAttribHandle, om);
     }
 
 #ifdef WARN_ON_BLE_CHAR_WRITE_TAKING_TOO_LONG
@@ -408,72 +414,81 @@ int BLEGattServer::start()
     // Check enabled
     if (!_isEnabled)
         return -1;
-    // Characteristics (zero all entries initially, the last entry must remain all zeros)
-    mainServiceCharList.resize(3);
-    memset(mainServiceCharList.data(), 0, sizeof(struct ble_gatt_chr_def) * mainServiceCharList.size());
 
     // Command characteristic
-    mainServiceCharList[0].uuid = &_commandUUID128.u;
-    mainServiceCharList[0].access_cb = [](uint16_t conn_handle, uint16_t attr_handle,
-                                              struct ble_gatt_access_ctxt *ctxt,
-                                              void *arg)
-    {
-        if (arg)
-            ((BLEGattServer*)arg)->commandCharAccess(conn_handle, attr_handle, ctxt, arg);
-        return 0;
-    };
-    mainServiceCharList[0].arg = this;
-    mainServiceCharList[0].flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP;
+    _mainServiceCharList.push_back({
+        .uuid = &_commandUUID128.u,
+        .access_cb = [](uint16_t conn_handle, uint16_t attr_handle,
+                        struct ble_gatt_access_ctxt *ctxt,
+                        void *arg)
+        {
+            if (arg)
+                ((BLEGattServer *)arg)->commandCharAccess(conn_handle, attr_handle, ctxt, arg);
+            return 0;
+        },
+        .arg = this,
+        .descriptors = nullptr,
+        .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
+        .min_key_size = 0,
+        .val_handle = nullptr,
+        .cpfd = nullptr
+    });
 
     // Response characteristic
-    mainServiceCharList[1].uuid = &_responseUUID128.u;
-    mainServiceCharList[1].access_cb = [](uint16_t conn_handle, uint16_t attr_handle,
-                                              struct ble_gatt_access_ctxt *ctxt,
-                                              void *arg)
-    {
-        if (arg)
-            ((BLEGattServer*)arg)->responseCharAccess(conn_handle, attr_handle, ctxt, arg);
-        return 0;
-    };
-    mainServiceCharList[1].arg = this;
-    mainServiceCharList[1].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_INDICATE;
-    mainServiceCharList[1].val_handle = &_characteristicValueAttribHandle;
+    _mainServiceCharList.push_back({
+        .uuid = &_responseUUID128.u,
+        .access_cb = [](uint16_t conn_handle, uint16_t attr_handle,
+                        struct ble_gatt_access_ctxt *ctxt,
+                        void *arg)
+        {
+            if (arg)
+                ((BLEGattServer *)arg)->responseCharAccess(conn_handle, attr_handle, ctxt, arg);
+            return 0;
+        },
+        .arg = this,
+        .descriptors = nullptr,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_INDICATE,
+        .min_key_size = 0,
+        .val_handle = &_characteristicValueAttribHandle,
+        .cpfd = nullptr
+    });
 
-    // Services list (zero all entries initially, the last entry must remain all zeros)
-    servicesList.resize(2);
-    memset(servicesList.data(), 0, sizeof(struct ble_gatt_svc_def) * servicesList.size());
+    // Append null entry
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+    _mainServiceCharList.push_back({ 0 });
+#pragma GCC diagnostic pop
     
-    // Main loop
-    servicesList[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
-    servicesList[0].uuid = &_mainServiceUUID128.u;
-    servicesList[0].characteristics = mainServiceCharList.data();
+    // Main service
+    _servicesList.push_back({
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = &_mainServiceUUID128.u,
+        .includes = nullptr,
+        .characteristics = _mainServiceCharList.data(),
+    });
 
-    // // Battery loop
-    // if (_batteryService)
-    // {
-    //     batteryServiceCharList.resize(2);
-    //     memset(batteryServiceCharList.data(), 0, sizeof(struct ble_gatt_chr_def) * batteryServiceCharList.size());
-    //     batteryServiceCharList[0].uuid = BLE_UUID16_DECLARE(GATT_CHR_UUID_BATTERY_LEVEL);
-    //     batteryServiceCharList[0].access_cb = ble_gatts_chr_access_peer;
-    //     batteryServiceCharList[0].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY;
-    //     batteryServiceCharList[0].val_handle = &_batteryLevelAttribHandle;
-    // }
+    // Initialize standard services and add to list
+    _stdServices.setup(_stdServicesConfig, _servicesList);
+
+    // Append null entry
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+    _servicesList.push_back({ 0 });
+#pragma GCC diagnostic pop
 
     // Initialise GAP and GATT
     ble_svc_gap_init();
     ble_svc_gatt_init();
 
     // Prepare for services to be added
-    int rc = ble_gatts_count_cfg(servicesList.data());
+    int rc = ble_gatts_count_cfg(_servicesList.data());
     if (rc != NIMBLE_RETC_OK)
         return rc;
 
     // Add services
-    rc = ble_gatts_add_svcs(servicesList.data());
+    rc = ble_gatts_add_svcs(_servicesList.data());
     if (rc != NIMBLE_RETC_OK)
         return rc;
-
-    // Register 
 
 #ifdef DEBUG_FOR_ESP32_MINI_BOARDS
     gpio_pad_select_gpio(LED_OUTPUT_TEST);
