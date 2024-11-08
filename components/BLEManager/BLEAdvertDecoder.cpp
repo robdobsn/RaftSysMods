@@ -9,6 +9,8 @@
 #include "RaftCore.h"
 #include "BLEAdvertDecoder.h"
 
+#ifdef CONFIG_BT_ENABLED
+
 #define WARN_ON_TOO_MANY_BLE_CLIENTS
 
 // #define DEBUG_BLE_ADVERT_DECODER
@@ -347,3 +349,5 @@ bool BLEAdvertDecoder::decodeBtHome(ble_addr_t bleAddr, const uint8_t* pBtHomeDa
 
     return true;
 }
+
+#endif

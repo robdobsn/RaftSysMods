@@ -12,6 +12,9 @@
 #include <list>
 #include <stdint.h>
 #include "sdkconfig.h"
+
+#ifdef CONFIG_BT_ENABLED
+
 #undef min
 #undef max
 #include "host/ble_gap.h"
@@ -46,3 +49,4 @@ private:
 
 };
 
+#endif
