@@ -114,6 +114,7 @@ private:
         TriggerType_t _trigger = TRIGGER_ON_TIME_INTERVALS;
         SysMod_publishMsgGenFn _msgGenFn = nullptr;
         SysMod_stateDetectCB _stateDetectFn = nullptr;;
+        uint16_t _minStateChangeMs = MIN_MS_BETWEEN_STATE_CHANGE_PUBLISHES;
         std::list<PubInterfaceRec> _interfaceRecs;
         uint32_t _lastHashCheckMs = 0;
 

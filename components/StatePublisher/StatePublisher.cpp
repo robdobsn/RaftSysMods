@@ -94,6 +94,8 @@ void StatePublisher::setup()
         {
             pubRec._trigger = TRIGGER_ON_TIME_INTERVALS;
         }
+        pubRec._minStateChangeMs = pubInfo.getInt("minStateChangeMs", MIN_MS_BETWEEN_STATE_CHANGE_PUBLISHES);
+
         RaftJson interfacesJson = pubInfo.getString("ifs", pubInfo.getString("rates", "").c_str());
 
         // Check for interfaces
@@ -163,7 +165,7 @@ void StatePublisher::loop()
 #ifdef DEBUG_PUBLISHING_HASH
             if (Raft::isTimeout(millis(), pubRec._lastHashCheckMs, MIN_MS_BETWEEN_STATE_CHANGE_PUBLISHES*10))
 #else
-            if (Raft::isTimeout(millis(), pubRec._lastHashCheckMs, MIN_MS_BETWEEN_STATE_CHANGE_PUBLISHES))
+            if (Raft::isTimeout(millis(), pubRec._lastHashCheckMs, pubRec._minStateChangeMs))
 #endif
             {
                 // Last hash check time
