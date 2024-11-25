@@ -11,7 +11,9 @@
 #include "sdkconfig.h"
 #include "RaftJsonIF.h"
 #include "RaftJson.h"
+#include "RaftUtils.h"
 #include <stdint.h>
+#include <cmath>
 #include <vector>
 
 class BLEStandardServiceConfig
@@ -57,7 +59,7 @@ public:
     static const uint32_t PREFERRED_MTU_SIZE = 512;
     static const uint32_t DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX = 10;
     static const uint32_t BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS = 500;
-    static const uint32_t DEFAULT_CONN_INTERVAL_MS = 15;
+    static const uint32_t DEFAULT_CONN_INTERVAL_BLE_UNITS = 12; // 15ms
     static const uint32_t DEFAULT_CONN_LATENCY = 0;
     static const uint32_t PREF_SUPERVISORY_TIMEOUT_MS = 10000;
     static const uint32_t DEFAULT_LL_PACKET_TIME = 2500;
@@ -83,7 +85,9 @@ public:
         supvTimeoutPrefMs = config.getLong("supvTimeoutPrefMs", PREF_SUPERVISORY_TIMEOUT_MS);
         llPacketTimePref = config.getLong("llPacketTimePref", DEFAULT_LL_PACKET_TIME);
         llPacketLengthPref = config.getLong("llPacketLengthPref", DEFAULT_LL_PACKET_LENGTH);        
-        connIntervalPreferredMs = config.getLong("connIntvPrefMs", DEFAULT_CONN_INTERVAL_MS);
+        double connIntvPrefMs = config.getDouble("connIntvPrefMs", DEFAULT_CONN_INTERVAL_BLE_UNITS * 1.25);
+        connIntvPrefMs = Raft::clamp(connIntvPrefMs, 7.5, 4000.0);
+        connIntervalPreferredBLEUnits = std::round(connIntvPrefMs / 1.25);
         connLatencyPref = config.getLong("connLatencyPref", DEFAULT_CONN_LATENCY);
 
         // Advertising
@@ -149,7 +153,7 @@ public:
                     " pairIO:" + String(pairingSMIOCap) +
                     " pairSecConn:" + String(pairingSecureConn) +
                     " useInd:" + String(sendUsingIndication) + 
-                    " conItvPrefMs:" + String(connIntervalPreferredMs) + 
+                    " conItvPrefMs:" + String(connIntervalPreferredBLEUnits*1.25) + 
                     " conLatPref:" + String(connLatencyPref) + 
                     " maxPktLn:" + String(maxPacketLen) + 
                     " MTU:" + String(preferredMTUSize) +
@@ -175,9 +179,9 @@ public:
     // Get connection interval preferred in BLE units
     uint16_t getConnIntervalPrefBLEUnits() const
     {
-        if (connIntervalPreferredMs == 0)
-            return BLEConfig::DEFAULT_CONN_INTERVAL_MS / 1.25;
-        return connIntervalPreferredMs / 1.25;
+        if (connIntervalPreferredBLEUnits == 0)
+            return BLEConfig::DEFAULT_CONN_INTERVAL_BLE_UNITS;
+        return connIntervalPreferredBLEUnits;
     }
 
     // Role
@@ -207,7 +211,7 @@ public:
     // Connection params
     uint16_t maxPacketLen = MAX_BLE_PACKET_LEN_DEFAULT;
     uint16_t preferredMTUSize = PREFERRED_MTU_SIZE;
-    uint16_t connIntervalPreferredMs = DEFAULT_CONN_INTERVAL_MS;
+    uint16_t connIntervalPreferredBLEUnits = DEFAULT_CONN_INTERVAL_BLE_UNITS;
     uint16_t connLatencyPref = DEFAULT_CONN_LATENCY;
     uint16_t supvTimeoutPrefMs = PREF_SUPERVISORY_TIMEOUT_MS;
     uint16_t llPacketTimePref = DEFAULT_LL_PACKET_TIME;

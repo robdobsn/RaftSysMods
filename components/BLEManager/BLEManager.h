@@ -54,6 +54,9 @@ protected:
     // Get named value
     virtual double getNamedValue(const char* valueName, bool& isValid) override final;
 
+    // Set named value
+    virtual bool setNamedValue(const char* valueName, double value) override final;
+
 private:
 
 #ifdef CONFIG_BT_ENABLED

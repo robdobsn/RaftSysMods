@@ -93,6 +93,22 @@ public:
         return _isConnected;
     }
 
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Set requested connection interval
+    /// @param reqConnIntervalMs Requested connection interval in milliseconds
+    void setReqConnInterval(double reqConnIntervalMs)
+    {
+        // Convert to BLE units
+        uint32_t reqConnIntervalBLEUnits = std::round(Raft::clamp(reqConnIntervalMs, 7.5, 4000.0) / 1.25f);
+
+        // Request change if connection interval different
+        if (reqConnIntervalBLEUnits != _bleConfig.connIntervalPreferredBLEUnits)
+        {
+            _bleConfig.connIntervalPreferredBLEUnits = reqConnIntervalBLEUnits;
+            _connIntervalCheckPending = true;
+        }
+    }
+
 private:
     // Singleton (used for event callbacks)
     static BLEGapServer* _pThis;

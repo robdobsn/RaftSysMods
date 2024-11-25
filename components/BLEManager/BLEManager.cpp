@@ -196,9 +196,10 @@ String BLEManager::getDebugJSON() const
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// GetNamedValue
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Get a named value from the module
+/// @param valueName 
+/// @param isValid 
+/// @return value
 double BLEManager::getNamedValue(const char* valueName, bool& isValid)
 {
     switch(valueName[0])
@@ -211,6 +212,23 @@ double BLEManager::getNamedValue(const char* valueName, bool& isValid)
 #endif
         default: { isValid = false; return 0; }
     }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Set a named value in the module
+/// @param valueName
+/// @param value
+/// @return true if set
+bool BLEManager::setNamedValue(const char* valueName, double value)
+{
+    if (strcasecmp(valueName, "connintvms") == 0)
+    {
+#ifdef CONFIG_BT_ENABLED
+        _gapServer.setReqConnInterval(value);
+#endif
+        return true;
+    }
+    return false;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
