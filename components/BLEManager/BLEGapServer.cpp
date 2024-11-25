@@ -50,7 +50,7 @@
 // #define DEBUG_NIMBLE_START
 // #define DEBUG_BLE_RX_PAYLOAD
 // #define DEBUG_BLE_CONNECT
-// #define DEBUG_BLE_GAP_EVENT
+#define DEBUG_BLE_GAP_EVENT
 // #define DEBUG_RSSI_GET_TIME
 // #define DEBUG_BLE_GAP_EVENT_RX_TX
 // #define DEBUG_BLE_PERF_CALC_MIN
@@ -800,10 +800,11 @@ bool BLEGapServer::nimbleStop()
 /// @param desc pointer to a `ble_gap_conn_desc` structure containing detailed information about the connection
 void BLEGapServer::debugLogConnInfo(const char* prefix, struct ble_gap_conn_desc *desc)
 {
-    LOG_I(MODULE_PREFIX, "%shdl=%d Itvl %d Latcy %d Timo %d Enc %d Auth %d Bond %d OurOTA(%d) %s OurID(%d) %s PeerOTA(%d) %s PeerID(%d) %s", 
+    LOG_I(MODULE_PREFIX, "%shdl=%d Itvl %d(%.1f ms) Latcy %d Timo %d Enc %d Auth %d Bond %d OurOTA(%d) %s OurID(%d) %s PeerOTA(%d) %s PeerID(%d) %s", 
                     prefix,
                     desc->conn_handle, 
                     desc->conn_itvl,
+                    desc->conn_itvl * 1.25,
                     desc->conn_latency,
                     desc->supervision_timeout,
                     desc->sec_state.encrypted,
