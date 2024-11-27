@@ -10,10 +10,12 @@
 #include "DeviceTypeRecords.h"
 #include "BusRequestInfo.h"
 #include "DeviceStatus.h"
+#include "RaftDevice.h"
 #include "Logger.h"
 
 // #define DEBUG_GET_DEVICE_ADDRESSES
 // #define DEBUG_GET_DEVICE_DATA_JSON
+// #define DEBUG_GET_DEVICE_DATA_BINARY
 // #define DEBUG_GET_DEVICE_DATA_TIMESTAMP
 // #define DEBUG_HANDLE_POLL_RESULT
 // #define DEBUG_GET_DEVICE_STATE_BY_ADDR
@@ -115,6 +117,44 @@ String BLEBusDeviceManager::getQueuedDeviceDataJson() const
 
     // Return JSON
     return jsonStr.length() == 0 ? "{}" : jsonStr + "}";
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Get queued device data in binary format
+/// @return Binary data vector
+std::vector<uint8_t> BLEBusDeviceManager::getQueuedDeviceDataBinary(uint32_t connMode) const
+{
+    // Binary data
+    std::vector<uint8_t> binaryData;
+
+    // Get semaphore
+    if (xSemaphoreTake(_accessMutex, pdMS_TO_TICKS(5)) != pdTRUE)
+        return binaryData;
+
+    // Iterate list of devices
+    for (const BLEBusDeviceState& devState : _bleBusDeviceStates)
+    {
+        // Get poll response JSON
+        if (devState.lastDataReceived.size() > 0)
+        {
+            // Generate binary device message
+            RaftDevice::genBinaryDataMsg(binaryData, connMode, devState.busElemAddr, _deviceTypeIndex, true, devState.lastDataReceived);
+
+            // Clear data - const cast
+            const_cast<BLEBusDeviceState&>(devState).lastDataReceived.clear();
+        }
+    }
+
+    // Return semaphore
+    xSemaphoreGive(_accessMutex);
+
+    // Debug
+#ifdef DEBUG_GET_DEVICE_DATA_BINARY
+    LOG_I(MODULE_PREFIX, "getQueuedDeviceDataBinary len %d", binaryData.size());
+#endif
+
+    // Return binary data
+    return binaryData;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////

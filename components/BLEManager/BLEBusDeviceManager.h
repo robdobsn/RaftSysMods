@@ -58,10 +58,27 @@ public:
         return deviceTypeRecords.getDevTypeInfoJsonByTypeName(deviceType, includePlugAndPlayInfo);
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Get device type info JSON by device type index
+    /// @param deviceTypeIdx device type index
+    /// @param includePlugAndPlayInfo include plug and play info
+    /// @return JSON string
+    virtual String getDevTypeInfoJsonByTypeIdx(uint16_t deviceTypeIdx, bool includePlugAndPlayInfo) const override final
+    {
+        // Get device type info
+        return deviceTypeRecords.getDevTypeInfoJsonByTypeIdx(deviceTypeIdx, includePlugAndPlayInfo);
+    }
+
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Get queued device data in JSON format
     /// @return JSON string
     virtual String getQueuedDeviceDataJson() const override final;
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Get queued device data in binary format
+    /// @param connMode connection mode (inc bus number)
+    /// @return Binary data vector
+    virtual std::vector<uint8_t> getQueuedDeviceDataBinary(uint32_t connMode) const override final;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Get decoded poll responses
