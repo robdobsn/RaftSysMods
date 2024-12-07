@@ -174,7 +174,7 @@ bool BLEGattServer::sendMsg(CommsChannelMsg& msg)
 // Get data written (to characteristic) by central
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-int BLEGattServer::getDataWrittenToCharacteristic(struct os_mbuf *om, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>>& rxMsg)
+int BLEGattServer::getDataWrittenToCharacteristic(struct os_mbuf *om, SpiramAwareUint8Vector& rxMsg)
 {
     uint16_t om_len = OS_MBUF_PKTLEN(om);
     if (om_len == 0)
@@ -202,7 +202,7 @@ int BLEGattServer::commandCharAccess(uint16_t conn_handle, uint16_t attr_handle,
         case BLE_GATT_ACCESS_OP_WRITE_CHR:
         {
             // Get the written data
-            std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg;
+            SpiramAwareUint8Vector rxMsg;
             int nimbleRetCode = getDataWrittenToCharacteristic(ctxt->om, rxMsg);
 
             // Debug

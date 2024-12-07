@@ -76,7 +76,7 @@ void CommandSerial::loop()
         return;
 
     // Iterate through serial ports
-    std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> charBuf;
+    SpiramAwareUint8Vector charBuf;
     for (auto& serialPort : _serialPorts)
     {
         // Get received data
@@ -86,7 +86,7 @@ void CommandSerial::loop()
             if (charBuf.size() > 0)
             {
                 // Send to comms channel
-                _pCommsCoreIF->inboundHandleMsg(serialPort.getChannelID(), charBuf.data(), charBuf.size());
+                _pCommsCoreIF->inboundHandleMsg(serialPort.getChannelID(), charBuf);
 
 #ifdef DEBUG_COMMAND_SERIAL_RX
                 // Debug

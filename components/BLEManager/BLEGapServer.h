@@ -236,9 +236,8 @@ private:
     /// @brief Callback function for GATT characteristic access
     /// @param characteristicName name of the GATT characteristic being accessed
     /// @param readOp true if the operation is a read; false if it is a write
-    /// @param payloadbuffer pointer to the buffer containing the data being read or written
-    /// @param payloadlength length of the data in the payload buffer
-    void gattAccessCallback(const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength);
+    /// @param buf buffer containing the data being read or written
+    void gattAccessCallback(const char* characteristicName, bool readOp, const SpiramAwareUint8Vector& buf);
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Check if a restart of the BLE service is required and handles the restart process.

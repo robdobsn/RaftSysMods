@@ -134,7 +134,7 @@ private:
         }
         FileStreamBlock fsb;
         String fileName;
-        std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> blockData;
+        SpiramAwareUint8Vector blockData;
     };
 
     // Log prefix

@@ -138,7 +138,7 @@ void CommandSerialPort::setup(RaftJsonIF& config, const char* pModName)
 // Get data
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool CommandSerialPort::getData(std::vector<uint8_t, SpiramAwareAllocator<uint8_t>>& data)
+bool CommandSerialPort::getData(SpiramAwareUint8Vector& data)
 {
     // Check if initialised
     if (!_isInitialised)

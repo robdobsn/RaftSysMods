@@ -69,9 +69,9 @@ BLEGapServer* BLEGapServer::_pThis = nullptr;
 /// @param statusChangeFn function pointer to handle status changes
 BLEGapServer::BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn, 
                 StatusChangeFnType statusChangeFn) :
-        _gattServer([this](const char* characteristicName, bool readOp, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg)
+        _gattServer([this](const char* characteristicName, bool readOp, SpiramAwareUint8Vector rxMsg)
                     {
-                        return gattAccessCallback(characteristicName, readOp, rxMsg.data(), rxMsg.size());
+                        return gattAccessCallback(characteristicName, readOp, rxMsg);
                     },
                     _bleStats),
         _bleAdvertDecoder()
@@ -576,18 +576,17 @@ void BLEGapServer::bleHostTask(void *param)
 /// the received message to the communication core interface
 /// @param characteristicName name of the GATT characteristic being accessed
 /// @param readOp true if the operation is a read; false if it is a write
-/// @param payloadbuffer pointer to the buffer containing the data being read or written
-/// @param payloadlength length of the data in the payload buffer
-void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength)
+/// @param payload buffer containing the data being read or written
+void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readOp, const SpiramAwareUint8Vector& payload)
 {
     // Check for test frames (used to determine performance of the link)
-    if ((payloadlength > 10) && (payloadbuffer[5] == 0x1f) && (payloadbuffer[6] == 0x9d) && (payloadbuffer[7] == 0xf4) && (payloadbuffer[8] == 0x7a) && (payloadbuffer[9] == 0xb5))
+    if ((payload.size() > 10) && (payload[5] == 0x1f) && (payload[6] == 0x9d) && (payload[7] == 0xf4) && (payload[8] == 0x7a) && (payload[9] == 0xb5))
     {
         // Get msg count
-        uint32_t inMsgCount = (payloadbuffer[1] << 24)
-                    | (payloadbuffer[2] << 16)
-                    | (payloadbuffer[3] << 8)
-                    | payloadbuffer[4];
+        uint32_t inMsgCount = (payload[1] << 24)
+                    | (payload[2] << 16)
+                    | (payload[3] << 8)
+                    | payload[4];
         bool isSeqOk = inMsgCount == _lastTestMsgCount+1;
         bool isFirst = inMsgCount == 0;
         if (isFirst)
@@ -600,15 +599,15 @@ void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readO
         
         // Check test message valid
         bool isDataOk = true;
-        for (uint32_t i = 10; i < payloadlength; i++) {
+        for (uint32_t i = 10; i < payload.size(); i++) {
             _testPerfPrbsState = Raft::parkMillerNext(_testPerfPrbsState);
-            if (payloadbuffer[i] != (_testPerfPrbsState & 0xff)) {
+            if (payload[i] != (_testPerfPrbsState & 0xff)) {
                 isDataOk = false;
             }
         }
 
         // Update test stats
-        _bleStats.rxTestFrame(payloadlength, isSeqOk, isDataOk);
+        _bleStats.rxTestFrame(payload.size(), isSeqOk, isDataOk);
 
         // Debug
 #if defined(DEBUG_BLE_PERF_CALC_FULL_MAY_AFFECT_MEASUREMENT)
@@ -618,7 +617,7 @@ void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readO
                     _bleStats.getTestRate(),
                     _bleStats.getTestSeqErrCount(),
                     _bleStats.getTestDataErrCount(),
-                    payloadlength);
+                    payload.size());
 #elif defined(DEBUG_BLE_PERF_CALC_MIN)
         LOG_I(MODULE_PREFIX, "%s %.1fBPS", 
                     isFirst ? "F" : (isSeqOk & isDataOk) ? "K" : !isSeqOk ? "Q" : "D",
@@ -627,21 +626,19 @@ void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readO
     }
     else
     {
-        _bleStats.rxMsg(payloadlength);
+        _bleStats.rxMsg(payload.size());
     }
     if (!readOp)
     {
         // Send the message to the comms channel if this is a write to the characteristic
         if (_pCommsCoreIF)
-            _pCommsCoreIF->inboundHandleMsg(_commsChannelID, payloadbuffer, payloadlength);
+            _pCommsCoreIF->inboundHandleMsg(_commsChannelID, payload);
 
 #ifdef DEBUG_BLE_RX_PAYLOAD
         // Debug
-        uint32_t sz = payloadlength;
-        const uint8_t* pVals = payloadbuffer;
         String outStr;
-        Raft::getHexStrFromBytes(pVals, sz, outStr);
-        LOG_I(MODULE_PREFIX, "gatt rx payloadLen %d payload %s", sz, outStr.c_str());
+        Raft::getHexStr(payload, outStr);
+        LOG_I(MODULE_PREFIX, "gatt rx payload %s", outStr.c_str());
 #endif
     }
 }

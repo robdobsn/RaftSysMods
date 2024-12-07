@@ -125,10 +125,10 @@ void SerialConsole::setup()
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
                 .use_ref_tick = true,
 #else
-                .source_clk = UART_SCLK_DEFAULT
+                .source_clk = UART_SCLK_DEFAULT,
 #endif
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 1)
-                .flags = 0,
+                .flags = {},
 #endif
         };
         esp_err_t err = uart_param_config((uart_port_t)_uartNum, &uart_config);
@@ -286,7 +286,7 @@ SerialConsole::CommandRxState SerialConsole::getXonXoff()
 void SerialConsole::loop()
 {
     // Process received data
-    std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> inboundMessage;
+    SpiramAwareUint8Vector inboundMessage;
     for (uint32_t chIdx = 0; chIdx < MAX_BYTES_TO_PROCESS_IN_LOOP; chIdx++)
     {
         // Check for char
@@ -395,12 +395,12 @@ void SerialConsole::loop()
     processReceivedData(inboundMessage);
 }
 
-void SerialConsole::processReceivedData(std::vector<uint8_t, SpiramAwareAllocator<uint8_t>>& rxData)
+void SerialConsole::processReceivedData(const SpiramAwareUint8Vector& rxData)
 {
     if (rxData.size() == 0)
         return;
     if (getCommsCore())
-        getCommsCore()->inboundHandleMsg(_commsChannelID, rxData.data(), rxData.size());
+        getCommsCore()->inboundHandleMsg(_commsChannelID, rxData);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

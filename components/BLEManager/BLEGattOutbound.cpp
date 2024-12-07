@@ -139,7 +139,7 @@ bool BLEGattOutbound::sendMsg(CommsChannelMsg& msg)
 #endif
 
     // Add to the queue
-    ProtocolRawMsg bleOutMsg(msg.getBuf(), msg.getBufLen());
+    ProtocolRawMsg bleOutMsg(msg.getCmdVector());
     bool putOk = _outboundQueue.put(bleOutMsg);
     if (!putOk)
     {

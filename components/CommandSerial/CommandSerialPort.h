@@ -32,7 +32,7 @@ public:
     const String& getName() const { return _name; }
 
     // Get data
-    bool getData(std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> &data);
+    bool getData(SpiramAwareUint8Vector &data);
 
     // Put data
     uint32_t putData(const uint8_t *pMsg, uint32_t msgLen);

@@ -31,7 +31,7 @@
 
 // Callback types
 typedef std::function<void (const char* characteristicName, bool readOp, 
-                std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg)> BLEGattServerAccessCBType;
+                const SpiramAwareUint8Vector& rxMsg)> BLEGattServerAccessCBType;
 typedef int (*BLECharAccessFnType)(uint16_t conn_handle, uint16_t attr_handle,
                                               struct ble_gatt_access_ctxt *ctxt,
                                               void *arg);
@@ -143,7 +143,7 @@ private:
     bool _responseNotifyState = false;
 
     // Get data that has been written to characteristic (sent by central/client)
-    int getDataWrittenToCharacteristic(struct os_mbuf *om, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>>& rxMsg);
+    int getDataWrittenToCharacteristic(struct os_mbuf *om, SpiramAwareUint8Vector& rxMsg);
 
     // Callback on access to characteristics
     int commandCharAccess(uint16_t conn_handle, uint16_t attr_handle,

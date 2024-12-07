@@ -124,7 +124,7 @@ private:
     // Helpers
     void showEndpoints();
     bool sendMsg(CommsChannelMsg& msg);
-    void processReceivedData(std::vector<uint8_t, SpiramAwareAllocator<uint8_t>>& rxData);
+    void processReceivedData(const SpiramAwareUint8Vector& rxData);
     RaftRetCode apiConsole(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
     // Log prefix
