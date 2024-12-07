@@ -50,9 +50,10 @@
 // #define DEBUG_NIMBLE_START
 // #define DEBUG_BLE_RX_PAYLOAD
 // #define DEBUG_BLE_CONNECT
-#define DEBUG_BLE_GAP_EVENT
+// #define DEBUG_BLE_GAP_EVENT
 // #define DEBUG_RSSI_GET_TIME
 // #define DEBUG_BLE_GAP_EVENT_RX_TX
+// #define DEBUG_BLE_GAP_EVENT_DISCOVERY
 // #define DEBUG_BLE_PERF_CALC_MIN
 // #define DEBUG_BLE_PERF_CALC_FULL_MAY_AFFECT_MEASUREMENT
 // #define DEBUG_BLE_ON_SYNC
@@ -526,6 +527,9 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
 #ifndef DEBUG_BLE_GAP_EVENT_RX_TX
     if ((event->type != BLE_GAP_EVENT_NOTIFY_TX) && (event->type != BLE_GAP_EVENT_NOTIFY_RX)) {
 #endif
+#ifndef DEBUG_BLE_GAP_EVENT_DISCOVERY
+    if (event->type != BLE_GAP_EVENT_DISC) {
+#endif
     LOG_I(MODULE_PREFIX, "GAPEv %s connHandle=%s status=%s errorCode=%s",
                 getGapEventName(event->type).c_str(), 
                 connHandle >= 0 ? String(connHandle).c_str() : "N/A", 
@@ -538,6 +542,9 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
         if (ble_gap_conn_find(connHandle, &desc) == 0)
             debugLogConnInfo("GAPConnInfo ", &desc);
     }
+#ifndef DEBUG_BLE_GAP_EVENT_DISCOVERY
+    }
+#endif
 #ifndef DEBUG_BLE_GAP_EVENT_RX_TX
     }
 #endif
