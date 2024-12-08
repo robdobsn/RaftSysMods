@@ -8,6 +8,7 @@
 
 #include "RaftCore.h"
 #include "BLEAdvertDecoder.h"
+#include "BTHomeConsts.h"
 
 #ifdef CONFIG_BT_ENABLED
 
@@ -15,6 +16,7 @@
 
 // #define DEBUG_BLE_ADVERT_DECODER
 // #define DEBUG_BT_HOME_DECODE
+// #define DEBUG_BLE_ADVERT_DECODER_DETAILS
 
 #ifdef DEBUG_BLE_ADVERT_DECODER
 #define DEBUG_APPEND_LOG(X) logString += (X)
@@ -24,11 +26,11 @@
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Decode ad packet
-/// @param event BLE discovery event
+/// @param pEvent BLE discovery pEvent
 /// @param fields BLE advertisement fields
 /// @param pBusDevicesIF pointer to bus devices interface
 /// @return true if the packet was successfully decoded
-bool BLEAdvertDecoder::decodeAdEvent(struct ble_gap_event *event, struct ble_hs_adv_fields& fields, RaftBusDevicesIF* pBusDevicesIF)
+bool BLEAdvertDecoder::decodeAdEvent(struct ble_gap_event *pEvent, struct ble_hs_adv_fields& fields, RaftBusDevicesIF* pBusDevicesIF)
 {
     // Debug
     // LOG_I(MODULE_PREFIX, "----- flags %02x num_uuids16 %d num_uuids32 %d num_uuids128 %d tx_pwr_lvl %d adv_itvl %d le_role %d mfg_data_len %d name_len %d", 
@@ -44,37 +46,55 @@ bool BLEAdvertDecoder::decodeAdEvent(struct ble_gap_event *event, struct ble_hs_
 
 
     // // Decode BTHome packet - it must start with 0x020106
-    // if (event->disc.length_data < 3)
+    // if (pEvent->disc.length_data < 3)
     //     return false;
 
     // // Check for BTHome packet
-    // if ((event->disc.data[0] != 0x02) || (event->disc.data[1] != 0x01) || (event->disc.data[2] != 0x06))
+    // if ((pEvent->disc.data[0] != 0x02) || (pEvent->disc.data[1] != 0x01) || (pEvent->disc.data[2] != 0x06))
     //     return false;
-                // Raft::formatMACAddr(event->disc.addr.val, ":", true).c_str(),
+                // Raft::formatMACAddr(pEvent->disc.addr.val, ":", true).c_str(),
 
-    // Iteration of AD structures in the payload
-    const uint8_t* pData = event->disc.data;
-    int32_t remainingDataLen = ((int)event->disc.length_data);
+    // Check there is an interface to send data to
+    if (!pBusDevicesIF)
+    {
+        return false;
+    }
+
+    // Check parameters
+    if (!pEvent) 
+    {
+        LOG_W(MODULE_PREFIX, "decodeAdEvent Invalid parameters %p %p", pEvent, pBusDevicesIF);
+        return false;
+    }
+
+    // Data to decode
+    const uint8_t* pData = pEvent->disc.data;
+    int32_t remainingDataLen = static_cast<int32_t>(pEvent->disc.length_data);
 
     // String to accumulate log messages
 #ifdef DEBUG_BLE_ADVERT_DECODER
-    String hexStr;
-    Raft::getHexStrFromBytes(pData, remainingDataLen, hexStr);
-    String logString = "decodeAdEvent " + Raft::formatMACAddr(event->disc.addr.val, ":", true) + " " + hexStr + " ";
+    String hexStr = Raft::getHexStr(pData, remainingDataLen);
+    String logString = "decodeAdEvent " + Raft::formatMACAddr(pEvent->disc.addr.val, ":", true) + " " + hexStr + " ";
 #endif
 
+#ifdef DEBUG_BLE_ADVERT_DECODER_DETAILS
+    LOG_I(MODULE_PREFIX, "%s", logString.c_str());
+    delay(5);
+#endif
+
+    const uint32_t MAX_BLE_DECODE_LOOPS = 20;
+
     // Iterate through packets
-    while (remainingDataLen > 1)
+    uint32_t loopCnt = 0;
+    while (remainingDataLen > 2 && loopCnt++ < MAX_BLE_DECODE_LOOPS)
     {
         uint8_t len = pData[0];
-        if (len == 0)
-            break;
-        if (len > remainingDataLen)
+        if (len == 0 || len > remainingDataLen)
             break;
         uint8_t adType = pData[1];
 
         // Handle the AD types
-        switch(adType)
+        switch (adType)
         {
             case 0x01:
             {
@@ -114,12 +134,12 @@ bool BLEAdvertDecoder::decodeAdEvent(struct ble_gap_event *event, struct ble_hs_
 #ifdef DEBUG_BLE_ADVERT_DECODER
                 if (len > 1)
                 {
-                    String name((const char*)(pData+2), len-1);
-                    logString += "decodeAdEvent Local name " + name + ", ";
+                    String name(reinterpret_cast<const char*>(pData+2), len-1);
+                    logString += "local name " + name + ", ";
                 }
                 else
                 {
-                    logString += "decodeAdEvent Local name TOO SHORT,";
+                    logString += "local name TOO SHORT,";
                 }
 #endif
                 break;
@@ -134,23 +154,29 @@ bool BLEAdvertDecoder::decodeAdEvent(struct ble_gap_event *event, struct ble_hs_
             case 0x15: DEBUG_APPEND_LOG("decodeAdEvent ServiceSolicitationUUIDs, "); break;
             case 0x16:
             {
-                // 16-bit ServiceData UUID
+                // 16-bit Service Data UUID
                 if (len >= 3)
                 {
                     uint16_t uuid = (pData[3] << 8) | pData[2];
-                    switch(uuid)
+                    switch (uuid)
                     {
-                        case 0xFEED: DEBUG_APPEND_LOG("decodeAdEvent ServiceData 16-bit UUID Tile Inc len " + String(len-3) + ", "); break;
-                        case 0xFCD2: 
-                        {
+                    case 0xFEED:
+                        DEBUG_APPEND_LOG("decodeAdEvent ServiceData 16-bit UUID Tile Inc len " + String(len - 3) + ", ");
+                        break;
+                    case 0xFCD2:
+                    {
 #ifdef DEBUG_BLE_ADVERT_DECODER
-                            logString += "decodeAdEvent ServiceData 16-bit UUID BTHome Alterco Robotics len " + String(len-3) + ", ";
-                            LOG_I(MODULE_PREFIX, "%s", logString.c_str());
+                        logString += "decodeAdEvent ServiceData 16-bit UUID BTHome Alterco Robotics len " + String(len - 3) + ", ";
+                        LOG_I(MODULE_PREFIX, "%s", logString.c_str());
 #endif
-                            return decodeBtHome(event->disc.addr, pData+4, len-3, pBusDevicesIF);
-                        }
-                        case 0xFCF1: DEBUG_APPEND_LOG("decodeAdEvent ServiceData 16-bit UUID Google len " + String(len-3) + ", "); break;
-                        default: DEBUG_APPEND_LOG("decodeAdEvent ServiceData 16-bit UUID " + String(uuid, 16) + " len " + String(len-3) + ", "); break;
+                        return decodeBtHome(pEvent->disc.addr, pData + 4, len - 3, pBusDevicesIF);
+                    }
+                    case 0xFCF1:
+                        DEBUG_APPEND_LOG("decodeAdEvent ServiceData 16-bit UUID Google len " + String(len - 3) + ", ");
+                        break;
+                    default:
+                        DEBUG_APPEND_LOG("decodeAdEvent ServiceData 16-bit UUID " + String(uuid, 16) + " len " + String(len - 3) + ", ");
+                        break;
                     }
                 }
                 break;
@@ -184,8 +210,13 @@ bool BLEAdvertDecoder::decodeAdEvent(struct ble_gap_event *event, struct ble_hs_
 
         // Move to next packet
         pData += len + 1;
-        remainingDataLen -= (len + 1);
+        remainingDataLen -= len + 1;
     }
+
+#ifdef DEBUG_BLE_ADVERT_DECODER_DETAILS
+    LOG_I(MODULE_PREFIX, "decodeAdEvent exiting");
+    delay(5);
+#endif
 
     // Log the accumulated messages
 #ifdef DEBUG_BLE_ADVERT_DECODER
@@ -203,15 +234,16 @@ bool BLEAdvertDecoder::decodeAdEvent(struct ble_gap_event *event, struct ble_hs_
 /// @return true if the packet was successfully decoded
 bool BLEAdvertDecoder::decodeBtHome(ble_addr_t bleAddr, const uint8_t* pBtHomeData, int btHomeDataLen, RaftBusDevicesIF* pBusDevicesIF)
 {
+    if (!pBtHomeData || btHomeDataLen < 1 || !pBusDevicesIF) 
+    {
+        LOG_W(MODULE_PREFIX, "decodeBtHome Invalid parameters");
+        return false;
+    }
 #ifdef DEBUG_BT_HOME_DECODE
     String logStr;
     Raft::getHexStrFromBytes(pBtHomeData, btHomeDataLen, logStr);
 #endif
 
-    // Check for minimum length
-    if (btHomeDataLen < 1)
-        return false;
-    
 #ifdef DEBUG_BT_HOME_DECODE
     // Get the BTHome Device Information
     uint8_t btHomeDeviceInfo = pBtHomeData[0];
@@ -234,77 +266,81 @@ bool BLEAdvertDecoder::decodeBtHome(ble_addr_t bleAddr, const uint8_t* pBtHomeDa
     uint32_t illumuninanceX100 = 0;
 
     // Decode the fields
-    while (varDataLen > 0)
+    static const uint32_t MAX_BTHOME_FIELDS = 20;
+    uint32_t loopCnt = 0;
+    while (varDataLen > 2 && loopCnt++ < MAX_BTHOME_FIELDS) 
     {
-        switch(pVarData[0])
+        // Sensor type
+        uint8_t sensorType = pVarData[0];
+
+        // Get length from table
+        int8_t fieldLen = -1;
+        if (sensorType == 0x53) // Text
+            fieldLen = pVarData[1];
+        else if (sensorType == 0x54) // Binary
+            fieldLen = pVarData[1];
+        else if (sensorType < BTHOME_SENSOR_TYPE_COUNT) // Use LUT
+            fieldLen = BTHOME_SENSOR_TYPES[sensorType].len;
+        else if (sensorType == 0xf0) // device type ID
+            fieldLen = 2;
+        else if (sensorType == 0xf1) // firmware version
+            fieldLen = 4;
+        else if (sensorType == 0xf2) // firmware version
+            fieldLen = 3;
+
+        // Check for valid length
+        if (fieldLen < 0 || varDataLen < fieldLen + 1)
+            break;
+
+        // Decode the field
+        switch(sensorType)
         {
             case 0x00: // Packet ID
             {
-                if (varDataLen >= 2)
-                {
-                    packetID = pVarData[1];
+                packetID = pVarData[1];
 #ifdef DEBUG_BT_HOME_DECODE
-                    logStr += " PacketID " + String(packetID);
+                logStr += " PacketID " + String(packetID);
 #endif
-                }
-                varDataLen -= 2;
-                pVarData += 2;
                 break;
             }
             case 0x01: // Battery
             {
-                if (varDataLen >= 2)
-                {
-                    batteryPC = pVarData[1];
+                batteryPC = pVarData[1];
 #ifdef DEBUG_BT_HOME_DECODE
-                    logStr += " Battery " + String(batteryPC);
+                logStr += " Battery " + String(batteryPC);
 #endif
-                }
-                varDataLen -= 2;
-                pVarData += 2;
                 break;
             }
             case 0x02: // Temperature
             {
-                if (varDataLen >= 3)
-                {
-                    temperatureX100 = (pVarData[2] << 8) | pVarData[1];
+                temperatureX100 = (pVarData[2] << 8) | pVarData[1];
 #ifdef DEBUG_BT_HOME_DECODE
-                    logStr += " Temp " + String(temperatureX100/100.0, 2);
+                logStr += " Temp " + String(temperatureX100/100.0, 2);
 #endif
-                }
-                varDataLen -= 3;
-                pVarData += 3;
                 break;
             }
             case 0x05: // Illuminance
             {
-                if (varDataLen >= 4)
-                {
-                    illumuninanceX100 = (pVarData[2] << 16) | (pVarData[1] << 8) | pVarData[0];
+                illumuninanceX100 = (pVarData[2] << 16) | (pVarData[1] << 8) | pVarData[0];
 #ifdef DEBUG_BT_HOME_DECODE
-                    logStr += " Illum " + String(illumuninanceX100/100.0, 2);
+                logStr += " Illum " + String(illumuninanceX100/100.0, 2);
 #endif
-                }
-                varDataLen -= 4;
-                pVarData += 4;
                 break;
             }
             case 0x21: // Motion
             {
-                if (varDataLen >= 2)
-                {
-                    motion = pVarData[1];
-                    dataOfInterest = true;
+                motion = pVarData[1];
+                dataOfInterest = true;
 #ifdef DEBUG_BT_HOME_DECODE
-                    logStr += " Motion " + String(motion == 0 ? "NO" : "YES");
+                logStr += " Motion " + String(motion == 0 ? "NO" : "YES");
 #endif
-                }
-                varDataLen -= 2;
-                pVarData += 2;
                 break;
             }
         }
+
+        // Move to next field
+        varDataLen -= fieldLen + 1;
+        pVarData += fieldLen + 1;
     }
 
     // Check if data is of interest
@@ -342,8 +378,7 @@ bool BLEAdvertDecoder::decodeBtHome(ble_addr_t bleAddr, const uint8_t* pBtHomeDa
         pBusDevicesIF->handlePollResult(micros(), bleAddr32, decodedData, nullptr);
 
 #ifdef DEBUG_BT_HOME_DECODE
-    String outStr;
-    Raft::getHexStrFromBytes(decodedData.data(), decodedData.size(), outStr);
+    String outStr = Raft::getHexStr(decodedData.data(), decodedData.size());
     LOG_I(MODULE_PREFIX, "decodeBtHome %s => %s", logStr.c_str(), outStr.c_str());
 #endif
 
