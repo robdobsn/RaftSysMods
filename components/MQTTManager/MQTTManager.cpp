@@ -10,7 +10,6 @@
 #include "MQTTManager.h"
 #include "Logger.h"
 #include "RaftUtils.h"
-#include "ESPUtils.h"
 #include "CommsCoreIF.h"
 #include "CommsChannelMsg.h"
 #include "CommsChannelSettings.h"
