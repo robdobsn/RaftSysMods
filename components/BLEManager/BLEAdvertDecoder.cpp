@@ -242,6 +242,7 @@ bool BLEAdvertDecoder::decodeBtHome(ble_addr_t bleAddr, const uint8_t* pBtHomeDa
 #ifdef DEBUG_BT_HOME_DECODE
     String logStr;
     Raft::getHexStrFromBytes(pBtHomeData, btHomeDataLen, logStr);
+    logStr = Raft::formatMACAddr(bleAddr.val, ":", true) + " " + logStr + " ";
 #endif
 
 #ifdef DEBUG_BT_HOME_DECODE
@@ -261,14 +262,14 @@ bool BLEAdvertDecoder::decodeBtHome(ble_addr_t bleAddr, const uint8_t* pBtHomeDa
     uint8_t packetID = 0;
     bool motion = false;
     bool dataOfInterest = false;
-    int16_t temperatureX100 = 0;
-    uint8_t batteryPC = 0;
-    uint32_t illumuninanceX100 = 0;
+    int16_t temperatureX100 = INT16_MAX;
+    uint8_t batteryPC = UINT8_MAX;
+    uint32_t illumuninanceX100 = UINT32_MAX;
 
     // Decode the fields
     static const uint32_t MAX_BTHOME_FIELDS = 20;
     uint32_t loopCnt = 0;
-    while (varDataLen > 2 && loopCnt++ < MAX_BTHOME_FIELDS) 
+    while (varDataLen >= 2 && loopCnt++ < MAX_BTHOME_FIELDS) 
     {
         // Sensor type
         uint8_t sensorType = pVarData[0];
@@ -290,7 +291,12 @@ bool BLEAdvertDecoder::decodeBtHome(ble_addr_t bleAddr, const uint8_t* pBtHomeDa
 
         // Check for valid length
         if (fieldLen < 0 || varDataLen < fieldLen + 1)
+        {
+#ifdef DEBUG_BT_HOME_DECODE
+            logStr += " INVALID FIELD " + String(sensorType, 16) + " " + String(fieldLen) + " varDataLen " + String(varDataLen);
+#endif
             break;
+        }
 
         // Decode the field
         switch(sensorType)
@@ -345,13 +351,22 @@ bool BLEAdvertDecoder::decodeBtHome(ble_addr_t bleAddr, const uint8_t* pBtHomeDa
 
     // Check if data is of interest
     if (!dataOfInterest)
+    {
+#ifdef DEBUG_BT_HOME_DECODE
+        logStr += " NO DATA OF INTEREST";
+        LOG_I(MODULE_PREFIX, "decodeBtHome %s", logStr.c_str());
+#endif
         return false;
+    }
 
     // Fill in the decoded data
     std::vector<uint8_t> decodedData;
+    uint16_t timeVal = (uint16_t)(millis() & 0xFFFF);
+    decodedData.push_back((timeVal >> 8) & 0xFF);
+    decodedData.push_back(timeVal & 0xFF);    
     // Add the packet ID
     decodedData.push_back(packetID);
-    // Add the BLE address
+    // Add the BLE address (padded to 8 bytes)
     decodedData.push_back(0);
     decodedData.push_back(0);
     for (int i = 0; i < 6; i++)
@@ -364,7 +379,7 @@ bool BLEAdvertDecoder::decodeBtHome(ble_addr_t bleAddr, const uint8_t* pBtHomeDa
     decodedData.push_back((temperatureX100 >> 8) & 0xff);
     decodedData.push_back(temperatureX100 & 0xff);
     // Add the illuminance
-    decodedData.push_back(0);
+    decodedData.push_back((illumuninanceX100 >> 24) & 0xff);
     decodedData.push_back((illumuninanceX100 >> 16) & 0xff);
     decodedData.push_back((illumuninanceX100 >> 8) & 0xff);
     decodedData.push_back(illumuninanceX100 & 0xff);

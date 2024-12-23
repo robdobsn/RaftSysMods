@@ -106,6 +106,14 @@ public:
     virtual void registerForDeviceData(BusElemAddrType address, RaftDeviceDataChangeCB dataChangeCB, 
                 uint32_t minTimeBetweenReportsMs, const void* pCallbackInfo) override final
     {
+        // Get device state
+        BLEBusDeviceState* pDevState = getBLEBusDeviceState(address);
+        if (pDevState)
+        {
+            pDevState->dataChangeCB = dataChangeCB;
+            pDevState->minTimeBetweenReportsMs = minTimeBetweenReportsMs;
+            pDevState->pCallbackInfo = pCallbackInfo;
+        }
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -176,6 +184,9 @@ private:
         uint32_t lastSeenTimeMs = 0;
         uint16_t lastBTHomePacketID = UINT16_MAX;
         std::vector<uint8_t> lastDataReceived;
+        RaftDeviceDataChangeCB dataChangeCB = nullptr;
+        uint32_t minTimeBetweenReportsMs = 1000;
+        const void* pCallbackInfo = nullptr;
     };
     static const uint32_t MAX_BLE_BUS_DEVICES = 20;
     std::list<BLEBusDeviceState> _bleBusDeviceStates;

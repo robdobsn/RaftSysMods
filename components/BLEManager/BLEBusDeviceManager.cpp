@@ -112,7 +112,7 @@ String BLEBusDeviceManager::getQueuedDeviceDataJson() const
 
     // Debug
 #ifdef DEBUG_GET_DEVICE_DATA_JSON
-    LOG_I(MODULE_PREFIX, "getQueuedDeviceDataJson %s", (jsonStr + "}").c_str());
+    LOG_I(MODULE_PREFIX, "getQueuedDeviceDataJson %s", (jsonStr.length() == 0 ? "{}" : jsonStr + "}").c_str());
 #endif
 
     // Return JSON
@@ -215,18 +215,37 @@ bool BLEBusDeviceManager::handlePollResult(uint64_t timeNowUs, BusElemAddrType a
             _bleBusDeviceStates.push_back(devState);
             pDevState = &_bleBusDeviceStates.back();
             isFirst = true;
+
+            // Callback
+            _raftBus.callBusElemStatusCB({BusElemAddrAndStatus(address, true, false, true, _deviceTypeIndex)});
         }
     }
 
     // Check if device state available
     bool storeReqd = isFirst || (pDevState && (pDevState->lastBTHomePacketID != deviceID));
-    if (pDevState && storeReqd)
+    if (pDevState)
     {
-        // Store poll results
-        pDevState->lastDataReceived = pollResultData;
+        if (storeReqd)
+        {
+            // Store poll results
+            pDevState->lastDataReceived = pollResultData;
+            _deviceDataLastSetMs = timeNowMs;
+        }
+
+        // Check if data change callback is set
+        if ((pDevState->dataChangeCB) && (pDevState->lastBTHomePacketID != deviceID))
+        {
+            // Check if time to report
+            if (Raft::isTimeout(timeNowMs, pDevState->lastSeenTimeMs, pDevState->minTimeBetweenReportsMs))
+            {
+                // Call the callback
+                pDevState->dataChangeCB(address, pollResultData, pDevState->pCallbackInfo);
+            }
+        }
+
+        // Update last seen time
         pDevState->lastSeenTimeMs = timeNowMs;
         pDevState->lastBTHomePacketID = deviceID;
-        _deviceDataLastSetMs = timeNowMs;
     }
 
     // Return semaphore
