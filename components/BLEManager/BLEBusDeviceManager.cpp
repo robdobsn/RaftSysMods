@@ -7,11 +7,9 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "BLEBusDeviceManager.h"
+#include "RaftCore.h"
 #include "DeviceTypeRecords.h"
-#include "BusRequestInfo.h"
-#include "DeviceStatus.h"
-#include "RaftDevice.h"
-#include "Logger.h"
+#include "BLEAdvertDecoder.h"
 
 // #define DEBUG_GET_DEVICE_ADDRESSES
 // #define DEBUG_GET_DEVICE_DATA_JSON
@@ -189,67 +187,86 @@ bool BLEBusDeviceManager::handlePollResult(uint64_t timeNowUs, BusElemAddrType a
     // Ms time
     uint32_t timeNowMs = timeNowUs / 1000;
 
-    // Obtain semaphore
-    if (xSemaphoreTake(_accessMutex, pdMS_TO_TICKS(5)) != pdTRUE)
-        return false;
-
     // Get the deviceID
     uint8_t deviceID = 0;
     bool isFirst = false;
     if (pollResultData.size() > 1)
     {
-        deviceID = pollResultData[0];
+        deviceID = pollResultData[BLEAdvertDecoder::DUPLICATE_RECORD_DEVICE_ID_POS];
     }
+
+    // Obtain semaphore
+    if (xSemaphoreTake(_accessMutex, pdMS_TO_TICKS(5)) != pdTRUE)
+        return false;
 
     // Check if device already seen
     BLEBusDeviceState* pDevState = getBLEBusDeviceState(address);
-    if (pDevState == nullptr)
+    if ((pDevState == nullptr) && (_bleBusDeviceStates.size() < MAX_BLE_BUS_DEVICES))
     {
-        // Check limits
-        if (_bleBusDeviceStates.size() < MAX_BLE_BUS_DEVICES)
-        {
-            // Create new device state
-            BLEBusDeviceState devState;
-            devState.busElemAddr = address;
-            devState.lastBTHomePacketID = deviceID;
-            _bleBusDeviceStates.push_back(devState);
-            pDevState = &_bleBusDeviceStates.back();
-            isFirst = true;
+        // Create new device state
+        BLEBusDeviceState devState;
+        devState.busElemAddr = address;
+        devState.lastBTHomePacketID = deviceID;
+        _bleBusDeviceStates.push_back(devState);
+        isFirst = true;
 
-            // Callback
-            _raftBus.callBusElemStatusCB({BusElemAddrAndStatus(address, true, false, true, _deviceTypeIndex)});
+        // Return semaphore
+        xSemaphoreGive(_accessMutex);
+
+        // Callback
+        _raftBus.callBusElemStatusCB({BusElemAddrAndStatus(address, true, false, true, _deviceTypeIndex)});
+
+        // Obtain semaphore again
+        if (xSemaphoreTake(_accessMutex, pdMS_TO_TICKS(5)) != pdTRUE)
+            return false;
+
+        // Get the device state
+        pDevState = getBLEBusDeviceState(address);
+
+        // Check valid
+        if (pDevState == nullptr)
+        {
+            xSemaphoreGive(_accessMutex);
+            return false;
         }
     }
 
     // Check if device state available
-    bool storeReqd = isFirst || (pDevState && (pDevState->lastBTHomePacketID != deviceID));
-    if (pDevState)
+    bool isNotARepeat = isFirst || (pDevState && (pDevState->lastBTHomePacketID != deviceID));
+    RaftDeviceDataChangeCB dataChangeCB = nullptr;
+    const void* pCallbackInfo = nullptr;
+    if (pDevState && isNotARepeat)
     {
-        if (storeReqd)
-        {
-            // Store poll results
-            pDevState->lastDataReceived = pollResultData;
-            _deviceDataLastSetMs = timeNowMs;
-        }
-
-        // Check if data change callback is set
-        if ((pDevState->dataChangeCB) && (pDevState->lastBTHomePacketID != deviceID))
+        // Call data change callback if set
+        if (pDevState->dataChangeCB)
         {
             // Check if time to report
-            if (Raft::isTimeout(timeNowMs, pDevState->lastSeenTimeMs, pDevState->minTimeBetweenReportsMs))
+            if ((pDevState->minTimeBetweenReportsMs == 0) || (Raft::isTimeout(timeNowMs, pDevState->lastSeenTimeMs, pDevState->minTimeBetweenReportsMs)))
             {
-                // Call the callback
-                pDevState->dataChangeCB(address, pollResultData, pDevState->pCallbackInfo);
+                // Note that the callback should be called
+                dataChangeCB = pDevState->dataChangeCB;
+                pCallbackInfo = pDevState->pCallbackInfo;
             }
         }
 
-        // Update last seen time
+        // Store poll results
+        pDevState->lastDataReceived = pollResultData;
+        _deviceDataLastSetMs = timeNowMs;
+
+        // Update last seen time and packet ID
         pDevState->lastSeenTimeMs = timeNowMs;
         pDevState->lastBTHomePacketID = deviceID;
     }
 
     // Return semaphore
     xSemaphoreGive(_accessMutex);
+
+    // Call data change callback if required
+    if (dataChangeCB)
+    {
+        // Call the callback
+        dataChangeCB(address, pollResultData, pCallbackInfo);
+    }
 
     // Debug
 #ifdef DEBUG_HANDLE_POLL_RESULT

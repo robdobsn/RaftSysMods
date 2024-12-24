@@ -10,9 +10,7 @@
 
 #include "RaftBusDevicesIF.h"
 #include "DeviceTypeRecords.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/semphr.h"
+#include "RaftThreading.h"
 
 class DeviceStatus;
 class RaftJsonIF;

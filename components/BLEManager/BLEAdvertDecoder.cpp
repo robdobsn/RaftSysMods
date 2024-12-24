@@ -9,6 +9,7 @@
 #include "RaftCore.h"
 #include "BLEAdvertDecoder.h"
 #include "BTHomeConsts.h"
+#include "RaftBusDevicesIF.h"
 
 #ifdef CONFIG_BT_ENABLED
 
@@ -365,6 +366,7 @@ bool BLEAdvertDecoder::decodeBtHome(ble_addr_t bleAddr, const uint8_t* pBtHomeDa
     decodedData.push_back((timeVal >> 8) & 0xFF);
     decodedData.push_back(timeVal & 0xFF);    
     // Add the packet ID
+    // Note that this MUST be at the position indicated by DUPLICATE_RECORD_DEVICE_ID_POS
     decodedData.push_back(packetID);
     // Add the BLE address (padded to 8 bytes)
     decodedData.push_back(0);

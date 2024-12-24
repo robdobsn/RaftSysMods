@@ -10,9 +10,7 @@
 #pragma once
 
 #include "RaftSysMod.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/semphr.h"
+#include "RaftThreading.h"
 #include "RaftUtils.h"
 #include "FileStreamBlock.h"
 #include "ProtocolExchange.h"

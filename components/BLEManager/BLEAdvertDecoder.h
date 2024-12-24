@@ -27,6 +27,9 @@ class BLEAdvertDecoder
 {
 public:
 
+    // Position in message buffer of BTHome Device ID field
+    static const uint32_t DUPLICATE_RECORD_DEVICE_ID_POS = 2;
+    
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Decode ad packet
     /// @param event BLE discovery event

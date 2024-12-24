@@ -1,6 +1,6 @@
 {
   "name": "RaftSysMods",
-  "version": "1.7.10",
+  "version": "1.7.11",
   "description": "System modules for the Raft ESP32 framework",
   "keywords": "esp32, esp32s3, esp32c3, framework",
   "repository": {
