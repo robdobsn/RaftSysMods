@@ -190,10 +190,12 @@ bool BLEBusDeviceManager::handlePollResult(uint64_t timeNowUs, BusElemAddrType a
     // Get the deviceID
     uint8_t deviceID = 0;
     bool isFirst = false;
+#ifdef CONFIG_BT_ENABLED
     if (pollResultData.size() > 1)
     {
         deviceID = pollResultData[BLEAdvertDecoder::DUPLICATE_RECORD_DEVICE_ID_POS];
     }
+#endif
 
     // Obtain semaphore
     if (xSemaphoreTake(_accessMutex, pdMS_TO_TICKS(5)) != pdTRUE)
