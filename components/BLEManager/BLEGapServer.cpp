@@ -18,6 +18,7 @@
 #include "PlatformUtils.h"
 #include "BLEAdvertDecoder.h"
 #include "RaftBusSystem.h"
+#include "esp_idf_version.h"
 
 #undef min
 #undef max

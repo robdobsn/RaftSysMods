@@ -10,6 +10,8 @@
 #include "CommandSerialPort.h"
 #include "RaftUtils.h"
 #include "SpiramAwareAllocator.h"
+#include "esp_idf_version.h"
+#include "sdkconfig.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
 
@@ -86,7 +88,12 @@ void CommandSerialPort::setup(RaftJsonIF& config, const char* pModName)
                 .source_clk = UART_SCLK_DEFAULT,
 #endif
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 1)
-                .flags = 0,
+                .flags = {
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0)
+                .allow_pd = 1,
+                .backup_before_sleep = 1,
+#endif
+                },
 #endif
         };
         esp_err_t err = uart_param_config((uart_port_t)_uartNum, &uart_config);
