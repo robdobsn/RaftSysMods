@@ -60,6 +60,7 @@
 // #define DEBUG_BLE_ON_SYNC
 // #define DEBUG_BLE_SCAN_START_STOP
 // #define DEBUG_BLE_SCAN_EVENT
+// #define DEBUG_CONN_UPDATE
 
 // Singleton instance
 BLEGapServer* BLEGapServer::_pThis = nullptr;
@@ -1005,6 +1006,15 @@ int BLEGapServer::gapEventConnUpdate(struct ble_gap_event *event, String& status
     connHandle = event->conn_update.conn_handle;
     struct ble_gap_conn_desc desc;
     int rc = ble_gap_conn_find(event->conn_update.conn_handle, &desc);
+
+#ifdef DEBUG_CONN_UPDATE
+    LOG_I(MODULE_PREFIX, "gapEventConnUpdate connHandle=%d error=%s retc=%d connIntvl=%d (%dms) connLatency=%d (%dms) connTimeout=%d (%dms)",
+            connHandle, statusStr.c_str(), rc,
+            desc.conn_itvl, ((int)desc.conn_itvl * 125) / 100,
+            desc.conn_latency, ((int)desc.conn_latency * (int)desc.conn_itvl * 125) / 100, 
+            desc.supervision_timeout, (int)desc.supervision_timeout * 10); 
+#endif
+
     if ((rc == NIMBLE_RETC_OK) && _connIntervalCheckPending && (desc.conn_itvl != _bleConfig.getConnIntervalPrefBLEUnits()))
     {
         // Request conn interval we want
