@@ -20,6 +20,7 @@ idf_component_register(
     "components/ESPOTAUpdate/ESPOTAUpdate.cpp"
     "components/FileManager/FileManager.cpp"
     "components/LogManager/LoggerPapertrail.cpp"
+    "components/LogManager/LoggerRaftRemote.cpp"
     "components/LogManager/LogManager.cpp"
     "components/MQTTManager/MQTTManager.cpp"
     "components/NetworkManager/NetworkManager.cpp"

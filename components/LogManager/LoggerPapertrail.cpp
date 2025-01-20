@@ -47,8 +47,8 @@ LoggerPapertrail::~LoggerPapertrail()
 
 void LOGGING_FUNCTION_DECORATOR LoggerPapertrail::log(esp_log_level_t level, const char *tag, const char* msg)
 {
-    // Check level
-    if (level > _level)
+    // Check level and not paused
+    if ((level > _level) || _isPaused)
         return;
 
     // Check for recusion (e.g. if the log function itself logs)
@@ -192,7 +192,7 @@ bool LoggerPapertrail::checkSocket(ip_addr_t& hostIPAddr)
 
     // Debug
     ESP_LOGI(MODULE_PREFIX, "checkSocket OK hostname %s port %s level %s sysName %s socketFd %d socketFlags %04x", 
-                        _hostname.c_str(), _port.c_str(), getLevelStr(), _sysName.c_str(), _socketFd, 
+                        _hostname.c_str(), _port.c_str(), getLevelStr(_level), _sysName.c_str(), _socketFd, 
                         fcntl(_socketFd, F_GETFL, 0));
     return true;
 }

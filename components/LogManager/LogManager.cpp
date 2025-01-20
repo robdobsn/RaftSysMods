@@ -11,22 +11,21 @@
 #include "SysManager.h"
 #include "LoggerCore.h"
 #include "LoggerPapertrail.h"
+#include "LoggerRaftRemote.h"
 
 // #define DEBUG_LOG_MANAGER
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Constructor
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Constructor
+/// @param pModuleName Module name
+/// @param sysConfig System configuration
 LogManager::LogManager(const char *pModuleName, RaftJsonIF& sysConfig)
     : RaftSysMod(pModuleName, sysConfig)
 {
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Setup
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief Setup
 void LogManager::setup()
 {
     // Clear existing loggers
@@ -47,7 +46,14 @@ void LogManager::setup()
         if (!isEnabled)
             continue;
         String logDestType = logDestConfig.getString("type", "");
-        if (logDestType.equalsIgnoreCase("Papertrail"))
+        if (logDestType.equalsIgnoreCase("RaftRemote"))
+        {
+            // Construct raft remote logger
+            LoggerRaftRemote *pLogger = new LoggerRaftRemote(logDestConfig, getSystemName(), getSystemUniqueString());
+            loggerCore.addLogger(pLogger);
+            // LOG_I(MODULE_PREFIX, "Added RaftRemote logger");
+        }
+        else if (logDestType.equalsIgnoreCase("Papertrail"))
         {
             // Construct papertrail logger
             LoggerPapertrail *pLogger = new LoggerPapertrail(logDestConfig, getSystemName(), getSystemUniqueString());
@@ -57,3 +63,9 @@ void LogManager::setup()
     }
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Loop
+void LogManager::loop()
+{
+    loggerCore.loop();
+}

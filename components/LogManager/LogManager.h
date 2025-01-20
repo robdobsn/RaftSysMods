@@ -30,6 +30,9 @@ protected:
     // Setup
     virtual void setup() override final;
 
+    // Loop
+    virtual void loop() override final;
+
 private:
     // Log prefix
     static constexpr const char *MODULE_PREFIX = "LogMan";
