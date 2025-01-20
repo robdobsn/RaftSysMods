@@ -15,6 +15,7 @@
 // #define DEBUG_LOGGER_RAFTREMOTE
 // #define DEBUG_LOGGER_RAFTREMOTE_DETAIL
 // #define DEBUG_LOGGER_RAFTREMOTE_SOCKET
+// #define DEBUG_LOGGER_RAFTREMOTE_LOOP
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Constructor
@@ -208,12 +209,14 @@ bool LoggerRaftRemote::checkConnection()
 /// @brief Loop
 void LoggerRaftRemote::loop()
 {
+#ifdef DEBUG_LOGGER_RAFTREMOTE_LOOP
     // Check if time for debug
     if (Raft::isTimeout(millis(), _debugLastMs, DEBUG_INTERVAL_MS))
     {
         _debugLastMs = millis();
         ESP_LOGI(MODULE_PREFIX, "loop clientFd %d numConnBusy %d", (int)_clientSocketFd, (int)_connBusyCount);
     }
+#endif
 
     // Check if time to check server and connection
     if (!Raft::isTimeout(millis(), _connCheckLastMs, CONN_CHECK_INTERVAL_MS))
@@ -222,8 +225,10 @@ void LoggerRaftRemote::loop()
 
     // Check if server socket needs starting
     if (_serverSocketFd < 0)
-        if (!startServer())
-            return;
+    {
+        startServer();
+        return;
+    }
 
     // Check connection
     checkConnection();
