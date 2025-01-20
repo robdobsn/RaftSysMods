@@ -21,8 +21,9 @@
 /// @param logDestConfig Configuration for the logger
 /// @param systemName Name of the system
 /// @param systemUniqueString Unique string for the system
-LoggerRaftRemote::LoggerRaftRemote(const RaftJsonIF& logDestConfig, const String& systemName, const String& systemUniqueString)
-    : LoggerBase(logDestConfig)
+LoggerRaftRemote::LoggerRaftRemote(const RaftJsonIF& logDestConfig, const String& systemName, 
+                const String& systemUniqueString, RestAPIEndpointManager* pRestAPIEndpointManager)
+    : LoggerBase(logDestConfig), _pRestAPIEndpointManager(pRestAPIEndpointManager)
 {
     // Get config
     _port = logDestConfig.getLong("port", 0);
@@ -226,4 +227,79 @@ void LoggerRaftRemote::loop()
 
     // Check connection
     checkConnection();
+
+    // If client connected, handle incoming data
+    if (_clientSocketFd >= 0)
+    {
+        handleIncomingData();
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Handle incoming data from the client
+void LoggerRaftRemote::handleIncomingData()
+{
+    // Buffer for reading data
+    char buf[300];
+    int bytesRead = recv(_clientSocketFd, buf, sizeof(buf) - 1, 0);
+
+    // Check if data received
+    if (bytesRead > 0)
+    {
+        // Null-terminate the received data
+        buf[bytesRead] = '\0';
+
+        // Remove final newline if present
+        if (buf[bytesRead - 1] == '\n')
+        {
+            buf[bytesRead - 1] = '\0';
+            bytesRead--;
+        }
+
+        // Debug
+#ifdef DEBUG_LOGGER_RAFTREMOTE_DETAIL
+        String debugStr;
+        Raft::hexDump((const uint8_t*)buf, bytesRead, debugStr);
+        ESP_LOGI(MODULE_PREFIX, "handleIncomingData bytesRead %d debugStr %s", bytesRead, debugStr.c_str());
+#endif
+
+        // Handle as a single line
+        String curLine = buf;
+        curLine.trim();
+
+        // Handle the command
+        String retStr;
+        if (_pRestAPIEndpointManager)
+        {
+            _pRestAPIEndpointManager->handleApiRequest(curLine.c_str(), retStr, 
+                    APISourceInfo(RestAPIEndpointManager::CHANNEL_ID_REMOTE_CONTROL));
+        }
+
+        // Send response
+        sendResponse(retStr + "\n");
+    }
+    else if (bytesRead < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
+    {
+        // Handle connection error
+        ESP_LOGE(MODULE_PREFIX, "handleIncomingData FAIL recv errno %d", errno);
+        close(_clientSocketFd);
+        _clientSocketFd = -1;
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Send a response to the client
+/// @param response Response string
+void LoggerRaftRemote::sendResponse(const String& response)
+{
+    if (_clientSocketFd >= 0)
+    {
+        int ret = send(_clientSocketFd, response.c_str(), response.length(), 0);
+        if (ret < 0)
+        {
+            ESP_LOGE(MODULE_PREFIX, "sendResponse FAIL errno %d", errno);
+            close(_clientSocketFd);
+            _clientSocketFd = -1;
+        }
+    }
 }

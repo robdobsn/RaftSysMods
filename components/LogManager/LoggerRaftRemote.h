@@ -13,13 +13,15 @@
 #include "sys/types.h"
 #include "sys/socket.h"
 #include "netdb.h"
+#include "RestAPIEndpointManager.h"
 
 class RaftJsonIF;
 
 class LoggerRaftRemote : public LoggerBase
 {
 public:
-    LoggerRaftRemote(const RaftJsonIF& logDestConfig, const String& systemName, const String& systemUniqueString);
+    LoggerRaftRemote(const RaftJsonIF& logDestConfig, const String& systemName, 
+            const String& systemUniqueString, RestAPIEndpointManager* pRestAPIEndpointManager);
     virtual ~LoggerRaftRemote();
     virtual void log(esp_log_level_t level, const char *tag, const char* msg) override final;
     virtual void loop() override final;
@@ -32,6 +34,9 @@ private:
     // Sockets
     int _serverSocketFd = -1;
     int _clientSocketFd = -1;
+
+    // Rest API endpoint manager
+    RestAPIEndpointManager* _pRestAPIEndpointManager = nullptr;
 
     // Recursion detector
     bool _inLog = false;
@@ -64,6 +69,8 @@ private:
     // Helpers
     bool startServer();
     bool checkConnection();
+    void handleIncomingData();
+    void sendResponse(const String& response);
 
     // Log prefix
     static constexpr const char *MODULE_PREFIX = "LogRaftRemote";

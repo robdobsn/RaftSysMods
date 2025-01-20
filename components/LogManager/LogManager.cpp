@@ -49,7 +49,7 @@ void LogManager::setup()
         if (logDestType.equalsIgnoreCase("RaftRemote"))
         {
             // Construct raft remote logger
-            LoggerRaftRemote *pLogger = new LoggerRaftRemote(logDestConfig, getSystemName(), getSystemUniqueString());
+            LoggerRaftRemote *pLogger = new LoggerRaftRemote(logDestConfig, getSystemName(), getSystemUniqueString(), getRestAPIEndpointManager());
             loggerCore.addLogger(pLogger);
             // LOG_I(MODULE_PREFIX, "Added RaftRemote logger");
         }
