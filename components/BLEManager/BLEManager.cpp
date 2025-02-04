@@ -23,7 +23,8 @@ BLEManager::BLEManager(const char *pModuleName, RaftJsonIF& sysConfig)
 
 #ifdef CONFIG_BT_ENABLED
 
-        , _gapServer([this](){
+        , _gapServer([this](std::vector<uint8_t>& manufacturerData){
+                        getAdvertisingData(manufacturerData);
                         return getAdvertisingName();
                     },
                     [this](bool isConnected){
@@ -250,3 +251,53 @@ String BLEManager::getAdvertisingName()
     return adName;
 }
 #endif
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Get advertising data
+/// @param manufacturerData
+void BLEManager::getAdvertisingData(std::vector<uint8_t>& manufacturerData)
+{
+    // Check if manuf ID is specified - if so advertise manufacturer data
+    String manufID = configGetString("advManufID", "");
+    if (manufID.length() == 0)
+        return;
+
+    // Extract manufacturer code from config if present
+    std::vector<uint8_t> manufIDBytes = Raft::getBytesFromHexStr(manufID.c_str(), MAX_MANUFACTURER_ID_LEN);
+    manufacturerData.assign(manufIDBytes.begin(), manufIDBytes.end());
+
+    // Add any fixed data specified in config
+    std::vector<uint8_t> fixedData = Raft::getBytesFromHexStr(configGetString("advManufData", "").c_str(), MAX_MANUFACTURER_DATA_LEN);
+    manufacturerData.insert(manufacturerData.end(), fixedData.begin(), fixedData.end());
+
+    // Check if we need to limit any further data
+    int advManufValueBytes = configGetLong("advManufValueBytes", -1);
+    
+    // Check if any additional data is specified from named values
+    String advManufValue = configGetString("advManufValue", "");
+    if (advManufValue.equalsIgnoreCase("serialNo"))
+    {
+        // Convert serial number to bytes in BCD format
+        String serialNo = getSysManager() ? getSysManager()->getSystemSerialNo() : "";
+
+        // Convert to BCD
+        auto serialNoBytes = Raft::getBytesFromHexStr(serialNo.c_str(), MAX_MANUFACTURER_DATA_LEN * 2);
+        std::vector<uint8_t> serialNoBCD(serialNoBytes.size()/2);
+        uint32_t digitIdx = 0;
+        for (uint8_t byteVal : serialNoBytes)
+        {
+            if (digitIdx % 2 == 0)
+                serialNoBCD[digitIdx / 2] = (byteVal & 0x0f) << 4;
+            else
+                serialNoBCD[digitIdx / 2] |= byteVal & 0x0f;
+            digitIdx++;
+        }
+
+        // Serial number
+        if (serialNoBCD.size() > 0)
+        {
+            uint32_t startPos = serialNoBCD.size() > advManufValueBytes ? serialNoBCD.size() - advManufValueBytes : 0;
+            manufacturerData.insert(manufacturerData.end(), serialNoBCD.begin() + startPos, serialNoBCD.begin() + serialNoBCD.size());
+        }
+    }
+}

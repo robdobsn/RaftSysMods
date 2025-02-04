@@ -195,9 +195,8 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
     // Check valid
     if (!_pCommsCoreIF)
     {
-        Raft::setJsonErrorResult(reqStr.c_str(), respStr, "noCommsCore");
         LOG_W(MODULE_PREFIX, "apiCommandSerial noCommsCore");
-        return RaftRetCode::RAFT_INVALID_OBJECT;
+        return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "noCommsCore", nullptr, RaftRetCode::RAFT_INVALID_OBJECT);
     }
 
     // Extract parameters
@@ -209,9 +208,8 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
     // Check valid
     if (params.size() < 3)
     {
-        Raft::setJsonErrorResult(reqStr.c_str(), respStr, "notEnoughParams");
         LOG_W(MODULE_PREFIX, "apiCommandSerial not enough params %d", params.size());
-        return RaftRetCode::RAFT_INVALID_DATA;
+        return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "notEnoughParams", nullptr, RaftRetCode::RAFT_INVALID_DATA);
     }
 
     // Check type of command
@@ -226,9 +224,8 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
             String portName = nvJson.getString("port", "");
             if (portName.length() == 0)
             {
-                Raft::setJsonErrorResult(reqStr.c_str(), respStr, "noPort");
                 LOG_W(MODULE_PREFIX, "apiCommandSerial no port");
-                return RaftRetCode::RAFT_INVALID_DATA;
+                return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "noPort", nullptr, RaftRetCode::RAFT_INVALID_DATA);
             }
 
             // Find the port
@@ -257,7 +254,7 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
             }
 
             // If we get here the port name isn't found
-            return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "portNotFound");
+            return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "portNotFound", nullptr, RaftRetCode::RAFT_INVALID_DATA);
         }
 
         // Check if removing bridge
@@ -286,13 +283,13 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
             }
 
             // If we get here the bridge name isn't found
-            return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "bridgeIDNotFound");
+            return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "bridgeIDNotFound", nullptr, RaftRetCode::RAFT_INVALID_DATA);
         }
 
         // Unknown bridge action
-        return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "unknownAction");
+        return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "unknownAction", nullptr, RaftRetCode::RAFT_INVALID_DATA);
     }
 
     // Unknown command
-    return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "unknownCommand");
+    return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "unknownCommand", nullptr, RaftRetCode::RAFT_INVALID_DATA);
 }

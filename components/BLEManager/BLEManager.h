@@ -67,9 +67,15 @@ private:
     // BLE Gap server
     BLEGapServer _gapServer;
 
+    // Manufacturer data
+    std::vector<uint8_t> _advManufSerialNo;
+    static const uint32_t MAX_MANUFACTURER_ID_LEN = 2;
+    static const uint32_t MAX_MANUFACTURER_DATA_LEN = 8;
+
     // Helpers
     String getAdvertisingName();
-
+    void getAdvertisingData(std::vector<uint8_t>& manufacturerData);
+    
     // Restart API
     RaftRetCode apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
 #endif

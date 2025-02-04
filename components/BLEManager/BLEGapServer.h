@@ -27,7 +27,7 @@
 #define USE_TIMED_ADVERTISING_CHECK 1
 
 // Callback types
-typedef std::function<String()> GetAdvertisingNameFnType;
+typedef std::function<String(std::vector<uint8_t>& manufacturerData)> GetAdvertisingInfoFnType;
 typedef std::function<void(bool isConnected)> StatusChangeFnType;
 
 class BLEGapServer
@@ -38,9 +38,9 @@ public:
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Constructor for BLEGapServer
-    /// @param getAdvertisingNameFn function pointer to get the advertising name
+    /// @param getAdvertisingInfoFn function pointer to get the advertising info (name, etc)
     /// @param statusChangeFn function pointer to handle status changes
-    BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn, 
+    BLEGapServer(GetAdvertisingInfoFnType getAdvertisingInfoFn, 
                 StatusChangeFnType statusChangeFn);
     
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -123,7 +123,7 @@ private:
     bool _isInit = false;
 
     // Get advertising name function
-    GetAdvertisingNameFnType _getAdvertisingNameFn = nullptr;
+    GetAdvertisingInfoFnType _getAdvertisingInfoFn = nullptr;
     static const uint32_t BLE_GAP_MAX_ADV_NAME_LEN = 31;
 
     // Status change function
@@ -313,7 +313,7 @@ private:
 
 public:
     // Constructor
-    BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn, 
+    BLEGapServer(GetAdvertisingInfoFnType getAdvertisingInfoFn, 
                 StatusChangeFnType statusChangeFn) {}
 
     // Setup

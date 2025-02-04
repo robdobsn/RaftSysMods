@@ -67,9 +67,9 @@ BLEGapServer* BLEGapServer::_pThis = nullptr;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Constructor for BLEGapServer
-/// @param getAdvertisingNameFn function pointer to get the advertising name
+/// @param getAdvertisingInfoFn function pointer to get the advertising info (name, etc)
 /// @param statusChangeFn function pointer to handle status changes
-BLEGapServer::BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn, 
+BLEGapServer::BLEGapServer(GetAdvertisingInfoFnType getAdvertisingInfoFn, 
                 StatusChangeFnType statusChangeFn) :
         _gattServer([this](const char* characteristicName, bool readOp, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg)
                     {
@@ -79,7 +79,7 @@ BLEGapServer::BLEGapServer(GetAdvertisingNameFnType getAdvertisingNameFn,
         _bleAdvertDecoder()
 {
     _pThis = this;
-    _getAdvertisingNameFn = getAdvertisingNameFn;
+    _getAdvertisingInfoFn = getAdvertisingInfoFn;
     _statusChangeFn = statusChangeFn;
 }
 
@@ -377,6 +377,14 @@ bool BLEGapServer::startAdvertising()
         return true;
     }
 
+    // Get the advertising info (name, etc)
+    String advertisingName;
+    std::vector<uint8_t> advertisingManufacturerData;
+    if (_getAdvertisingInfoFn)
+    {
+        advertisingName = _getAdvertisingInfoFn(advertisingManufacturerData).c_str();
+    }
+
     // Set advertising data
     struct ble_hs_adv_fields fields;
     memset(&fields, 0, sizeof fields);
@@ -405,16 +413,23 @@ bool BLEGapServer::startAdvertising()
     // Clear fields
     memset(&fields, 0, sizeof fields);
 
-    // Set the advertising name
-    if (_getAdvertisingNameFn)
+    // Set the advertising info
+    if (advertisingName.length() > 0)
     {
-        if (ble_svc_gap_device_name_set(_getAdvertisingNameFn().c_str()) != NIMBLE_RETC_OK)
+        if (ble_svc_gap_device_name_set(advertisingName.c_str()) != NIMBLE_RETC_OK)
         {
             LOG_E(MODULE_PREFIX, "error setting adv name rc=%d", rc);
         }
     }
 
-    // Set the advertising response data
+    // Set manufacturer data if available
+    if (!advertisingManufacturerData.empty())
+    {
+        fields.mfg_data = advertisingManufacturerData.data();
+        fields.mfg_data_len = advertisingManufacturerData.size();
+    }
+
+    // Set the advertising data
     const char *name = ble_svc_gap_device_name();
     fields.name = (uint8_t *)name;
     fields.name_len = strnlen(name, BLE_GAP_MAX_ADV_NAME_LEN);
@@ -432,7 +447,6 @@ bool BLEGapServer::startAdvertising()
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
 
-
     // Check if advertising interval is specified
     if (_bleConfig.advertisingIntervalMs > 0)
     {
@@ -446,8 +460,8 @@ bool BLEGapServer::startAdvertising()
     rc = ble_gap_adv_start(_ownAddrType, NULL, BLE_HS_FOREVER,
                            &adv_params,
                            [](struct ble_gap_event *event, void *arg) {
-                                 return ((BLEGapServer*)arg)->nimbleGapEvent(event);
-                           }, 
+                               return ((BLEGapServer*)arg)->nimbleGapEvent(event);
+                           },
                            this);
     if (rc != NIMBLE_RETC_OK)
     {
@@ -760,8 +774,11 @@ bool BLEGapServer::nimbleStart()
         {
             // Set the advertising name
             int rcAdv = -1;
-            if (_getAdvertisingNameFn)
-                rcAdv = ble_svc_gap_device_name_set(_getAdvertisingNameFn().c_str());
+            if (_getAdvertisingInfoFn)
+            {
+                std::vector<uint8_t> advertisingManufacturerData;
+                rcAdv = ble_svc_gap_device_name_set(_getAdvertisingInfoFn(advertisingManufacturerData).c_str());
+            }
 
 #ifdef DEBUG_NIMBLE_START
             LOG_I(MODULE_PREFIX, "nimbleStart OK advNameSetOk=%s (%d)", rcAdv == -1 ? "no name specified" : (rcAdv == 0 ? "OK" : "FAILED"), rcAdv);
