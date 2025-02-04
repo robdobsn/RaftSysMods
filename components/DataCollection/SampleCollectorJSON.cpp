@@ -18,7 +18,7 @@ void SampleCollectorJSON::setup()
 {
     // Get settings
     _sampleRateLimitHz = config.getLong("rateLimHz", 0);
-    _maxTotalJSONStringSize = config.getLong("maxJsonLen", 0);
+    _maxBufferSize = config.getLong("maxJsonLen", 0);
     _sampleHeader = config.getString("jsonHdr", "");
     _sampleAPIName = config.getString("apiName", "");
     _allocateAtStart = config.getBool("allocAtStart", true);
@@ -31,9 +31,9 @@ void SampleCollectorJSON::setup()
         _minTimeBetweenSamplesUs = 1000000 / _sampleRateLimitHz;
 
     // Debug
-    LOG_I(MODULE_PREFIX, "setup sampleRateLimitHz %d maxTotalJSONStringSize %d sampleHeader %s sampleAPIName %s allocateAtStart %s dumpToConsole %d dumpToFileName %s maxFileSize %d",
+    LOG_I(MODULE_PREFIX, "setup rateLimHz %d maxBuf %d hdr %s api %s allocAtStart %s toConsole %d toFile %s maxFileSz %d",
                 _sampleRateLimitHz, 
-                _maxTotalJSONStringSize, 
+                _maxBufferSize, 
                 _sampleHeader.c_str(), 
                 _sampleAPIName.c_str(), 
                 _allocateAtStart ? "Y" : "N", 
@@ -96,7 +96,7 @@ RaftRetCode SampleCollectorJSON::apiSample(const String &reqStr, String &respStr
         // Write to file
         else if (params[1].equalsIgnoreCase("write"))
         {
-            rslt = writeToFile(params[2], false, rsltStr);
+            rslt = writeToFile(nullptr, &_sampleBuffer, params[2], false, rsltStr);
         }
         // Get buffer
         else if (params[1].equalsIgnoreCase("get"))
@@ -118,9 +118,13 @@ RaftRetCode SampleCollectorJSON::apiSample(const String &reqStr, String &respStr
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Write to file
+/// @param pStr String to write (or nullptr if vector write required)
+/// @param pVec Vector to write (or nullptr if string write required)
 /// @param filename Filename
+/// @param append Append to file
 /// @param errMsg Error message
-bool SampleCollectorJSON::writeToFile(const String& filename, bool append, String& errMsg)
+bool SampleCollectorJSON::writeToFile(const String* pStr, const SpiramAwareUint8Vector* pVec, 
+            const String& filename, bool append, String& errMsg)
 {
     // Get file size
     uint32_t fileSizeStart = 0;
@@ -152,11 +156,23 @@ bool SampleCollectorJSON::writeToFile(const String& filename, bool append, Strin
     // Write buffer
     if (rslt)
     {
-        uint32_t bytesWritten = fileSystem.fileWrite(pFile, (uint8_t*)_sampleBuffer.data(), _sampleBuffer.size());
-        if (bytesWritten != _sampleBuffer.size())
+        if (pStr)
         {
-            errMsg = "failWrite";
-            rslt = false;
+            uint32_t bytesWritten = fileSystem.fileWrite(pFile, (uint8_t*)pStr->c_str(), pStr->length());
+            if (bytesWritten != pStr->length())
+            {
+                errMsg = "failWrite";
+                rslt = false;
+            }
+        }
+        else if (pVec)
+        {
+            uint32_t bytesWritten = fileSystem.fileWrite(pFile, pVec->data(), pVec->size());
+            if (bytesWritten != pVec->size())
+            {
+                errMsg = "failWrite";
+                rslt = false;
+            }
         }
     }
 
@@ -172,30 +188,35 @@ bool SampleCollectorJSON::writeToFile(const String& filename, bool append, Strin
                 fileSizeEnd, isFsOkEnd ? "Y" : "N");
 #endif
 
-    // Clear buffer
-    _sampleBuffer.clear();
-
     // Return
     return rslt;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Write to console
-void SampleCollectorJSON::writeToConsole()
+/// @param pStr String to write (or nullptr if vector write required)
+/// @param pVec Vector to write (or nullptr if string write required)
+void SampleCollectorJSON::writeToConsole(const String* pStr, const SpiramAwareUint8Vector* pVec)
 {
     // Write header
     LOG_I("S", "SampleCollector: %s", _sampleHeader.c_str());
 
+    // Char pointer
+    const char* pChars = pStr ? pStr->c_str() : (pVec ? (const char*)pVec->data() : nullptr);
+    if (!pChars)
+        return;
+    uint32_t strLen = pStr ? pStr->length() : pVec->size();
+
     // Write lines
     uint32_t strPos = 0;
-    while (strPos < _sampleBuffer.size())
+    while (strPos < strLen)
     {
         // Find end of line
         uint32_t strPosEnd = strPos;
-        while ((strPosEnd < _sampleBuffer.size()) && (_sampleBuffer[strPosEnd] != '\n'))
+        while ((strPosEnd < strLen) && (pChars[strPosEnd] != '\n'))
             strPosEnd++;
         // Write line
-        LOG_I("S", "%.*s", strPosEnd - strPos, &_sampleBuffer[strPos]);
+        LOG_I("S", "%.*s", strPosEnd - strPos, &pChars[strPos]);
         // Next line
         strPos = strPosEnd + 1;
     }
@@ -204,8 +225,12 @@ void SampleCollectorJSON::writeToConsole()
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Add sample
 /// @param sampleJSON Sample JSON
+/// @return true if added
 bool SampleCollectorJSON::addSample(const String& sampleJSON)
 {
+    LOG_I(MODULE_PREFIX, "addSample %s", sampleJSON.c_str());
+    return true;
+
 #ifdef DEBUG_ADD_SAMPLE
     LOG_I(MODULE_PREFIX, "addSample enabled %s busSize %d %s", 
                 _samplingEnabled ? "Y" : "N",
@@ -213,27 +238,47 @@ bool SampleCollectorJSON::addSample(const String& sampleJSON)
                 sampleJSON.c_str());
 #endif
 
-    // Check if sampling enabled
-    if (!_samplingEnabled)
+    // Check valid
+    if (!_samplingEnabled || (sampleJSON.length() == 0))
         return false;
+
+    // Check for no buffering
+    if (_maxBufferSize == 0)
+    {
+        // Write to console
+        if (_dumpToConsoleWhenFull)
+        {
+            writeToConsole(&sampleJSON, nullptr);
+        }
+        if (_dumpToFileName.length() > 0)
+        {
+            // Write to file
+            String errMsg;
+            if (!writeToFile(&sampleJSON, nullptr, _dumpToFileName, true, errMsg))
+            {
+                LOG_E(MODULE_PREFIX, "addSample: FAILED to write to file %s", errMsg.c_str());
+                return false;
+            }
+        }
+        return true;
+    }
 
     // Allocate buffer
     if (_allocateAtStart)
     {
-        _sampleBuffer.reserve(_maxTotalJSONStringSize);
+        _sampleBuffer.reserve(_maxBufferSize);
         _allocateAtStart = false;
     }
 
     // Check if buffer will be full
-    if (_sampleBuffer.size() + sampleJSON.length() + 1 >= _maxTotalJSONStringSize)
+    if (_sampleBuffer.size() + sampleJSON.length() + 1 >= _maxBufferSize)
     {
         // Dump to console
         if (_dumpToConsoleWhenFull)
         {
-            writeToConsole();
-            _sampleBuffer.clear();
+            writeToConsole(nullptr, &_sampleBuffer);
         }
-        else if (_dumpToFileName.length() > 0)
+        if (_dumpToFileName.length() > 0)
         {
             // Check size of file
             uint32_t fileSize = 0;
@@ -243,21 +288,22 @@ bool SampleCollectorJSON::addSample(const String& sampleJSON)
                 return false;
             }
 
+            // TODO Remove
+            LOG_I(MODULE_PREFIX, "addSample: writing to file %s len %d filesize %d", _dumpToFileName.c_str(), _sampleBuffer.size(), fileSize); 
+
             // Write to file
             String errMsg;
-            if (!writeToFile(_dumpToFileName, true, errMsg))
+            if (!writeToFile(nullptr, &_sampleBuffer, _dumpToFileName, true, errMsg))
             {
                 LOG_E(MODULE_PREFIX, "addSample: FAILED to write to file %s", errMsg.c_str());
                 return false;
             }
-
-            // Clear buffer
-            _sampleBuffer.clear();
         }
         else
         {
             return false;
         }
+        _sampleBuffer.clear();
     }
 
     // Check time since last sample
@@ -266,8 +312,12 @@ bool SampleCollectorJSON::addSample(const String& sampleJSON)
         return false;
 
     // Add sample to buffer
-    _sampleBuffer.insert(_sampleBuffer.end(), sampleJSON.c_str(), sampleJSON.c_str() + sampleJSON.length());
-    _sampleBuffer.push_back('\n');
+    if (_sampleBuffer.size() < _maxBufferSize)
+    {
+        uint32_t bytesToWrite = _sampleBuffer.size() + sampleJSON.length() > _maxBufferSize ? _maxBufferSize - _sampleBuffer.size() : sampleJSON.length();
+        _sampleBuffer.insert(_sampleBuffer.end(), sampleJSON.c_str(), sampleJSON.c_str() + bytesToWrite);
+        _sampleBuffer.push_back('\n');
+    }
 
     // Update time since last sample
     _timeSinceLastSampleUs = timeNowUs;

@@ -65,7 +65,7 @@ private:
 
     // Sample info
     uint32_t _sampleRateLimitHz = 0;
-    uint32_t _maxTotalJSONStringSize = 0;
+    uint32_t _maxBufferSize = 0;
 
     // Dumping
     bool _dumpToConsoleWhenFull = false;
@@ -83,12 +83,24 @@ private:
     bool _allocateAtStart = true;
 
     // Sample buffer
-    std::vector<char, SpiramAwareAllocator<char>> _sampleBuffer;
+    SpiramAwareUint8Vector _sampleBuffer;
 
     // Helpers
     RaftRetCode apiSample(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
-    bool writeToFile(const String& filename, bool append, String& errMsg);
-    void writeToConsole();
+
+    /// @brief Write to file
+    /// @param pStr String to write (or nullptr if vector write required)
+    /// @param pVec Vector to write (or nullptr if string write required)
+    /// @param filename Filename
+    /// @param append Append to file
+    /// @param errMsg Error message
+    bool writeToFile(const String* pStr, const SpiramAwareUint8Vector* pVec, 
+                const String& filename, bool append, String& errMsg);
+
+    /// @brief Write to console
+    /// @param pStr String to write (or nullptr if vector write required)
+    /// @param pVec Vector to write (or nullptr if string write required)
+    void writeToConsole(const String* pStr, const SpiramAwareUint8Vector* pVec);
 
     // Log prefix
     static constexpr const char *MODULE_PREFIX = "SampleColl";
