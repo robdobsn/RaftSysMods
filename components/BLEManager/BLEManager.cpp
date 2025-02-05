@@ -279,18 +279,6 @@ void BLEManager::getAdvertisingData(std::vector<uint8_t>& manufacturerData, ble_
     // Convert from hex to binary
     auto serialNoBytes = Raft::getBytesFromHexStr(serialNo.c_str(), MAX_SERIAL_NO_BYTES);
 
-    // Convert to BCD
-    std::vector<uint8_t> serialNoBCD(serialNoBytes.size()/2);
-    uint32_t digitIdx = 0;
-    for (uint8_t byteVal : serialNoBytes)
-    {
-        if (digitIdx % 2 == 0)
-            serialNoBCD[digitIdx / 2] = (byteVal & 0x0f) << 4;
-        else
-            serialNoBCD[digitIdx / 2] |= byteVal & 0x0f;
-        digitIdx++;
-    }
-
     // Check if manuf ID is specified - if so advertise manufacturer data
     String manufID = configGetString("advManufID", "");
     if (manufID.length() != 0)
@@ -311,10 +299,11 @@ void BLEManager::getAdvertisingData(std::vector<uint8_t>& manufacturerData, ble_
         if (advManufValue.equalsIgnoreCase("serialNo"))
         {
             // Serial number
-            if (serialNoBCD.size() > 0)
+            if (serialNoBytes.size() > 0)
             {
-                uint32_t startPos = serialNoBCD.size() > advManufValueBytes ? serialNoBCD.size() - advManufValueBytes : 0;
-                manufacturerData.insert(manufacturerData.end(), serialNoBCD.begin() + startPos, serialNoBCD.begin() + serialNoBCD.size());
+                // Use the last N digits of the serial number
+                uint32_t startPos = serialNoBytes.size() > advManufValueBytes ? serialNoBytes.size() - advManufValueBytes : 0;
+                manufacturerData.insert(manufacturerData.end(), serialNoBytes.begin() + startPos, serialNoBytes.begin() + serialNoBytes.size());
             }
         }
     }
@@ -322,7 +311,7 @@ void BLEManager::getAdvertisingData(std::vector<uint8_t>& manufacturerData, ble_
     // Check if service filter UUID is specified
     if (_serviceFilterUUIDValid)
     {
-        serviceFilterUUID = generateServiceFilterUUID(serialNoBCD);
+        serviceFilterUUID = generateServiceFilterUUID(serialNoBytes);
     }
 
 #ifdef DEBUG_BLE_ADVERTISING_DATA
@@ -333,17 +322,17 @@ void BLEManager::getAdvertisingData(std::vector<uint8_t>& manufacturerData, ble_
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Generate UUID for service filtering based on device serial number
-/// @param serialNoBCD Serial number in BCD format
+/// @param serialNoBytes Serial number in byte format (if formatted as hex this would be 2 digits per byte)
 /// @param serviceFilterUUID UUID to receive the service filter
-ble_uuid128_t BLEManager::generateServiceFilterUUID(const std::vector<uint8_t>& serialNoBCD)
+ble_uuid128_t BLEManager::generateServiceFilterUUID(const std::vector<uint8_t>& serialNoBytes)
 {
     // Generate a UUID based on the serial number
     const uint32_t UUID_128_BYTES = 16;
-    const uint32_t bytesToProc = serialNoBCD.size() < UUID_128_BYTES ? serialNoBCD.size() : UUID_128_BYTES;
+    const uint32_t bytesToProc = serialNoBytes.size() < UUID_128_BYTES ? serialNoBytes.size() : UUID_128_BYTES;
     ble_uuid128_t modifiedUUID = _serviceFilterUUID;
     for (int i = 0; i < bytesToProc; i++)
     {
-        modifiedUUID.value[i] ^= serialNoBCD[bytesToProc - 1 - i];
+        modifiedUUID.value[i] ^= serialNoBytes[bytesToProc - 1 - i];
     }
     return modifiedUUID;
 }
