@@ -94,8 +94,11 @@ bool BLEGattServer::setup(const BLEConfig& bleConfig)
     if (bleConfig.uuidCmdRespService.length() > 0)
     {
         Raft::uuid128FromString(bleConfig.uuidCmdRespService.c_str(), _mainServiceUUID128.value);
+        _mainServiceUUID128.u.type = BLE_UUID_TYPE_128;
         Raft::uuid128FromString(bleConfig.uuidCmdRespCommand.c_str(), _commandUUID128.value);
+        _commandUUID128.u.type = BLE_UUID_TYPE_128;
         Raft::uuid128FromString(bleConfig.uuidCmdRespResponse.c_str(), _responseUUID128.value);
+        _responseUUID128.u.type = BLE_UUID_TYPE_128;
 
         // Debug
 #ifdef DEBUG_UUID_CONVERSION_FROM_STR

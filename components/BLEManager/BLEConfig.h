@@ -16,6 +16,8 @@
 #include <cmath>
 #include <vector>
 
+// #define DEBUG_BLE_SERVICE_CONFIG
+
 class BLEStandardServiceConfig
 {
 public:
@@ -112,6 +114,7 @@ public:
         uuidCmdRespService = config.getString("uuidCmdRespService", "");
         uuidCmdRespCommand = config.getString("uuidCmdRespCommand", "");
         uuidCmdRespResponse = config.getString("uuidCmdRespResponse", "");
+        uuidFilterService = config.getString("uuidFilterService", "");
 
         // Outbound message settings
         minMsBetweenSends = config.getLong("minMsBetweenSends", BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS);
@@ -137,6 +140,7 @@ public:
         return true;
     }
 
+#ifdef DEBUG_BLE_SERVICE_CONFIG
     String debugStr() const
     {
         // Prepare a debug string with all configuration parameters
@@ -164,6 +168,7 @@ public:
                     " uuidCmdRspSvc:" + uuidCmdRespService +
                     " uuidCmdRspCmd:" + uuidCmdRespCommand +
                     " uuidCmdRspResp:" + uuidCmdRespResponse +
+                    " uuidFilterService " + uuidFilterService +
                     " outQSz:" + String(outboundQueueSize) +
                     " minSndMs:" + String(minMsBetweenSends) + 
                     " inFlghtMax:" + String(outMsgsInFlightMax) +
@@ -175,6 +180,7 @@ public:
 
         return str;
     }
+#endif
 
     // Get connection interval preferred in BLE units
     uint16_t getConnIntervalPrefBLEUnits() const
@@ -232,6 +238,7 @@ public:
     String uuidCmdRespService;
     String uuidCmdRespCommand;
     String uuidCmdRespResponse;
+    String uuidFilterService;
 
     // Outbound message settings
     uint16_t minMsBetweenSends = BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS;

@@ -14,6 +14,8 @@
 #include "BLEConfig.h"
 #include "BLEStdServices.h"
 
+// #define DEBUG_BLE_ADVERTISING_DATA
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Constructor
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -23,8 +25,8 @@ BLEManager::BLEManager(const char *pModuleName, RaftJsonIF& sysConfig)
 
 #ifdef CONFIG_BT_ENABLED
 
-        , _gapServer([this](std::vector<uint8_t>& manufacturerData){
-                        getAdvertisingData(manufacturerData);
+        , _gapServer([this](std::vector<uint8_t>& manufacturerData, ble_uuid128_t& serviceFilterUUID){
+                        getAdvertisingData(manufacturerData, serviceFilterUUID);
                         return getAdvertisingName();
                     },
                     [this](bool isConnected){
@@ -66,12 +68,20 @@ void BLEManager::setup()
         BLEConfig bleConfig;
         bleConfig.setup(modConfig());
 
-        // Setup BLE GAP
-        bool isOk = _gapServer.setup(getCommsCore(), bleConfig);
-
         // Log level
         String nimbleLogLevel = configGetString("nimLogLev", "");
         setModuleLogLevel("NimBLE", nimbleLogLevel);
+
+        // Setup service UUID used to filter devices
+        if (!bleConfig.uuidFilterService.isEmpty())
+        {
+            Raft::uuid128FromString(bleConfig.uuidFilterService.c_str(), _serviceFilterUUID.value);
+            _serviceFilterUUID.u.type = BLE_UUID_TYPE_128;
+            _serviceFilterUUIDValid = true;
+        }
+
+        // Setup BLE GAP
+        bool isOk = _gapServer.setup(getCommsCore(), bleConfig);
 
         // Debug
         if (bleConfig.useTaskForSending)
@@ -96,6 +106,10 @@ void BLEManager::setup()
         {
             LOG_I(MODULE_PREFIX, "setup uuidCmdRespService %s uuidCmdRespCommand %s uuidCmdRespResponse %s",
                         bleConfig.uuidCmdRespService.c_str(), bleConfig.uuidCmdRespCommand.c_str(), bleConfig.uuidCmdRespResponse.c_str());
+        }
+        if (!bleConfig.uuidFilterService.isEmpty())
+        {
+            LOG_I(MODULE_PREFIX, "setup uuidFilterService %s", bleConfig.uuidFilterService.c_str());
         }
     }
     else
@@ -255,49 +269,81 @@ String BLEManager::getAdvertisingName()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Get advertising data
 /// @param manufacturerData
-void BLEManager::getAdvertisingData(std::vector<uint8_t>& manufacturerData)
+void BLEManager::getAdvertisingData(std::vector<uint8_t>& manufacturerData, ble_uuid128_t& serviceFilterUUID)
 {
-    // Check if manuf ID is specified - if so advertise manufacturer data
-    String manufID = configGetString("advManufID", "");
-    if (manufID.length() == 0)
+    // Get serial number
+    String serialNo = getSysManager() ? getSysManager()->getSystemSerialNo() : "";
+    if (serialNo.length() == 0)
         return;
 
-    // Extract manufacturer code from config if present
-    std::vector<uint8_t> manufIDBytes = Raft::getBytesFromHexStr(manufID.c_str(), MAX_MANUFACTURER_ID_LEN);
-    manufacturerData.assign(manufIDBytes.begin(), manufIDBytes.end());
+    // Convert from hex to binary
+    auto serialNoBytes = Raft::getBytesFromHexStr(serialNo.c_str(), MAX_SERIAL_NO_BYTES);
 
-    // Add any fixed data specified in config
-    std::vector<uint8_t> fixedData = Raft::getBytesFromHexStr(configGetString("advManufData", "").c_str(), MAX_MANUFACTURER_DATA_LEN);
-    manufacturerData.insert(manufacturerData.end(), fixedData.begin(), fixedData.end());
-
-    // Check if we need to limit any further data
-    int advManufValueBytes = configGetLong("advManufValueBytes", -1);
-    
-    // Check if any additional data is specified from named values
-    String advManufValue = configGetString("advManufValue", "");
-    if (advManufValue.equalsIgnoreCase("serialNo"))
+    // Convert to BCD
+    std::vector<uint8_t> serialNoBCD(serialNoBytes.size()/2);
+    uint32_t digitIdx = 0;
+    for (uint8_t byteVal : serialNoBytes)
     {
-        // Convert serial number to bytes in BCD format
-        String serialNo = getSysManager() ? getSysManager()->getSystemSerialNo() : "";
+        if (digitIdx % 2 == 0)
+            serialNoBCD[digitIdx / 2] = (byteVal & 0x0f) << 4;
+        else
+            serialNoBCD[digitIdx / 2] |= byteVal & 0x0f;
+        digitIdx++;
+    }
 
-        // Convert to BCD
-        auto serialNoBytes = Raft::getBytesFromHexStr(serialNo.c_str(), MAX_MANUFACTURER_DATA_LEN * 2);
-        std::vector<uint8_t> serialNoBCD(serialNoBytes.size()/2);
-        uint32_t digitIdx = 0;
-        for (uint8_t byteVal : serialNoBytes)
-        {
-            if (digitIdx % 2 == 0)
-                serialNoBCD[digitIdx / 2] = (byteVal & 0x0f) << 4;
-            else
-                serialNoBCD[digitIdx / 2] |= byteVal & 0x0f;
-            digitIdx++;
-        }
+    // Check if manuf ID is specified - if so advertise manufacturer data
+    String manufID = configGetString("advManufID", "");
+    if (manufID.length() != 0)
+    {
+        // Extract manufacturer code from config if present
+        std::vector<uint8_t> manufIDBytes = Raft::getBytesFromHexStr(manufID.c_str(), MAX_MANUFACTURER_ID_LEN);
+        manufacturerData.assign(manufIDBytes.begin(), manufIDBytes.end());
 
-        // Serial number
-        if (serialNoBCD.size() > 0)
+        // Add any fixed data specified in config
+        std::vector<uint8_t> fixedData = Raft::getBytesFromHexStr(configGetString("advManufData", "").c_str(), MAX_MANUFACTURER_DATA_LEN);
+        manufacturerData.insert(manufacturerData.end(), fixedData.begin(), fixedData.end());
+
+        // Check if we need to limit any further data
+        int advManufValueBytes = configGetLong("advManufValueBytes", -1);
+        
+        // Check if any additional data is specified from named values
+        String advManufValue = configGetString("advManufValue", "");
+        if (advManufValue.equalsIgnoreCase("serialNo"))
         {
-            uint32_t startPos = serialNoBCD.size() > advManufValueBytes ? serialNoBCD.size() - advManufValueBytes : 0;
-            manufacturerData.insert(manufacturerData.end(), serialNoBCD.begin() + startPos, serialNoBCD.begin() + serialNoBCD.size());
+            // Serial number
+            if (serialNoBCD.size() > 0)
+            {
+                uint32_t startPos = serialNoBCD.size() > advManufValueBytes ? serialNoBCD.size() - advManufValueBytes : 0;
+                manufacturerData.insert(manufacturerData.end(), serialNoBCD.begin() + startPos, serialNoBCD.begin() + serialNoBCD.size());
+            }
         }
     }
+
+    // Check if service filter UUID is specified
+    if (_serviceFilterUUIDValid)
+    {
+        serviceFilterUUID = generateServiceFilterUUID(serialNoBCD);
+    }
+
+#ifdef DEBUG_BLE_ADVERTISING_DATA
+    LOG_I(MODULE_PREFIX, "getAdvertisingData serialNo %s serviceFilterValid %d serviceFilterUUIDType %d serviceFilterUUID %s", 
+                serialNo.c_str(), _serviceFilterUUIDValid, serviceFilterUUID.u.type, Raft::uuid128ToString(serviceFilterUUID.value).c_str());
+#endif
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Generate UUID for service filtering based on device serial number
+/// @param serialNoBCD Serial number in BCD format
+/// @param serviceFilterUUID UUID to receive the service filter
+ble_uuid128_t BLEManager::generateServiceFilterUUID(const std::vector<uint8_t>& serialNoBCD)
+{
+    // Generate a UUID based on the serial number
+    const uint32_t UUID_128_BYTES = 16;
+    const uint32_t bytesToProc = serialNoBCD.size() < UUID_128_BYTES ? serialNoBCD.size() : UUID_128_BYTES;
+    ble_uuid128_t modifiedUUID = _serviceFilterUUID;
+    for (int i = 0; i < bytesToProc; i++)
+    {
+        modifiedUUID.value[i] ^= serialNoBCD[bytesToProc - 1 - i];
+    }
+    return modifiedUUID;
 }

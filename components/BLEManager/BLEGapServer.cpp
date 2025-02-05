@@ -380,9 +380,11 @@ bool BLEGapServer::startAdvertising()
     // Get the advertising info (name, etc)
     String advertisingName;
     std::vector<uint8_t> advertisingManufacturerData;
+    ble_uuid128_t serviceFilterUUID;
+    serviceFilterUUID.u.type = 0;
     if (_getAdvertisingInfoFn)
     {
-        advertisingName = _getAdvertisingInfoFn(advertisingManufacturerData).c_str();
+        advertisingName = _getAdvertisingInfoFn(advertisingManufacturerData, serviceFilterUUID).c_str();
     }
 
     // Set advertising data
@@ -397,7 +399,7 @@ bool BLEGapServer::startAdvertising()
     fields.tx_pwr_lvl_is_present = 1;
     fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
 
-    // 128 bit UUID
+    // Setup main service UUID
     fields.uuids128 = &_gattServer.getMainServiceUUID128();
     fields.num_uuids128 = 1;
     fields.uuids128_is_complete = 1;
@@ -422,8 +424,17 @@ bool BLEGapServer::startAdvertising()
         }
     }
 
-    // Set manufacturer data if available
-    if (!advertisingManufacturerData.empty())
+    // Set second service UUID used for filtering devices during BLE scanning (if required)
+    if (serviceFilterUUID.u.type == BLE_UUID_TYPE_128)
+    {
+        fields.uuids128 = &serviceFilterUUID;
+        fields.num_uuids128 = 1;
+        fields.uuids128_is_complete = 1;
+    }
+
+    // Manufacturer data - note that both a second service UUID and manufacturer data
+    // will generally not fit in the advertising packet
+    else if (!advertisingManufacturerData.empty())
     {
         fields.mfg_data = advertisingManufacturerData.data();
         fields.mfg_data_len = advertisingManufacturerData.size();
@@ -777,7 +788,8 @@ bool BLEGapServer::nimbleStart()
             if (_getAdvertisingInfoFn)
             {
                 std::vector<uint8_t> advertisingManufacturerData;
-                rcAdv = ble_svc_gap_device_name_set(_getAdvertisingInfoFn(advertisingManufacturerData).c_str());
+                ble_uuid128_t serviceFilterUUID;
+                rcAdv = ble_svc_gap_device_name_set(_getAdvertisingInfoFn(advertisingManufacturerData, serviceFilterUUID).c_str());
             }
 
 #ifdef DEBUG_NIMBLE_START

@@ -27,7 +27,7 @@
 #define USE_TIMED_ADVERTISING_CHECK 1
 
 // Callback types
-typedef std::function<String(std::vector<uint8_t>& manufacturerData)> GetAdvertisingInfoFnType;
+typedef std::function<String(std::vector<uint8_t>& manufacturerData, ble_uuid128_t& serviceFilterUUID)> GetAdvertisingInfoFnType;
 typedef std::function<void(bool isConnected)> StatusChangeFnType;
 
 class BLEGapServer
