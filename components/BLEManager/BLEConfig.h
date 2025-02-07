@@ -94,6 +94,9 @@ public:
 
         // Advertising
         advertisingIntervalMs = config.getLong("advIntervalMs", 0);
+        advManufData = config.getString("advManufData", "");
+        advManufTotalByteLimit = config.getLong("advManufValueBytes", 0);
+        advManufValue = config.getString("advManufValue", "");
 
         // Scanning
         scanningIntervalMs = config.getLong("scanIntervalMs", DEFAULT_SCAN_INTERVAL_MS);
@@ -225,6 +228,9 @@ public:
 
     // Advertising
     uint16_t advertisingIntervalMs = 0;
+    String advManufData;
+    uint16_t advManufTotalByteLimit = 0;
+    String advManufValue;
 
     // Scanning
     uint16_t scanningIntervalMs = DEFAULT_SCAN_INTERVAL_MS;

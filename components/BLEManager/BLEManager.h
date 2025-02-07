@@ -67,28 +67,12 @@ private:
     // BLE Gap server
     BLEGapServer _gapServer;
 
-    // Manufacturer data
-    std::vector<uint8_t> _advManufSerialNo;
-    static const uint32_t MAX_MANUFACTURER_ID_LEN = 2;
-    static const uint32_t MAX_MANUFACTURER_DATA_LEN = 8;
-    static const uint32_t MAX_SERIAL_NO_BYTES = 16;
-
-    // Filter UUID
-    ble_uuid128_t _serviceFilterUUID;
-    bool _serviceFilterUUIDValid = false;
-
     // Helpers
-    String getAdvertisingName();
-    void getAdvertisingData(std::vector<uint8_t>& manufacturerData, ble_uuid128_t& serviceFilterUUID);
-
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    /// @brief Generate UUID for service filtering based on device serial number
-    /// @param serialNoBCD Serial number in BCD format
-    /// @param serviceFilterUUID UUID to receive the service filter
-    ble_uuid128_t generateServiceFilterUUID(const std::vector<uint8_t>& serialNoBCD);
+    void getAdvertisingInfo(String& advName, uint16_t& manufacturerData, String& serialNo);
 
     // Restart API
     RaftRetCode apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+
 #endif
 
     // Log prefix

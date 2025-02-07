@@ -27,7 +27,7 @@
 #define USE_TIMED_ADVERTISING_CHECK 1
 
 // Callback types
-typedef std::function<String(std::vector<uint8_t>& manufacturerData, ble_uuid128_t& serviceFilterUUID)> GetAdvertisingInfoFnType;
+typedef std::function<void(String& advName, uint16_t& manufacturerData, String& serialNo)> GetAdvertisingInfoFnType;
 typedef std::function<void(bool isConnected)> StatusChangeFnType;
 
 class BLEGapServer
@@ -308,6 +308,28 @@ private:
     bool nimbleStart();
     bool nimbleStop();
     void requestConnInterval();
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Advertising related consts
+    static const uint32_t MAX_SERIAL_NO_BYTES = 16;
+    static const uint32_t MAX_MANUFACTURER_DATA_LEN = 16;
+
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Generate the advertising manufacturer data
+    /// This function generates the manufacturer data to be included in the BLE advertising packet.
+    /// It uses the manufacturer ID and serial number to create the manufacturer data.
+    /// @param manufacturerID integer value representing the manufacturer ID
+    /// @param serialNo string containing the serial number
+    /// @return vector of bytes containing the manufacturer data
+    std::vector<uint8_t> generateManufacturerData(uint16_t manufacturerID, const String& serialNo);
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Generate UUID for service filtering based on device serial number
+    /// @param serviceFilterUUID generated UUID for service filtering
+    /// @param serialNo string containing the device serial number
+    /// @return true if the UUID was successfully generated
+    bool generateServiceFilterUUID(ble_uuid128_t& serviceFilterUUID, const String& serialNo);
 
 #else // CONFIG_BT_ENABLED
 
