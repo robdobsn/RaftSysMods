@@ -16,6 +16,9 @@
 #include "BLEGattServer.h"
 #include "BLEManStats.h"
 
+// Warn
+// #define WARN_ON_OUTBOUND_MSG_TIMEOUT
+
 // Debug
 // #define DEBUG_SEND_FROM_OUTBOUND_QUEUE
 // #define DEBUG_BLE_TX_MSG
@@ -165,7 +168,9 @@ bool BLEGattOutbound::handleSendFromOutboundQueue()
             if (Raft::isTimeout(millis(), _outbountMsgInFlightLastMs, _outMsgsInFlightTimeoutMs))
             {
                 // Debug
-                LOG_W(MODULE_PREFIX, "loop outbound msg timeout");
+#ifdef WARN_ON_OUTBOUND_MSG_TIMEOUT
+                LOG_W(MODULE_PREFIX, "handleSendFromOutboundQueue msg timeout");
+#endif
 
                 // Timeout so clear the in flight count
                 _outboundMsgsInFlight = 0;
