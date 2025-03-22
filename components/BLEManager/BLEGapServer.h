@@ -94,6 +94,34 @@ public:
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Disconnect the BLE server immediately
+    void disconnect()
+    {
+        if (_isConnected && _bleGapConnHandle != 0)
+        {
+            // The reason code 0x13 corresponds to "Remote User Terminated Connection"
+            int rc = ble_gap_terminate(_bleGapConnHandle, 0x13);
+            if (rc != NIMBLE_RETC_OK)
+            {
+                LOG_W(MODULE_PREFIX, "disconnect failed %s (%d)", BLEGattServer::getHSErrorMsg(rc).c_str(), rc);
+            }
+            else
+            {
+                LOG_I(MODULE_PREFIX, "disconnect initiated successfully");
+            }
+        }
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Request timed disconnect of the BLE server
+    void requestTimedDisconnect()
+    {
+        // Set state to stop required
+        _bleRestartState = BLERestartState_DisconnectRequired;
+        _bleRestartLastMs = millis();
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Set requested connection interval
     /// @param reqConnIntervalMs Requested connection interval in milliseconds
     void setReqConnInterval(double reqConnIntervalMs)
@@ -170,12 +198,14 @@ private:
     enum BLERestartState
     {
         BLERestartState_Idle,
-        BLERestartState_StopRequired,
-        BLERestartState_StartRequired
+        BLERestartState_RestartRequired,
+        BLERestartState_StartRequired,
+        BLERestartState_DisconnectRequired
     };
     BLERestartState _bleRestartState = BLERestartState_Idle;
     static const uint32_t BLE_RESTART_BEFORE_STOP_MS = 200;
     static const uint32_t BLE_RESTART_BEFORE_START_MS = 200;
+    static const uint32_t BLE_RESTART_BEFORE_DISCONNECT_MS = 200;
     uint32_t _bleRestartLastMs = 0;
 
 #ifdef USE_TIMED_ADVERTISING_CHECK

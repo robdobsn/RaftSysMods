@@ -137,22 +137,26 @@ void BLEManager::loop()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// REST API Endpoints
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief REST API Endpoints
+/// @param endpointManager
 void BLEManager::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager)
 {
 #ifdef CONFIG_BT_ENABLED
     endpointManager.addEndpoint("blerestart", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
                         std::bind(&BLEManager::apiBLERestart, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
                         "Restart BLE");
+    endpointManager.addEndpoint("bledisconnect", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
+                        std::bind(&BLEManager::apiBLEDisconnect, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                        "Disconnect BLE");
 #endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// API Restart BLE
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+/// @brief API Restart BLE
+/// @param reqStr request string
+/// @param respStr response string (out) JSON response
+/// @param sourceInfo source of the API call
+/// @return RaftRetCode
 #ifdef CONFIG_BT_ENABLED
 RaftRetCode BLEManager::apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
 {
@@ -160,6 +164,23 @@ RaftRetCode BLEManager::apiBLERestart(const String &reqStr, String &respStr, con
     _gapServer.restart();
 
     // Restart in progress
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
+}
+#endif
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief API Disconnect BLE
+/// @param reqStr request string
+/// @param respStr response string (out) JSON response
+/// @param sourceInfo source of the API call
+/// @return RaftRetCode
+#ifdef CONFIG_BT_ENABLED
+RaftRetCode BLEManager::apiBLEDisconnect(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+{
+    // Request disconnect of BLE GAP Server after time interval - to allow response to be sent
+    _gapServer.requestTimedDisconnect();
+
+    // Disconnect in progress
     return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
 }
 #endif

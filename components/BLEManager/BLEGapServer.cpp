@@ -205,7 +205,7 @@ void BLEGapServer::restart()
     stopAdvertising();
 
     // Set state to stop required
-    _bleRestartState = BLERestartState_StopRequired;
+    _bleRestartState = BLERestartState_RestartRequired;
     _bleRestartLastMs = millis();
 }
 
@@ -1166,7 +1166,7 @@ bool BLEGapServer::loopRestartHandler()
     {
         case BLERestartState_Idle:
             break;
-        case BLERestartState_StopRequired:
+        case BLERestartState_RestartRequired:
             if (Raft::isTimeout(millis(), _bleRestartLastMs, BLE_RESTART_BEFORE_STOP_MS))
             {
                 // Stop the BLE stack
@@ -1184,6 +1184,15 @@ bool BLEGapServer::loopRestartHandler()
                 _bleRestartLastMs = millis();
             }
             return true;
+        case BLERestartState_DisconnectRequired:
+            if (Raft::isTimeout(millis(), _bleRestartLastMs, BLE_RESTART_BEFORE_DISCONNECT_MS))
+            {
+                // Disconnect
+                disconnect();
+                _bleRestartState = BLERestartState_Idle;
+                _bleRestartLastMs = millis();
+            }
+            break;
     }
     return false;
 }

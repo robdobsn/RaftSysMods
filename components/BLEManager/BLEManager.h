@@ -70,8 +70,9 @@ private:
     // Helpers
     void getAdvertisingInfo(String& advName, uint16_t& manufacturerData, String& serialNo);
 
-    // Restart API
+    // APIs
     RaftRetCode apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiBLEDisconnect(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
 
 #endif
 
