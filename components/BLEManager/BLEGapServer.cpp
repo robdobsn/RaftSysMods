@@ -1407,7 +1407,8 @@ bool BLEGapServer::generateServiceFilterUUID(ble_uuid128_t& serviceFilterUUID, c
     serviceFilterUUID.u.type = BLE_UUID_TYPE_128;
 
     // Convert serial no string to bytes
-    std::vector<uint8_t> serialNoBytes = Raft::getBytesFromHexStr(serialNo.c_str(), MAX_SERIAL_NO_BYTES);
+    uint16_t uuidModifyBytes = _bleConfig.uuidFilterMaskChars / 2;
+    std::vector<uint8_t> serialNoBytes = Raft::getBytesFromHexStr(serialNo.c_str(), uuidModifyBytes);
 
     // Generate a UUID based on the serial number
     const uint32_t UUID_128_BYTES = 16;

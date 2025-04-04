@@ -118,6 +118,7 @@ public:
         uuidCmdRespCommand = config.getString("uuidCmdRespCommand", "");
         uuidCmdRespResponse = config.getString("uuidCmdRespResponse", "");
         uuidFilterService = config.getString("uuidFilterService", "");
+        uuidFilterMaskChars = config.getLong("uuidFilterMaskChars", 16);
 
         // Outbound message settings
         minMsBetweenSends = config.getLong("minMsBetweenSends", BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS);
@@ -245,6 +246,9 @@ public:
     String uuidCmdRespCommand;
     String uuidCmdRespResponse;
     String uuidFilterService;
+
+    // UUID filter mask characters
+    uint16_t uuidFilterMaskChars = 16;
 
     // Outbound message settings
     uint16_t minMsBetweenSends = BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS;
