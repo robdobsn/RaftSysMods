@@ -1406,16 +1406,19 @@ bool BLEGapServer::generateServiceFilterUUID(ble_uuid128_t& serviceFilterUUID, c
     Raft::uuid128FromString(_bleConfig.uuidFilterService.c_str(), serviceFilterUUID.value);
     serviceFilterUUID.u.type = BLE_UUID_TYPE_128;
 
-    // Convert serial no string to bytes
-    uint16_t uuidModifyBytes = _bleConfig.uuidFilterMaskChars / 2;
-    std::vector<uint8_t> serialNoBytes = Raft::getBytesFromHexStr(serialNo.c_str(), uuidModifyBytes);
+    if (serialNo.length()){
+        // Convert serial no string to bytes
+        uint16_t uuidModifyBytes = _bleConfig.uuidFilterMaskChars / 2;
+        std::vector<uint8_t> serialNoBytes = Raft::getBytesFromHexStr(serialNo.c_str(), serialNo.length());
+        uint16_t serialNoNumBytes = serialNoBytes.size();
 
-    // Generate a UUID based on the serial number
-    const uint32_t UUID_128_BYTES = 16;
-    const uint32_t bytesToProc = serialNoBytes.size() < UUID_128_BYTES ? serialNoBytes.size() : UUID_128_BYTES;
-    for (int i = 0; i < bytesToProc; i++)
-    {
-        serviceFilterUUID.value[i] ^= serialNoBytes[bytesToProc - 1 - i];
+        // Generate a UUID based on the serial number
+        const uint32_t UUID_128_BYTES = 16;
+        const uint32_t bytesToProc = uuidModifyBytes < UUID_128_BYTES ? uuidModifyBytes : UUID_128_BYTES;
+        for (int i = 0; i < bytesToProc; i++)
+        {
+            serviceFilterUUID.value[i] ^= serialNoBytes[serialNoNumBytes - 1 - i];
+        }
     }
     return true;
 }
