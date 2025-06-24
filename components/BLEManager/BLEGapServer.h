@@ -152,7 +152,7 @@ private:
 
     // Get advertising name function
     GetAdvertisingInfoFnType _getAdvertisingInfoFn = nullptr;
-    static const uint32_t BLE_GAP_MAX_ADV_NAME_LEN = 31;
+    static const uint32_t BLE_GAP_MAX_ADV_NAME_LEN = 29;
 
     // Status change function
     StatusChangeFnType _statusChangeFn = nullptr;
