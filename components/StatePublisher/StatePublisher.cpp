@@ -21,7 +21,6 @@
 // #define DEBUG_PUBLISHING_REASON
 // #define DEBUG_PUBLISHING_HASH
 // #define DEBUG_ONLY_THIS_TOPIC "ScaderOpener"
-// #define DEBUG_SHOW_ONLY_FIRST_N_BYTES_OF_MSG 16
 // #define DEBUG_API_SUBSCRIPTION
 // #define DEBUG_STATE_PUBLISHER_SETUP
 // #define DEBUG_REDUCED_PUBLISHING_RATE_WHEN_BUSY
@@ -29,8 +28,14 @@
 // #define DEBUG_PUBLISH_SUPPRESS_RESTART
 // #define DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
 
+// First N bytes of message to show in debug output
+#define DEBUG_SHOW_ONLY_FIRST_N_BYTES_OF_MSG 16
+
+// Show message content as text if in ASCII range
+#define DEBUG_SHOW_MSG_CONTENT_AS_TEXT_IF_ASCII
+
 // Debug
-#ifdef DEBUG_ONLY_THIS_ROSTOPIC
+#ifdef DEBUG_ONLY_THIS_TOPIC
 #include <algorithm>
 #endif
 
@@ -407,13 +412,32 @@ CommsCoreRetCode StatePublisher::publishData(StatePublisher::PubRec& pubRec, Pub
     {
         // Debug
         String outStr;
-#ifdef DEBUG_SHOW_ONLY_FIRST_N_BYTES_OF_MSG
-        Raft::getHexStrFromBytes(endpointMsg.getBuf(), 
-                    endpointMsg.getBufLen() > DEBUG_SHOW_ONLY_FIRST_N_BYTES_OF_MSG ? DEBUG_SHOW_ONLY_FIRST_N_BYTES_OF_MSG : endpointMsg.getBufLen(), outStr);
-        outStr += "...";
-#else
-        Raft::getHexStrFromBytes(endpointMsg.getBuf(), endpointMsg.getBufLen(), outStr);
+#ifdef DEBUG_SHOW_MSG_CONTENT_AS_TEXT_IF_ASCII
+        bool isAscii = true;
+        for (uint32_t i = 0; i < endpointMsg.getBufLen(); i++)
+        {
+            if (endpointMsg.getBuf()[i] < 1 || endpointMsg.getBuf()[i] > 126)
+            {
+                isAscii = false;
+                break;
+            }
+        }
+        if (isAscii)
+        {
+            outStr = String((char*)endpointMsg.getBuf(), endpointMsg.getBufLen());
+        }
+        else
 #endif
+        {
+#ifdef DEBUG_SHOW_ONLY_FIRST_N_BYTES_OF_MSG
+            Raft::getHexStrFromBytes(endpointMsg.getBuf(), 
+                        endpointMsg.getBufLen() > DEBUG_SHOW_ONLY_FIRST_N_BYTES_OF_MSG ? DEBUG_SHOW_ONLY_FIRST_N_BYTES_OF_MSG : endpointMsg.getBufLen(), outStr);
+            outStr += "...";
+#else
+            Raft::getHexStrFromBytes(endpointMsg.getBuf(), endpointMsg.getBufLen(), outStr);
+#endif
+        }
+
         LOG_I(MODULE_PREFIX, "publishData if %s channelID %d payloadLen %d payload %s", 
                         rateRec._interface.length() == 0 ? "<ALL>" : rateRec._interface.c_str(), 
                         rateRec._channelID, endpointMsg.getBufLen(), outStr.c_str());
