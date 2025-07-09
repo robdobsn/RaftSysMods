@@ -86,7 +86,7 @@ void StatePublisher::setup()
 
         // Get settings
         pubRec._pubTopic = pubInfo.getString("topic", pubInfo.getString("name", "").c_str());
-        pubRec._trigger = TRIGGER_NONE;
+        pubRec._trigger = TRIGGER_ON_TIME_OR_CHANGE;
         String triggerStr = pubInfo.getString("trigger", "timeorchange");
         triggerStr.toLowerCase();
         if (triggerStr.indexOf("change") >= 0)
@@ -164,7 +164,7 @@ void StatePublisher::loop()
 
         // Check for state change detection callback
         bool publishDueToStateChange = false;
-        if (pubRec._stateDetectFn)
+        if (pubRec._stateDetectFn && ((pubRec._trigger == TRIGGER_ON_STATE_CHANGE) || (pubRec._trigger == TRIGGER_ON_TIME_OR_CHANGE)))
         {
             // Check for the mimimum time between publications
 #ifdef DEBUG_PUBLISHING_HASH
@@ -223,7 +223,7 @@ void StatePublisher::loop()
         for (PubInterfaceRec& rateRec : pubRec._interfaceRecs)
         {
             // Check if interface is suppressed
-            if (rateRec._isSuppressed)
+            if (rateRec._isSuppressed || !((pubRec._trigger == TRIGGER_ON_TIME_OR_CHANGE )|| (pubRec._trigger == TRIGGER_ON_TIME_INTERVALS)))
                 continue;
 
             // Check for time to publish
