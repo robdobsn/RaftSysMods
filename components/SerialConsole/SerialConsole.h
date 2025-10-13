@@ -22,6 +22,7 @@ class SerialConsole : public RaftSysMod
 {
 public:
     SerialConsole(const char* pModuleName, RaftJsonIF& sysConfig);
+    virtual ~SerialConsole();
 
     // Create function (for use by SysManager factory)
     static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
@@ -86,6 +87,11 @@ private:
 
     // CRLF string on tx line end
     bool _crlfOnTx = DEFAULT_CRLF_ON_TX;
+
+#ifdef __linux__
+    // Linux terminal settings
+    void* _origTermios = nullptr;
+#endif
 
     // Serial details
     int _uartNum = DEFAULT_UART_NUM;

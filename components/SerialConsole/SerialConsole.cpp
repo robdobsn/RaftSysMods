@@ -14,6 +14,13 @@
 #include "CommsCoreIF.h"
 #include "RaftUtils.h"
 #include "CommsChannelMsg.h"
+
+#ifdef __linux__
+#include <unistd.h>
+#include <termios.h>
+#include <fcntl.h>
+#include <cstring>
+#else
 #include "sdkconfig.h"
 #include "esp_idf_version.h"
 #include "driver/uart.h"
@@ -24,6 +31,7 @@
 #ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
 #include "driver/usb_serial_jtag.h"
 #endif
+#endif // __linux__
 
 // #define DEBUG_SERIAL_CONSOLE
 
@@ -37,7 +45,25 @@ SerialConsole::SerialConsole(const char* pModuleName, RaftJsonIF& sysConfig)
     _curLine.reserve(MAX_REGULAR_LINE_LEN);
 
     // ChannelID
-    _commsChannelID = CommsCoreIF::CHANNEL_ID_UNDEFINED;    
+    _commsChannelID = CommsCoreIF::CHANNEL_ID_UNDEFINED;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Destructor
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+SerialConsole::~SerialConsole()
+{
+#ifdef __linux__
+    // Restore terminal settings on Linux
+    if (_origTermios)
+    {
+        struct termios* pOrigTermios = static_cast<struct termios*>(_origTermios);
+        tcsetattr(STDIN_FILENO, TCSANOW, pOrigTermios);
+        delete pOrigTermios;
+        _origTermios = nullptr;
+    }
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -57,7 +83,60 @@ void SerialConsole::setup()
     // Protocol
     _protocol = configGetString("protocol", "RICSerial");
 
-#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#ifdef __linux__
+
+    LOG_I(MODULE_PREFIX, "setup called for Linux, enabled %s", _isEnabled ? "YES" : "NO");
+
+    // Setup Linux terminal for raw mode if enabled
+    if (_isEnabled)
+    {
+        // Allocate termios structure
+        struct termios* pOrigTermios = new struct termios();
+        _origTermios = pOrigTermios;
+
+        // Check if stdin is a terminal
+        if (!isatty(STDIN_FILENO))
+        {
+            LOG_I(MODULE_PREFIX, "setup - stdin is not a terminal, skipping raw mode setup");
+            delete pOrigTermios;
+            _origTermios = nullptr;
+            _isInitialised = true;
+            return;
+        }
+
+        // Save original terminal settings
+        if (tcgetattr(STDIN_FILENO, pOrigTermios) != 0)
+        {
+            LOG_W(MODULE_PREFIX, "setup failed to get terminal attributes");
+            delete pOrigTermios;
+            _origTermios = nullptr;
+            return;
+        }
+
+        // Configure raw mode
+        struct termios raw = *pOrigTermios;
+
+        // Disable canonical mode (line buffering) and echo
+        raw.c_lflag &= ~(ECHO | ICANON);
+
+        // Non-blocking read: return immediately if no data
+        raw.c_cc[VMIN] = 0;
+        raw.c_cc[VTIME] = 0;
+
+        // Apply settings
+        if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) != 0)
+        {
+            LOG_W(MODULE_PREFIX, "setup failed to set terminal attributes");
+            delete pOrigTermios;
+            _origTermios = nullptr;
+            return;
+        }
+
+        LOG_I(MODULE_PREFIX, "setup OK - Linux terminal configured for raw mode enabled %s crlfOnTx %s",
+                    _isEnabled ? "YES" : "NO", _crlfOnTx ? "YES" : "NO");
+    }
+
+#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
 
     // Configure USB-JTAG if required
     usb_serial_jtag_driver_config_t usb_serial_jtag_config = {
@@ -191,7 +270,20 @@ int SerialConsole::getChar()
 {
     if (_isEnabled)
     {
-        // Check anything available
+#ifdef __linux__
+        // Linux: read from stdin
+        uint8_t ch;
+        ssize_t n = read(STDIN_FILENO, &ch, 1);
+        if (n == 1)
+        {
+#ifdef DEBUG_SERIAL_CONSOLE
+            LOG_I(MODULE_PREFIX, "getChar %02x", ch);
+#endif
+            return ch;
+        }
+        return -1;  // No data available
+#else
+        // ESP32: Check anything available
         size_t numCharsAvailable = 0;
 #ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
         esp_err_t err = ESP_OK;
@@ -214,8 +306,9 @@ int SerialConsole::getChar()
                 LOG_I(MODULE_PREFIX, "getChar %02x", charRead);
 #endif
                 return charRead;
+            }
         }
-    }
+#endif // __linux__
     }
     else
     {
@@ -230,9 +323,12 @@ int SerialConsole::getChar()
 
 void SerialConsole::putStr(const char* pStr)
 {
-    if (_isEnabled)
+    if (_isEnabled && pStr)
     {
-#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#ifdef __linux__
+        // Linux: write to stdout
+        write(STDOUT_FILENO, pStr, strlen(pStr));
+#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
         // LOG_I(MODULE_PREFIX, "putStr strlen %d", strnlen(pStr, _txBufferSize/2+1));
         usb_serial_jtag_write_bytes((const char*)pStr, strnlen(pStr, _txBufferSize/2+1), 1);
 #else
@@ -245,7 +341,10 @@ void SerialConsole::putStr(const String& str)
 {
     if (_isEnabled)
     {
-#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#ifdef __linux__
+        // Linux: write to stdout
+        write(STDOUT_FILENO, str.c_str(), str.length());
+#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
         // LOG_I(MODULE_PREFIX, "putString strlen %d", str.length());
         usb_serial_jtag_write_bytes(str.c_str(), str.length(), 1);
 #else
@@ -440,7 +539,9 @@ bool SerialConsole::sendMsg(CommsChannelMsg& msg)
     uint32_t encodedFrameLen = _protocolOverAscii.encodeFrame(msg.getBuf(), msg.getBufLen(), encodedFrame, encodedFrameMax);
 
     // Send the message
-#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#ifdef __linux__
+    int bytesSent = write(STDOUT_FILENO, (const char*)encodedFrame, encodedFrameLen);
+#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
     int bytesSent = usb_serial_jtag_write_bytes((const char*)encodedFrame, encodedFrameLen, 1);
 #else
     int bytesSent = uart_write_bytes((uart_port_t)_uartNum, (const char*)encodedFrame, encodedFrameLen);
@@ -461,7 +562,7 @@ bool SerialConsole::sendMsg(CommsChannelMsg& msg)
 
 RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
 {
-#ifndef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#if !defined(__linux__) && !defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
     // Extract command from JSON
     RaftJson jsonInfo(cmdJSON);
     String cmd = jsonInfo.getString("cmd", "");
@@ -491,7 +592,7 @@ RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
                 return RAFT_INVALID_DATA;
             }
 
-            // Install uart driver            
+            // Install uart driver
             err = uart_driver_install((uart_port_t)_uartNum, _rxBufferSize, _txBufferSize, 0, NULL, 0);
             if (err != ESP_OK)
             {
@@ -529,7 +630,7 @@ RaftRetCode SerialConsole::apiConsole(const String &reqStr, String& respStr, con
     String cmdStr = params[1];
     if (cmdStr.equalsIgnoreCase("settings"))
     {
-#ifndef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#if !defined(__linux__) && !defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
         // Iterate over name/values
         RaftRetCode result = RaftRetCode::RAFT_INVALID_DATA;
         for (auto& nv : nameValues)
