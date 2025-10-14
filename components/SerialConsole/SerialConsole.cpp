@@ -622,7 +622,7 @@ RaftRetCode SerialConsole::apiConsole(const String &reqStr, String& respStr, con
     if (params.size() < 2)
     {
         Raft::setJsonErrorResult(reqStr.c_str(), respStr, "notEnoughParams");
-        LOG_W(MODULE_PREFIX, "apiConsole not enough params %d", params.size());
+        LOG_W(MODULE_PREFIX, "apiConsole not enough params %d", (int)params.size());
         return RaftRetCode::RAFT_INVALID_DATA;
     }
 
