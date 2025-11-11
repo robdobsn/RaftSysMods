@@ -43,7 +43,7 @@ void ESPOTAUpdate::setup()
     LOG_I(MODULE_PREFIX, "setup otaDirect %s", _otaDirectEnabled ? "YES" : "NO");
 
     // Get the protocol exchange from the system manager
-    SysManager* pSysManager = getSysManager();
+    SysManagerIF* pSysManager = getSysManager();
     if (pSysManager)
     {
         ProtocolExchange* pProtocolExchange = pSysManager->getProtocolExchange();

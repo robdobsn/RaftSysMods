@@ -66,7 +66,7 @@ void FileManager::applySetup()
     int sdCSPin = ConfigPinMap::getPinFromName(pinName.c_str());
 
     // Get the Protocol Exchange from the SysManager
-    SysManager* pSysMan = getSysManager();
+    SysManagerIF* pSysMan = getSysManager();
     if (pSysMan)
         _pProtocolExchange = pSysMan->getProtocolExchange();
 
@@ -131,7 +131,7 @@ RaftRetCode FileManager::apiReformatFS(const String &reqStr, String& respStr, co
     if (restartRequired)
     {
         // Restart required
-        SysManager* pSysMan = getSysManager();
+        SysManagerIF* pSysMan = getSysManager();
         if (pSysMan)
             pSysMan->systemRestart();
     }
