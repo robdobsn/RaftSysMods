@@ -338,9 +338,15 @@ void StatePublisher::loop()
 void StatePublisher::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager)
 {
     // Subscription to published messages
+#ifdef DEBUG_API_SUBSCRIPTION
+    LOG_I(MODULE_PREFIX, "addRestAPIEndpoints adding subscription endpoint");
+#endif
     endpointManager.addEndpoint("subscription", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
                 std::bind(&StatePublisher::apiSubscription, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
                 "Subscription to published messages, see docs for details");
+#ifdef DEBUG_API_SUBSCRIPTION
+    LOG_I(MODULE_PREFIX, "addRestAPIEndpoints subscription endpoint added");
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
