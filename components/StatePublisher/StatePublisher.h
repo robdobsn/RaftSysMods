@@ -83,12 +83,15 @@ private:
             if (_betweenPubsMs > 9)
                 _betweenPubsMs--;
         }
-        String _interface;
+        String _interface;        // Used with "if" field for backwards compatibility (single channel name)
+        String _channelGroup;     // Used with "chGroup" field (group of channels)
         String _protocol;
         double _rateHz = 1.0;
         uint32_t _betweenPubsMs = 0;
         uint32_t _lastPublishMs = 0;
-        int32_t _channelID = PUBLISHING_HANDLE_UNDEFINED;
+        int32_t _channelID = PUBLISHING_HANDLE_UNDEFINED;  // Single channel ID (backwards compat)
+        std::vector<uint32_t> _channelIDs;                 // Multiple channel IDs (group-based)
+        bool _useChannelGroup = false;                      // True if using chGroup, false if using if
 
         // Indicates that the subscription for this channel/rate was created at setup
         // time (and not with a dynamic subscription API call) - persistent channels

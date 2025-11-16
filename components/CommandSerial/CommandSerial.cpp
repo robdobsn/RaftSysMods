@@ -127,6 +127,7 @@ void CommandSerial::addCommsChannels(CommsCoreIF& commsCoreIF)
         uint32_t channelID = commsCoreIF.registerChannel(
                 serialPort.getProtocol().c_str(),
                 modName(),
+                modName(),  // channelGroup same as interface
                 serialPort.getName().c_str(),
                 std::bind(&CommandSerial::sendMsg, this, std::placeholders::_1),
                 [this](uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn) {
