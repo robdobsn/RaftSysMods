@@ -254,8 +254,7 @@ void SerialConsole::addCommsChannels(CommsCoreIF& commsCore)
     // Register as a channel of protocol messages
     _commsChannelID = commsCore.registerChannel(_protocol.c_str(),
             modName(),
-            modName(),  // channelGroup same as interface for backwards compat
-            modName(),  // channelName
+            modName(),
             std::bind(&SerialConsole::sendMsg, this, std::placeholders::_1),
             [this](uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn) {
                 return true;

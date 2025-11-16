@@ -18,11 +18,11 @@
 // Debug
 #define DEBUG_PUBLISHING_HANDLE
 #define DEBUG_PUBLISHING_MESSAGE
-// #define DEBUG_PUBLISHING_REASON
+#define DEBUG_PUBLISHING_REASON
 // #define DEBUG_PUBLISHING_HASH
 // #define DEBUG_ONLY_THIS_TOPIC "ScaderOpener"
 #define DEBUG_API_SUBSCRIPTION
-#define DEBUG_STATE_PUBLISHER_SETUP
+// #define DEBUG_STATE_PUBLISHER_SETUP
 // #define DEBUG_REDUCED_PUBLISHING_RATE_WHEN_BUSY
 // #define DEBUG_FORCE_GENERATION_OF_PUBLISH_MSGS
 // #define DEBUG_PUBLISH_SUPPRESS_RESTART
@@ -112,28 +112,13 @@ void StatePublisher::setup()
             {
                 // Get the interface info
                 RaftJson interfaceInfo = interfacesJson.getString(("["+String(rateIdx)+"]").c_str(), "{}");
-                String channelGroup = interfaceInfo.getString("chGroup", "");
                 String interface = interfaceInfo.getString("if", "");
                 String protocol = interfaceInfo.getString("protocol", "");
                 double rateHz = interfaceInfo.getDouble("rateHz", 1.0);
-                
-                // Debug what we read
-                LOG_I(MODULE_PREFIX, "setup READ from config: chGroup='%s' if='%s' protocol='%s' rateHz=%.1f", 
-                    channelGroup.c_str(), interface.c_str(), protocol.c_str(), rateHz);
 
                 // Add to list
                 PubInterfaceRec ifRec;
-                // Support both chGroup (new) and if (backwards compat)
-                if (channelGroup.length() > 0)
-                {
-                    ifRec._channelGroup = channelGroup;
-                    ifRec._useChannelGroup = true;
-                }
-                else
-                {
-                    ifRec._interface = interface;
-                    ifRec._useChannelGroup = false;
-                }
+                ifRec._interface = interface;
                 ifRec._protocol = protocol;
                 ifRec.setRateHz(rateHz);
                 ifRec._lastPublishMs = millis();
@@ -143,16 +128,8 @@ void StatePublisher::setup()
 
                 // Debug
 #ifdef DEBUG_STATE_PUBLISHER_SETUP
-                if (ifRec._useChannelGroup)
-                {
-                    LOG_I(MODULE_PREFIX, "setup publishGroup %s rateHz %.1f msBetween %d topic %s protocol %s", channelGroup.c_str(),
-                                    rateHz, ifRec._betweenPubsMs, pubRec._pubTopic.c_str(), ifRec._protocol.c_str());
-                }
-                else
-                {
-                    LOG_I(MODULE_PREFIX, "setup publishIF %s rateHz %.1f msBetween %d topic %s protocol %s", interface.c_str(),
-                                    rateHz, ifRec._betweenPubsMs, pubRec._pubTopic.c_str(), ifRec._protocol.c_str());
-                }
+                LOG_I(MODULE_PREFIX, "setup publishIF %s rateHz %.1f msBetween %d topic %s protocol %s", interface.c_str(),
+                                rateHz, ifRec._betweenPubsMs, pubRec._pubTopic.c_str(), ifRec._protocol.c_str());
 #endif
             }
 
@@ -274,83 +251,46 @@ void StatePublisher::loop()
                 // Publish is pending
                 rateRec._isPending = true;
 
-                // Check if using channel group (new way) or single interface (backwards compat)
-                if (rateRec._useChannelGroup)
+                // Check if channelID is defined
+                if (rateRec._channelID == PUBLISHING_HANDLE_UNDEFINED)
                 {
-                    // Get channel IDs by group if not already retrieved
-                    if (rateRec._channelIDs.empty())
-                    {
-                        LOG_I(MODULE_PREFIX, "Looking up channels for chGroup='%s' protocol='%s'", 
-                                rateRec._channelGroup.c_str(), rateRec._protocol.c_str());
-                        getCommsCore()->getChannelIDsByGroup(rateRec._channelGroup, rateRec._protocol, rateRec._channelIDs);
+                    // Get a match of interface and protocol
+                    rateRec._channelID = getCommsCore()->getChannelIDByName(rateRec._interface, rateRec._protocol);
 
 #ifdef DEBUG_PUBLISHING_HANDLE
-                        LOG_I(MODULE_PREFIX, "Got %d channelIDs for topic %s chGroup %s protocol %s", 
-                                rateRec._channelIDs.size(), pubRec._pubTopic.c_str(),
-                                rateRec._channelGroup.c_str(), rateRec._protocol.c_str());
+                    // Debug
+                    LOG_I(MODULE_PREFIX, "Got channelID %d for topic %s i/f %s protocol %s", rateRec._channelID, pubRec._pubTopic.c_str(),
+                            rateRec._interface.length() == 0 ? "<ALL>" : rateRec._interface.c_str(), 
+                            rateRec._protocol.c_str());
 #endif
 
-                        // No channels found?
-                        if (rateRec._channelIDs.empty())
-                        {
-                            LOG_W(MODULE_PREFIX, "No channels found for chGroup='%s' protocol='%s' - will retry", 
-                                    rateRec._channelGroup.c_str(), rateRec._protocol.c_str());
-                            continue;
-                        }
-                    }
+                    // Still undefined?
+                    if (rateRec._channelID == PUBLISHING_HANDLE_UNDEFINED)
+                        continue;
+                }
 
-                    // Publish to all channels in the group
-                    bool allNoConn = true;
-                    bool anyPublished = false;
-                    for (uint32_t channelID : rateRec._channelIDs)
-                    {
-                        // Check if interface can accept messages
-                        bool noConn = false;
-                        if (getCommsCore()->outboundCanAccept(channelID, MSG_TYPE_PUBLISH, noConn))
-                        {
+                // Check if interface can accept messages
+                bool noConn = false;
+                if (getCommsCore()->outboundCanAccept(rateRec._channelID, MSG_TYPE_PUBLISH, noConn))
+                {
+
 #ifdef DEBUG_REDUCED_PUBLISHING_RATE_WHEN_BUSY
-                            if (reducePublishingRate)
-                            {
-                                LOG_I(MODULE_PREFIX, "loop publishing rate reduced for channel %d", channelID);
-                            }
-#endif
-
-#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
-                            uint64_t startUs = micros();
-#endif
-
-                            // Temporarily set channelID for publishData
-                            rateRec._channelID = channelID;
-                            CommsCoreRetCode publishRetc = publishData(pubRec, rateRec);
-
-#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
-                            uint64_t elapUs = micros() - startUs;
-                            if (_debugSlowestPublishUs < elapUs)
-                                _debugSlowestPublishUs = elapUs;
-#endif
-
-                            // Check for no connection
-                            if (publishRetc == COMMS_CORE_RET_NO_CONN)
-                            {
-                                noConn = true;
-                            }
-                            else
-                            {
-                                anyPublished = true;
-                            }
-                        }
-#ifdef DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
-                        else
-                        {
-                            LOG_I(MODULE_PREFIX, "loop cannot accept outbound for channel %d noConn %d", channelID, noConn);
-                        }
-#endif
-                        
-                        if (!noConn)
-                            allNoConn = false;
+                    if (reducePublishingRate)
+                    {
+                        LOG_I(MODULE_PREFIX, "loop publishing rate reduced for channel %d", rateRec._channelID);
                     }
+#endif
 
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
+                    uint64_t startUs = micros();
+#endif
+
+                    CommsCoreRetCode publishRetc = publishData(pubRec, rateRec);
+
+#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
+                    uint64_t elapUs = micros() - startUs;
+                    if (_debugSlowestPublishUs < elapUs)
+                        _debugSlowestPublishUs = elapUs;
                     if (Raft::isTimeout(millis(), _debugLastShowPerfTimeMs, 1000))
                     {
                         LOG_I(MODULE_PREFIX, "loop slowest publish %lld slowest stateHash %lld", 
@@ -361,100 +301,30 @@ void StatePublisher::loop()
                     }
 #endif
 
-                    // Publish no longer pending if any succeeded
-                    if (anyPublished)
+                    // Check for no connection
+                    if (publishRetc == COMMS_CORE_RET_NO_CONN)
                     {
-                        rateRec._isPending = false;
-                        rateRec._lastPublishMs = millis();
+                        noConn = true;
                     }
-
-                    // Check if all connections failed
-                    if (allNoConn && !rateRec._isPersistent)
-                    {
-#ifdef DEBUG_PUBLISH_SUPPRESS_RESTART
-                        LOG_I(MODULE_PREFIX, "loop suppressing rateRec for chGroup %s", rateRec._channelGroup.c_str());
-#endif
-                        rateRec._isSuppressed = true;
-                    }
+                    // Publish no longer pending (whether successful or not)
+                    rateRec._isPending = false;
+                    rateRec._lastPublishMs = millis();
                 }
                 else
                 {
-                    // Backwards compatibility: single channel via interface name
-                    // Check if channelID is defined
-                    if (rateRec._channelID == PUBLISHING_HANDLE_UNDEFINED)
-                    {
-                        // Get a match of interface and protocol
-                        rateRec._channelID = getCommsCore()->getChannelIDByName(rateRec._interface, rateRec._protocol);
-
-#ifdef DEBUG_PUBLISHING_HANDLE
-                        // Debug
-                        LOG_I(MODULE_PREFIX, "Got channelID %d for topic %s i/f %s protocol %s", rateRec._channelID, pubRec._pubTopic.c_str(),
-                                rateRec._interface.length() == 0 ? "<ALL>" : rateRec._interface.c_str(), 
-                                rateRec._protocol.c_str());
-#endif
-
-                        // Still undefined?
-                        if (rateRec._channelID == PUBLISHING_HANDLE_UNDEFINED)
-                            continue;
-                    }
-
-                    // Check if interface can accept messages
-                    bool noConn = false;
-                    if (getCommsCore()->outboundCanAccept(rateRec._channelID, MSG_TYPE_PUBLISH, noConn))
-                    {
-
-#ifdef DEBUG_REDUCED_PUBLISHING_RATE_WHEN_BUSY
-                        if (reducePublishingRate)
-                        {
-                            LOG_I(MODULE_PREFIX, "loop publishing rate reduced for channel %d", rateRec._channelID);
-                        }
-#endif
-
-#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
-                        uint64_t startUs = micros();
-#endif
-
-                        CommsCoreRetCode publishRetc = publishData(pubRec, rateRec);
-
-#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
-                        uint64_t elapUs = micros() - startUs;
-                        if (_debugSlowestPublishUs < elapUs)
-                            _debugSlowestPublishUs = elapUs;
-                        if (Raft::isTimeout(millis(), _debugLastShowPerfTimeMs, 1000))
-                        {
-                            LOG_I(MODULE_PREFIX, "loop slowest publish %lld slowest stateHash %lld", 
-                                        _debugSlowestPublishUs, _debugSlowestGetHashUs);
-                            _debugSlowestPublishUs = 0;
-                            _debugSlowestGetHashUs = 0;
-                            _debugLastShowPerfTimeMs = millis();
-                        }
-#endif
-
-                        // Check for no connection
-                        if (publishRetc == COMMS_CORE_RET_NO_CONN)
-                        {
-                            noConn = true;
-                        }
-                        // Publish no longer pending (whether successful or not)
-                        rateRec._isPending = false;
-                        rateRec._lastPublishMs = millis();
-                    }
-                    else
-                    {
 #ifdef DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
-                        LOG_I(MODULE_PREFIX, "loop cannot accept outbound for channel %d noConn %d", rateRec._channelID, noConn);
+                    LOG_I(MODULE_PREFIX, "loop cannot accept outbound for channel %d noConn %d", rateRec._channelID, noConn);
 #endif
-                    }
+                }
 
-                    // Check if there is no connection on this channel - if so then check if the rateRec is
-                    // persistent and, if not, then suppress publishing this rateRec
-                    if (noConn && !rateRec._isPersistent)
-                    {
+                // Check if there is no connection on this channel - if so then check if the rateRec is
+                // persistent and, if not, then suppress publishing this rateRec
+                if (noConn && !rateRec._isPersistent)
+                {
 #ifdef DEBUG_PUBLISH_SUPPRESS_RESTART
-                        LOG_I(MODULE_PREFIX, "loop suppressing rateRec channelID %d", rateRec._channelID);
+                    LOG_I(MODULE_PREFIX, "loop suppressing rateRec channelID %d", rateRec._channelID);
 #endif
-                        rateRec._isSuppressed = true;
-                    }
+                    rateRec._isSuppressed = true;
                 }
             }
         }
