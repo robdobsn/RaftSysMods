@@ -139,7 +139,7 @@ void StatePublisher::setup()
     }
 
     // Debug
-    LOG_I(MODULE_PREFIX, "setup num publication recs %d", _publicationRecs.size());
+    LOG_I(MODULE_PREFIX, "setup num publication recs %d", (int)_publicationRecs.size());
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

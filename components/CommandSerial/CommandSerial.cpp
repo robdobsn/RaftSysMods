@@ -208,7 +208,7 @@ RaftRetCode CommandSerial::apiCommandSerial(const String &reqStr, String& respSt
     // Check valid
     if (params.size() < 3)
     {
-        LOG_W(MODULE_PREFIX, "apiCommandSerial not enough params %d", params.size());
+        LOG_W(MODULE_PREFIX, "apiCommandSerial not enough params %d", (int)params.size());
         return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "notEnoughParams", nullptr, RaftRetCode::RAFT_INVALID_DATA);
     }
 
