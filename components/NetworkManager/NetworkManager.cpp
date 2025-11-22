@@ -39,7 +39,7 @@ void NetworkManager::setup()
 
     // Check if we have a friendly name
     bool friendlyNameSet = false;
-    String friendlyName = getSysManager()->getFriendlyName(friendlyNameSet);
+    String friendlyName = getFriendlyName(friendlyNameSet);
     if (!friendlyName.isEmpty())
         networkSystem.setHostname(friendlyName.c_str());
 
@@ -111,8 +111,9 @@ void NetworkManager::loop()
 
 String NetworkManager::getStatusJSON() const
 {
+    bool isValid = false;
     String statusStr = R"({"rslt":"ok")";
-    statusStr += R"(,"v":")" + String(getSysManagerConst() ? getSysManagerConst()->getSystemVersion() + "\"" : "0.0.0");
+    statusStr += R"(,"v":")" + (getSysManagerConst() ? getSysManagerConst()->getNamedString(nullptr, "SystemVersion", isValid) + "\"" : String("0.0.0"));
     statusStr += "," + networkSystem.getConnStateJSON(false, true, true, true, true);
     statusStr += R"(})";
     return statusStr;

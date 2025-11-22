@@ -54,14 +54,15 @@ void BLEManager::setup()
     if (_enableBLE)
     {
         // Set system information (must not be changed after setup)
-        SysManager* pSysManager = getSysManager();
+        SysManagerIF* pSysManager = getSysManager();
         if (pSysManager)
         {
-            BLEStdServices::systemManufacturer = pSysManager->getSystemManufacturer();
-            BLEStdServices::systemModel = pSysManager->getSystemName();
-            BLEStdServices::systemSerialNumber = pSysManager->getSystemSerialNo();
-            BLEStdServices::firmwareVersionNumber = pSysManager->getSystemVersion();
-            BLEStdServices::hardwareRevisionNumber = pSysManager->getBaseSysTypeVersion();
+            bool isValid = false;
+            BLEStdServices::systemManufacturer = pSysManager->getNamedString(nullptr, "Manufacturer", isValid);
+            BLEStdServices::systemModel = pSysManager->getNamedString(nullptr, "SystemName", isValid);
+            BLEStdServices::systemSerialNumber = pSysManager->getNamedString(nullptr, "SerialNumber", isValid);
+            BLEStdServices::firmwareVersionNumber = pSysManager->getNamedString(nullptr, "SystemVersion", isValid);
+            BLEStdServices::hardwareRevisionNumber = pSysManager->getNamedString(nullptr, "BaseSysTypeVersion", isValid);
         }
 
         // Settings
@@ -283,7 +284,8 @@ void BLEManager::getAdvertisingInfo(String& advName, uint16_t& manufacturerID, S
         advName = getSystemName();
      
     // Get serial number
-    serialNo = getSysManager() ? getSysManager()->getSystemSerialNo() : "";
+    bool isValid = false;
+    serialNo = getSysManager() ? getSysManager()->getNamedString(nullptr, "SerialNumber", isValid) : "";
     if (serialNo.length() == 0)
         return;
 
