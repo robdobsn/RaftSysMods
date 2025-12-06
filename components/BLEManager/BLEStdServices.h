@@ -41,7 +41,8 @@ private:
     enum class ServiceDataType
     {
         BYTE,
-        FLAG0_AND_BYTE
+        FLAG0_AND_BYTE,
+        CURRENT_TIME
     };
 
     // Standard services
@@ -98,6 +99,10 @@ private:
         os_mbuf_append(ctxt->om, info, strlen(info));
         return 0;
     }
+
+    // Static callback function to handle current time access
+    static int currentTimeAccessCb(uint16_t conn_handle, uint16_t attr_handle,
+                                   struct ble_gatt_access_ctxt *ctxt, void *arg);
 
     // Overall service update time
     static const uint32_t OVERALL_SERVICE_UPDATE_INTERVAL_MS = 500;

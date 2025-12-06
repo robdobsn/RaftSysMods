@@ -34,6 +34,7 @@ public:
         notify = config.getBool("notify", false);
         indicate = config.getBool("indicate", false);
         read = config.getBool("read", true);
+        write = config.getBool("write", false);
 
         // Timing
         updateIntervalMs = config.getLong("updateIntervalMs", 1000);
@@ -43,6 +44,7 @@ public:
     bool notify:1 = false;
     bool indicate:1 = false;
     bool read:1 = false;
+    bool write:1 = false;
     String name;
     String serviceSettings;
     uint32_t updateIntervalMs = 0;

@@ -13,6 +13,8 @@
 // #define DEBUG_BLE_STD_SERVICES
 
 #include <string.h>
+#include <sys/time.h>
+#include <time.h>
 #include "Logger.h"
 #include "RaftUtils.h"
 #include "RaftArduino.h"
@@ -31,6 +33,8 @@ static const ble_uuid16_t FIRMWARE_REVISION_UUID = BLE_UUID16_INIT(0x2A26);
 static const ble_uuid16_t HARDWARE_REVISION_UUID = BLE_UUID16_INIT(0x2A27);
 static const ble_uuid16_t HEART_RATE_SERVICE_UUID = BLE_UUID16_INIT(0x180D);
 static const ble_uuid16_t HEART_RATE_MEASUREMENT_UUID = BLE_UUID16_INIT(0x2A37);
+static const ble_uuid16_t CURRENT_TIME_SERVICE_UUID = BLE_UUID16_INIT(0x1805);
+static const ble_uuid16_t CURRENT_TIME_CHAR_UUID = BLE_UUID16_INIT(0x2A2B);
 
 // Statics
 String BLEStdServices::systemManufacturer;
@@ -154,6 +158,14 @@ void BLEStdServices::setupService(const BLEStandardServiceConfig& serviceConfig,
         pServiceUUID = &HEART_RATE_SERVICE_UUID.u;
         pCharacteristicUUID = &HEART_RATE_MEASUREMENT_UUID.u;
     }
+    else if (serviceConfig.name.equalsIgnoreCase("currentTime"))
+    {
+        // Set UUID for current time service
+        attribDataType = ServiceDataType::CURRENT_TIME;
+        pAccessCb = currentTimeAccessCb;
+        pServiceUUID = &CURRENT_TIME_SERVICE_UUID.u;
+        pCharacteristicUUID = &CURRENT_TIME_CHAR_UUID.u;
+    }
     else
     {
         // Unknown service
@@ -174,6 +186,17 @@ void BLEStdServices::setupService(const BLEStandardServiceConfig& serviceConfig,
     _standardServices.push_back(service);
 
     // Service characteristics
+    // Determine flags based on service config
+    uint16_t flags = 0;
+    if (serviceConfig.read)
+        flags |= BLE_GATT_CHR_F_READ;
+    if (serviceConfig.notify)
+        flags |= BLE_GATT_CHR_F_NOTIFY;
+    if (serviceConfig.indicate)
+        flags |= BLE_GATT_CHR_F_INDICATE;
+    if (serviceConfig.write)
+        flags |= BLE_GATT_CHR_F_WRITE;
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
     struct ble_gatt_chr_def characteristicList[] = {
@@ -182,7 +205,7 @@ void BLEStdServices::setupService(const BLEStandardServiceConfig& serviceConfig,
             .access_cb = pAccessCb,
             .arg = this,
             .descriptors = nullptr,
-            .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+            .flags = flags,
             .min_key_size = 0,
             .val_handle = &_standardServices.back().attribHandle,
             .cpfd = nullptr
@@ -276,6 +299,92 @@ void BLEStdServices::setupDeviceInfoService(const BLEStandardServiceConfig& serv
     };
 
     servicesList.push_back(deviceInfoService);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief currentTimeAccessCb - callback for current time characteristic read/write
+/// @param conn_handle connection handle
+/// @param attr_handle attribute handle
+/// @param ctxt context
+/// @param arg argument (pointer to BLEStdServices)
+/// @return 0 on success, BLE error code on failure
+int BLEStdServices::currentTimeAccessCb(uint16_t conn_handle, uint16_t attr_handle,
+                                        struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR)
+    {
+        // Read current time from system
+        struct timeval tv;
+        gettimeofday(&tv, nullptr);
+        struct tm timeinfo;
+        localtime_r(&tv.tv_sec, &timeinfo);
+
+        // Current Time Service format (10 bytes):
+        // Year (2 bytes, little endian), Month (1), Day (1), Hours (1), Minutes (1), Seconds (1)
+        // Day of week (1), Fractions256 (1), Adjust reason (1)
+        uint8_t timeData[10];
+        uint16_t year = timeinfo.tm_year + 1900;
+        timeData[0] = year & 0xFF;
+        timeData[1] = (year >> 8) & 0xFF;
+        timeData[2] = timeinfo.tm_mon + 1;  // Month (1-12)
+        timeData[3] = timeinfo.tm_mday;     // Day (1-31)
+        timeData[4] = timeinfo.tm_hour;     // Hours (0-23)
+        timeData[5] = timeinfo.tm_min;      // Minutes (0-59)
+        timeData[6] = timeinfo.tm_sec;      // Seconds (0-59)
+        timeData[7] = timeinfo.tm_wday + 1; // Day of week (1-7, 1=Monday in BLE spec)
+        timeData[8] = (tv.tv_usec * 256) / 1000000;  // Fractions256
+        timeData[9] = 0;                    // Adjust reason (0 = unknown)
+
+        os_mbuf_append(ctxt->om, timeData, sizeof(timeData));
+        return 0;
+    }
+    else if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR)
+    {
+        // Write time to system
+        uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+        if (len < 7)  // Minimum: year(2) + month(1) + day(1) + hour(1) + min(1) + sec(1)
+        {
+            LOG_W(MODULE_PREFIX, "currentTimeAccessCb write data too short: %d bytes", len);
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        }
+
+        uint8_t timeData[10];
+        uint16_t copied = 0;
+        int rc = ble_hs_mbuf_to_flat(ctxt->om, timeData, sizeof(timeData), &copied);
+        if (rc != 0)
+        {
+            LOG_W(MODULE_PREFIX, "currentTimeAccessCb failed to copy mbuf data");
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+
+        // Parse the time data
+        struct tm timeinfo = {};
+        uint16_t year = timeData[0] | (timeData[1] << 8);
+        timeinfo.tm_year = year - 1900;
+        timeinfo.tm_mon = timeData[2] - 1;  // Month (0-11 in tm)
+        timeinfo.tm_mday = timeData[3];
+        timeinfo.tm_hour = timeData[4];
+        timeinfo.tm_min = timeData[5];
+        timeinfo.tm_sec = timeData[6];
+        timeinfo.tm_isdst = -1;  // Let system determine DST
+
+        // Convert to time_t and set system time
+        time_t t = mktime(&timeinfo);
+        struct timeval tv = { .tv_sec = t, .tv_usec = 0 };
+        if (settimeofday(&tv, nullptr) == 0)
+        {
+            LOG_I(MODULE_PREFIX, "currentTimeAccessCb time set to %04d-%02d-%02d %02d:%02d:%02d",
+                  year, timeData[2], timeData[3], timeData[4], timeData[5], timeData[6]);
+            return 0;
+        }
+        else
+        {
+            LOG_W(MODULE_PREFIX, "currentTimeAccessCb settimeofday failed");
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+    }
+
+    return BLE_ATT_ERR_UNLIKELY;
 }
 
 #endif // CONFIG_BT_ENABLED
