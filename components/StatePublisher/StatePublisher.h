@@ -22,33 +22,48 @@ class RobotController;
 class StatePublisher : public RaftSysMod
 {
 public:
-    // Constructor
+    /// @brief Constructor
+    /// @param pModuleName Module name
+    /// @param sysConfig System configuration
     StatePublisher(const char* pModuleName, RaftJsonIF& sysConfig);
     ~StatePublisher();
 
-    // Create function (for use by SysManager factory)
+    /// @brief Create function (for use by SysManager factory)
+    /// @param pModuleName Module name
+    /// @param sysConfig System configuration
+    /// @return Pointer to new StatePublisher instance
     static RaftSysMod* create(const char* pModuleName, RaftJsonIF& sysConfig)
     {
         return new StatePublisher(pModuleName, sysConfig);
     }
     
-    // Subscription API
+    /// @brief Subscription API
+    /// @param reqStr Request string
+    /// @param respStr Response string (output)
+    /// @param sourceInfo API source information
+    /// @return RaftRetCode
     RaftRetCode apiSubscription(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
-    // Receive msg generator callback function
+    /// @brief Register data source (msg generator callback function)
+    /// @param pubTopic Publication topic name
+    /// @param msgGenCB Message generator callback
+    /// @param stateDetectCB State detection callback
+    /// @return true if registration successful
     virtual bool registerDataSource(const char* pubTopic, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB) override final;
 
 protected:
-    // Setup
+    /// @brief Setup
     virtual void setup() override final;
 
-    // Loop - called frequently
+    /// @brief Loop - called frequently
     virtual void loop() override final;
 
-    // Add endpoints
+    /// @brief Add REST API endpoints
+    /// @param endpointManager Endpoint manager
     virtual void addRestAPIEndpoints(RestAPIEndpointManager& endpointManager) override final;
     
-    // Add comms channels
+    /// @brief Add comms channels
+    /// @param commsCore Communications core
     virtual void addCommsChannels(CommsCoreIF& commsCore) override final
     {
     }
@@ -62,14 +77,27 @@ private:
         TRIGGER_ON_TIME_OR_CHANGE
     };
 
-    static const int32_t PUBLISHING_HANDLE_UNDEFINED = -1;
     static const uint32_t REDUCED_PUB_RATE_WHEN_BUSY_MS = 1000;
-    static const uint32_t MIN_MS_BETWEEN_STATE_CHANGE_PUBLISHES = 100;
+    static const uint32_t DEFAULT_MIN_TIME_BETWEEN_MSGS_MS = 100;
+    static const uint32_t BACKOFF_STAGE_1_MS = 5000;
+    static const uint32_t BACKOFF_STAGE_2_MS = 30000;
+    static const uint32_t BACKOFF_STAGE_3_MS = 60000;
 
-    class PubInterfaceRec
+    // Publication source - defines what can be published and specifies the callbacks
+    // used to get the data and detect state changes via a hash
+    class PubSource
     {
     public:
-        PubInterfaceRec()
+        String _pubTopic;
+        SysMod_publishMsgGenFn _msgGenFn = nullptr;
+        SysMod_stateDetectCB _stateDetectFn = nullptr;
+    };
+
+    // Active subscription - created on-demand via API
+    class Subscription
+    {
+    public:
+        Subscription()
         {
         }
         void setRateHz(double rateHz)
@@ -79,52 +107,46 @@ private:
                 _betweenPubsMs = 0;
             else
                 _betweenPubsMs = 1000/rateHz;
-            // Fix between pubs ms as isTimout check has an average of 1ms more than requested
+            // Fix between pubs ms as isTimeout check has an average of 1ms more than requested
             if (_betweenPubsMs > 9)
                 _betweenPubsMs--;
         }
-        String _interface;
-        String _protocol;
-        double _rateHz = 1.0;
-        uint32_t _betweenPubsMs = 0;
-        uint32_t _lastPublishMs = 0;
-        int32_t _channelID = PUBLISHING_HANDLE_UNDEFINED;
 
-        // Indicates that the subscription for this channel/rate was created at setup
-        // time (and not with a dynamic subscription API call) - persistent channels
-        // are not suppressed (see below)
-        bool _isPersistent = false;
+        String _pubTopic;                           // Which topic to publish
+        uint32_t _channelID = 0;                    // Which channel to publish to
+        TriggerType_t _trigger = TRIGGER_ON_TIME_OR_CHANGE; // When to publish
+        double _rateHz = 1.0;                       // Publishing rate
+        uint32_t _betweenPubsMs = 0;                // Calculated from rateHz
+        uint32_t _minTimeBetweenMsgsMs = DEFAULT_MIN_TIME_BETWEEN_MSGS_MS; // Minimum interval between messages
+        uint32_t _lastCheckMs = 0;                  // Last time we checked/attempted publish
+        bool _isPending = false;                    // Publish is due but not sent yet
 
-        // Publishing is suppressed when the comms channel that is used for publishing
-        // has indicated that it is disconnected - publishing remains suppressed until
-        // the a new subscription is received
-        bool _isSuppressed = false;
-
-        // Indicates that the criteria for publishing has been met but the publishing
-        // event has not occurred due to the channel being busy, etc
-        bool _isPending = false;
-    };
-
-    // Publication records
-    class PubRec
-    {
-    public:
-        // Name used to refer to this publication record in the API
-        String _pubTopic;
-        TriggerType_t _trigger = TRIGGER_ON_TIME_INTERVALS;
+        // Callbacks (copied from PubSource for performance - avoids lookup in loop)
         SysMod_publishMsgGenFn _msgGenFn = nullptr;
-        SysMod_stateDetectCB _stateDetectFn = nullptr;;
-        uint16_t _minStateChangeMs = MIN_MS_BETWEEN_STATE_CHANGE_PUBLISHES;
-        std::list<PubInterfaceRec> _interfaceRecs;
-        uint32_t _lastHashCheckMs = 0;
+        SysMod_stateDetectCB _stateDetectFn = nullptr;
 
-        // This is used by _stateDetectFn callback for state change
-        // detection information - the state change is detected by
-        // the comparing the returned value from the callback with
-        // the previous hash value
-        std::vector<uint8_t> _stateHash;
+        // State tracking - each subscription tracks what it has seen/published
+        std::vector<uint8_t> _lastStateHash;
+
+        // Connection state management
+        enum ConnState
+        {
+            CONN_STATE_ACTIVE,              // Publishing normally
+            CONN_STATE_LOST,                // Connection lost, trying fast retry
+            CONN_STATE_BACKOFF_STAGE_1,     // Slower retry (5s)
+            CONN_STATE_BACKOFF_STAGE_2,     // Even slower (30s)
+            CONN_STATE_BACKOFF_STAGE_3      // Slowest retry (60s)
+        };
+        ConnState _connState = CONN_STATE_ACTIVE;
+        uint32_t _backoffIntervalMs = 0;            // Current backoff interval
+        uint32_t _consecutiveFailures = 0;          // Count failures for backoff logic
     };
-    std::list<PubRec> _publicationRecs;
+
+    // Publication sources (from config, never changes after setup and registerDataSource)
+    std::list<PubSource> _pubSources;
+
+    // Active subscriptions (created/modified via API)
+    std::list<Subscription> _subscriptions;
 
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
     // Stats
@@ -135,7 +157,13 @@ private:
 
     // Helpers
     void cleanUp();
-    CommsCoreRetCode publishData(PubRec& pubRec, PubInterfaceRec& rateRec);
+    PubSource* findPubSource(const String& pubTopic);
+    Subscription* findSubscription(const String& pubTopic, uint32_t channelID);
+    void removeSubscription(const String& pubTopic, uint32_t channelID);
+    bool attemptPublish(Subscription& sub);
+    void handleConnectionLost(Subscription& sub);
+    CommsCoreRetCode publishData(Subscription& sub);
+    static TriggerType_t parseTriggerType(const String& triggerStr);
 
     // Log prefix
     static constexpr const char *MODULE_PREFIX = "StatePub";
