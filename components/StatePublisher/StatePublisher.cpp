@@ -68,40 +68,8 @@ void StatePublisher::setup()
     // Clear down
     cleanUp();
 
-    // Publications info
-    std::vector<String> pubList;
-    if (!configGetArrayElems("pubList", pubList))
-    {
-        LOG_W(MODULE_PREFIX, "setup - no pubList found");
-        return;
-    }
-
-    // Iterate over pubList - create publication sources only (no subscriptions)
-    for (int pubIdx = 0; pubIdx < pubList.size(); pubIdx++)
-    {
-        // Get the publication info
-        RaftJson pubInfo = pubList[pubIdx];
-
-        // Create pub source
-        PubSource pubSource;
-
-        // Get settings (either topic or name can be used to specify topic for backwards compatibility)
-        pubSource._pubTopic = pubInfo.getString("topic", pubInfo.getString("name", "").c_str());
-        pubSource._msgGenFn = nullptr;
-        pubSource._stateDetectFn = nullptr;
-
-        // Add to the list of publication sources
-        _pubSources.push_back(pubSource);
-
-        // Debug
-#ifdef DEBUG_STATE_PUBLISHER_SETUP
-        LOG_I(MODULE_PREFIX, "setup registered publication source %s", 
-                        pubSource._pubTopic.c_str());
-#endif
-    }
-
     // Debug
-    LOG_I(MODULE_PREFIX, "setup num publication sources %d", (int)_pubSources.size());
+    LOG_I(MODULE_PREFIX, "setup - sources are added when registered");
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -295,27 +263,29 @@ void StatePublisher::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager
 /// @return true if registration successful
 bool StatePublisher::registerDataSource(const char* pubTopic, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB)
 {
-    // Search for publication sources using this pubTopic
-    bool found = false;
+    // Search for existing publication source with this topic
     for (PubSource& pubSource : _pubSources)
     {   
         // Check topic name
         if (pubSource._pubTopic.equals(pubTopic))
         {
-            LOG_I(MODULE_PREFIX, "registerDataSource registered callbacks for topic %s", pubTopic);
+            // Update existing source
+            LOG_I(MODULE_PREFIX, "registerDataSource updated callbacks for topic %s", pubTopic);
             pubSource._msgGenFn = msgGenCB;
             pubSource._stateDetectFn = stateDetectCB;
-            found = true;
-            break;
+            return true;
         }
     }
 
-    // Not found?
-    if (!found)
-    {
-        LOG_W(MODULE_PREFIX, "registerDataSource topic %s not found in config - cannot register", pubTopic);
-    }
-    return found;
+    // Not found - create new publication source
+    PubSource newPubSource;
+    newPubSource._pubTopic = pubTopic;
+    newPubSource._msgGenFn = msgGenCB;
+    newPubSource._stateDetectFn = stateDetectCB;
+    _pubSources.push_back(newPubSource);
+    
+    LOG_I(MODULE_PREFIX, "registerDataSource created new publication source for topic %s", pubTopic);
+    return true;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
