@@ -20,29 +20,18 @@
 // #define DEBUG_PUBLISHING_MESSAGE
 // #define DEBUG_PUBLISHING_REASON
 // #define DEBUG_PUBLISHING_HASH
-// #define DEBUG_ONLY_THIS_TOPIC "devjson"
+// #define DEBUG_ONLY_THIS_TOPIC "ScaderOpener"
 // #define DEBUG_API_SUBSCRIPTION
 // #define DEBUG_STATE_PUBLISHER_SETUP
 // #define DEBUG_REDUCED_PUBLISHING_RATE_WHEN_BUSY
 // #define DEBUG_FORCE_GENERATION_OF_PUBLISH_MSGS
 // #define DEBUG_PUBLISH_SUPPRESS_RESTART
 // #define DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
-// #define DEBUG_CONNECTION_LOST_RESTORE
-// #define DEBUG_PUBLISH_LOOP_TIMING
+#define DEBUG_CONNECTION_LOST_RESTORE
 
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-#ifdef ESP_PLATFORM
-#include <xtensa/hal.h>
-#endif
-#endif
-
-// First N bytes of message to show in debug output
+// Debug settings for message display
 #define DEBUG_SHOW_ONLY_FIRST_N_BYTES_OF_MSG 16
-
-// Show message content as text if in ASCII range
 #define DEBUG_SHOW_MSG_CONTENT_AS_TEXT_IF_ASCII
-
-// Debug
 #ifdef DEBUG_ONLY_THIS_TOPIC
 #include <algorithm>
 #endif
@@ -54,10 +43,6 @@
 StatePublisher::StatePublisher(const char* pModuleName, RaftJsonIF& sysConfig)
         : RaftSysMod(pModuleName, sysConfig)
 {
-#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
-    _debugLastShowPerfTimeMs = 0;
-    _debugSlowestPublishUs = 0;
-#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -84,23 +69,8 @@ void StatePublisher::setup()
 void StatePublisher::loop()
 {
 
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-    static uint32_t debugCallCount = 0;
-    static uint64_t debugTotalElapsedUs = 0;
-    static uint64_t debugTotalCpuUs = 0;
-    static uint64_t debugMaxElapsedUs = 0;
-    static uint64_t debugMaxCpuUs = 0;
-    static uint64_t debugStateDetectElapsedUs = 0;
-    static uint64_t debugStateDetectCpuUs = 0;
-    static uint64_t debugAttemptPublishElapsedUs = 0;
-    static uint64_t debugAttemptPublishCpuUs = 0;
-    static uint32_t debugLastReportMs = millis();
-
-    uint32_t debugStartReportMs = millis();
-    uint32_t debugWorstCaseReportMs = 0;
-    
+#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
     uint64_t loopStartUs = micros();
-    uint32_t loopStartCycles = xthal_get_ccount();
 #endif
 
     // Check valid
@@ -121,16 +91,19 @@ void StatePublisher::loop()
             sub._trigger == TRIGGER_ON_TIME_OR_CHANGE)
         {
             // Use the rate-based interval for time-based triggers
-            if (sub._betweenPubsMs > 0)
+            if ((sub._betweenPubsMs > 0) && (sub._betweenPubsMs < checkInterval))
                 checkInterval = sub._betweenPubsMs;
         }
         
+#ifdef ENABLE_CONNECTION_BACKOFF
         // Apply backoff if connection has issues
         if (sub._connState != Subscription::CONN_STATE_ACTIVE)
         {
-            checkInterval = sub._backoffIntervalMs;
+            checkInterval = sub.calculateBackoffIntervalMs(checkInterval);
         }
-        else if (reducePublishingRate)
+        else
+#endif
+        if (reducePublishingRate)
         {
             checkInterval = REDUCED_PUB_RATE_WHEN_BUSY_MS;
         }
@@ -139,25 +112,21 @@ void StatePublisher::loop()
         if (!Raft::isTimeout(millis(), sub._lastCheckMs, checkInterval) && !sub._isPending)
             continue;
 
-        // Update check time
-        sub._lastCheckMs = millis();
-
         // Check state if we have a state detect function
         bool stateChanged = false;
         std::vector<uint8_t> currentHash;
         if (sub._stateDetectFn)
         {
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
+#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
             uint64_t stateStartUs = micros();
-            uint32_t stateStartCycles = xthal_get_ccount();
 #endif
+
             sub._stateDetectFn(sub._pubTopic.c_str(), currentHash);
 
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-            uint64_t stateElapsedUs = Raft::timeElapsed(micros(), stateStartUs);
-            if (debugStateDetectElapsedUs < stateElapsedUs)
-                debugStateDetectElapsedUs = stateElapsedUs;
-            debugStateDetectCpuUs += (xthal_get_ccount() - stateStartCycles) / 240;
+#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
+            uint64_t stateElapsedUs = micros() - stateStartUs;
+            if (_debugSlowestGetHashUs < stateElapsedUs)
+                _debugSlowestGetHashUs = stateElapsedUs;
 #endif
 
 #ifdef DEBUG_PUBLISHING_HASH
@@ -169,8 +138,10 @@ void StatePublisher::loop()
                 Raft::getHexStrFromBytes(sub._lastStateHash.data(), sub._lastStateHash.size(), curHashStr);
                 String newHashStr;
                 Raft::getHexStrFromBytes(currentHash.data(), currentHash.size(), newHashStr);
-                LOG_I(MODULE_PREFIX, "loop check hash for topic %s channelID %d curHash %s newHash %s", 
-                                sub._pubTopic.c_str(), sub._channelID, curHashStr.c_str(), newHashStr.c_str());
+                LOG_I(MODULE_PREFIX, "loop check intv %d isPending %s topic %s channelID %d curHash %s newHash %s", 
+                                checkInterval, sub._isPending ? "Y" : "N", 
+                                sub._pubTopic.c_str(), sub._channelID, 
+                                curHashStr.c_str(), newHashStr.c_str());
 #ifdef DEBUG_ONLY_THIS_TOPIC
             }
 #endif
@@ -244,74 +215,39 @@ void StatePublisher::loop()
         // Attempt to publish if needed
         if (shouldPublish)
         {
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
+#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
             uint64_t attemptStartUs = micros();
-            uint32_t attemptStartCycles = xthal_get_ccount();
-            debugStartReportMs = millis();
 #endif
+
             if (attemptPublish(sub))
             {
-                // Successful publish - update hash if we have one
+                // Successful publish - update timer and hash
+                sub._lastCheckMs = millis();
                 if (sub._stateDetectFn)
                 {
                     sub._lastStateHash = currentHash;
                 }
             }
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-            uint64_t attemptElapsedUs = Raft::timeElapsed(micros(), attemptStartUs);
-            if (debugAttemptPublishElapsedUs < attemptElapsedUs)
-                debugAttemptPublishElapsedUs = attemptElapsedUs;
-            debugAttemptPublishCpuUs += (xthal_get_ccount() - attemptStartCycles) / 240;
-            uint32_t lastReportMs = millis() - debugStartReportMs;
-            if (lastReportMs > debugWorstCaseReportMs)
-                debugWorstCaseReportMs = lastReportMs;
+#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
+            uint64_t attemptElapsedUs = micros() - attemptStartUs;
+            if (_debugSlowestPublishUs < attemptElapsedUs)
+                _debugSlowestPublishUs = attemptElapsedUs;
 #endif
         }
     }
 
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-    uint64_t loopElapsedUs = Raft::timeElapsed(micros(), loopStartUs);
-    uint64_t loopCpuUs = (xthal_get_ccount() - loopStartCycles) / 240;
-    
-    debugCallCount++;
-    debugTotalElapsedUs += loopElapsedUs;
-    debugTotalCpuUs += loopCpuUs;
-    if (loopElapsedUs > debugMaxElapsedUs)
-        debugMaxElapsedUs = loopElapsedUs;
-    if (loopCpuUs > debugMaxCpuUs)
-        debugMaxCpuUs = loopCpuUs;
-    
-    if (Raft::isTimeout(millis(), debugLastReportMs, 5000))
-    {
-        uint64_t avgElapsedUs = debugCallCount > 0 ? debugTotalElapsedUs / debugCallCount : 0;
-        uint64_t avgCpuUs = debugCallCount > 0 ? debugTotalCpuUs / debugCallCount : 0;
-        
-        LOG_I(MODULE_PREFIX, "loop calls=%d | ELAPSED: avgUs=%lld maxUs=%lld | CPU: avgUs=%lld maxUs=%lld | stateDetect: e=%lld c=%lld | attemptPub: e=%lld c=%lld worstCaseReportMs=%d",
-              debugCallCount, avgElapsedUs, debugMaxElapsedUs, avgCpuUs, debugMaxCpuUs,
-              debugStateDetectElapsedUs, debugStateDetectCpuUs,
-              debugAttemptPublishElapsedUs, debugAttemptPublishCpuUs,
-              debugWorstCaseReportMs);
-        
-        debugCallCount = 0;
-        debugTotalElapsedUs = 0;
-        debugTotalCpuUs = 0;
-        debugMaxElapsedUs = 0;
-        debugMaxCpuUs = 0;
-        debugStateDetectElapsedUs = 0;
-        debugStateDetectCpuUs = 0;
-        debugAttemptPublishElapsedUs = 0;
-        debugAttemptPublishCpuUs = 0;
-        debugLastReportMs = millis();
-    }
-#endif
 
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
+    uint64_t loopTimeUs = micros() - loopStartUs;
+    if (_debugSlowestLoopUs < loopTimeUs)
+        _debugSlowestLoopUs = loopTimeUs;
     if (Raft::isTimeout(millis(), _debugLastShowPerfTimeMs, 1000))
     {
-        LOG_I(MODULE_PREFIX, "loop slowest publish %lld slowest stateHash %lld", 
-                    _debugSlowestPublishUs, _debugSlowestGetHashUs);
+        LOG_I(MODULE_PREFIX, "loop slowest publish %lldus slowest stateHash %lldus slowest totalLoop %lldus", 
+                    _debugSlowestPublishUs, _debugSlowestGetHashUs, _debugSlowestLoopUs);
         _debugSlowestPublishUs = 0;
         _debugSlowestGetHashUs = 0;
+        _debugSlowestLoopUs = 0;
         _debugLastShowPerfTimeMs = millis();
     }
 #endif
@@ -373,15 +309,6 @@ bool StatePublisher::registerDataSource(const char* pubTopic, SysMod_publishMsgG
 /// @return CommsCoreRetCode
 CommsCoreRetCode StatePublisher::publishData(Subscription& sub)
 {
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-    static uint64_t debugMsgGenElapsedUs = 0;
-    static uint64_t debugMsgGenCpuUs = 0;
-    static uint64_t debugOutboundHandleElapsedUs = 0;
-    static uint64_t debugOutboundHandleCpuUs = 0;
-    static uint32_t debugPublishDataCount = 0;
-    static uint32_t debugLastPubDataReportMs = millis();
-#endif
-
     // Check comms core
     if (!getCommsCore())
         return COMMS_CORE_RET_FAIL;
@@ -389,22 +316,12 @@ CommsCoreRetCode StatePublisher::publishData(Subscription& sub)
     // Endpoint message we're going to send
     CommsChannelMsg endpointMsg(sub._channelID, MSG_PROTOCOL_ROSSERIAL, 0, MSG_TYPE_PUBLISH);
 
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-    uint64_t msgGenStartUs = micros();
-    uint32_t msgGenStartCycles = xthal_get_ccount();
-#endif
-
     // Generate message
     bool msgOk = false;
     if (sub._msgGenFn)
     {
         msgOk = sub._msgGenFn(sub._pubTopic.c_str(), endpointMsg);
     }
-
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-    debugMsgGenElapsedUs += Raft::timeElapsed(micros(), msgGenStartUs);
-    debugMsgGenCpuUs += (xthal_get_ccount() - msgGenStartCycles) / (esp_clk_cpu_freq() / 1000000);
-#endif
 
 #ifdef DEBUG_PUBLISHING_MESSAGE
 #ifdef DEBUG_ONLY_THIS_TOPIC
@@ -414,6 +331,7 @@ CommsCoreRetCode StatePublisher::publishData(Subscription& sub)
         LOG_I(MODULE_PREFIX, "publishData len %d topic %s %s", endpointMsg.getBufLen(), sub._pubTopic.c_str(), msgOk ? "msgGenOk" : "msgGenFail");
     }
 #endif
+
     if (!msgOk)
         return COMMS_CORE_RET_FAIL;
     if (endpointMsg.getBufLen() == 0)
@@ -457,32 +375,8 @@ CommsCoreRetCode StatePublisher::publishData(Subscription& sub)
     }
 #endif
 
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-    uint64_t outboundStartUs = micros();
-    uint32_t outboundStartCycles = xthal_get_ccount();
-#endif
-
     // Send message
     CommsCoreRetCode retc = getCommsCore()->outboundHandleMsg(endpointMsg);
-
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-    debugOutboundHandleElapsedUs += Raft::timeElapsed(micros(), outboundStartUs);
-    debugOutboundHandleCpuUs += (xthal_get_ccount() - outboundStartCycles) / (esp_clk_cpu_freq() / 1000000);
-    debugPublishDataCount++;
-    
-    if (Raft::isTimeout(millis(), debugLastPubDataReportMs, 5000))
-    {
-        LOG_I(MODULE_PREFIX, "publishData calls=%d | msgGen: e=%lld c=%lld | outboundHandle: e=%lld c=%lld",
-              debugPublishDataCount, debugMsgGenElapsedUs, debugMsgGenCpuUs,
-              debugOutboundHandleElapsedUs, debugOutboundHandleCpuUs);
-        debugMsgGenElapsedUs = 0;
-        debugMsgGenCpuUs = 0;
-        debugOutboundHandleElapsedUs = 0;
-        debugOutboundHandleCpuUs = 0;
-        debugPublishDataCount = 0;
-        debugLastPubDataReportMs = millis();
-    }
-#endif
 
 #ifdef DEBUG_PUBLISHING_MESSAGE
 #ifdef DEBUG_ONLY_THIS_TOPIC
@@ -529,11 +423,6 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
     {
         LOG_I(MODULE_PREFIX, "apiSubscription %s = %s", nvp.name.c_str(), nvp.value.c_str());
     }
-    if (params.size() > 0)
-    {
-        LOG_I(MODULE_PREFIX, "apiSubscription params[0] %s", params[0].c_str());
-    }
-    LOG_I(MODULE_PREFIX, "subscription jsonFromNVPairs %s", jsonParams.c_str());
 #endif
 
     // Handle subscription commands
@@ -593,10 +482,13 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                 pSub->_trigger = trigger;
                 pSub->_msgGenFn = pPubSource->_msgGenFn;
                 pSub->_stateDetectFn = pPubSource->_stateDetectFn;
+                pSub->_lastCheckMs = 0;  // Reset timer to allow immediate publish
                 pSub->_isPending = true;
+#ifdef ENABLE_CONNECTION_BACKOFF
                 pSub->_connState = Subscription::CONN_STATE_ACTIVE;
                 pSub->_consecutiveFailures = 0;
-                pSub->_backoffIntervalMs = 0;
+                pSub->_backoffPercent = 0;
+#endif
                 
 #ifdef DEBUG_API_SUBSCRIPTION
                 LOG_I(MODULE_PREFIX, "apiSubscription updated subscription topic %s channelID %d rateHz %.2f minMs %d trigger %s", 
@@ -614,11 +506,13 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                 newSub._trigger = trigger;
                 newSub._msgGenFn = pPubSource->_msgGenFn;
                 newSub._stateDetectFn = pPubSource->_stateDetectFn;
-                newSub._lastCheckMs = millis();
+                newSub._lastCheckMs = 0;  // Start at 0 to allow immediate first publish
                 newSub._isPending = true;
+#ifdef ENABLE_CONNECTION_BACKOFF
                 newSub._connState = Subscription::CONN_STATE_ACTIVE;
                 newSub._consecutiveFailures = 0;
-                newSub._backoffIntervalMs = 0;
+                newSub._backoffPercent = 0;
+#endif
                 _subscriptions.push_back(newSub);
                 
 #ifdef DEBUG_API_SUBSCRIPTION
@@ -709,22 +603,8 @@ void StatePublisher::removeSubscription(const String& pubTopic, uint32_t channel
 /// @return true if publish successful
 bool StatePublisher::attemptPublish(Subscription& sub)
 {
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-    static uint64_t debugOutboundCanAcceptElapsedUs = 0;
-    static uint64_t debugOutboundCanAcceptCpuUs = 0;
-    static uint64_t debugPublishDataElapsedUs = 0;
-    static uint64_t debugPublishDataCpuUs = 0;
-    static uint32_t debugAttemptCount = 0;
-    static uint32_t debugLastSubReportMs = millis();
-#endif
-
     // Mark as pending
     sub._isPending = true;
-
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-    uint64_t canAcceptStartUs = micros();
-    uint32_t canAcceptStartCycles = xthal_get_ccount();
-#endif
 
     // Check if channel can accept messages
     bool noConn = false;
@@ -733,59 +613,37 @@ bool StatePublisher::attemptPublish(Subscription& sub)
 #ifdef DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
         LOG_I(MODULE_PREFIX, "attemptPublish cannot accept outbound channelID %d noConn %d", sub._channelID, noConn);
 #endif
+#ifdef ENABLE_CONNECTION_BACKOFF
         if (noConn)
             handleConnectionLost(sub);
+#endif
         return false;
     }
 
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-    debugOutboundCanAcceptElapsedUs += Raft::timeElapsed(micros(), canAcceptStartUs);
-    debugOutboundCanAcceptCpuUs += (xthal_get_ccount() - canAcceptStartCycles) / 240;
-    
-    uint64_t publishStartUs = micros();
-    uint32_t publishStartCycles = xthal_get_ccount();
-#endif
-
     // Attempt to publish
     CommsCoreRetCode retc = publishData(sub);
-
-#ifdef DEBUG_PUBLISH_LOOP_TIMING
-    debugPublishDataElapsedUs += Raft::timeElapsed(micros(), publishStartUs);
-    debugPublishDataCpuUs += (xthal_get_ccount() - publishStartCycles) / 240;
-    debugAttemptCount++;
-    
-    if (Raft::isTimeout(millis(), debugLastSubReportMs, 5000))
-    {
-        LOG_I(MODULE_PREFIX, "attemptPublish calls=%d | outboundCanAccept: e=%lld c=%lld | publishData: e=%lld c=%lld",
-              debugAttemptCount, debugOutboundCanAcceptElapsedUs, debugOutboundCanAcceptCpuUs,
-              debugPublishDataElapsedUs, debugPublishDataCpuUs);
-        debugOutboundCanAcceptElapsedUs = 0;
-        debugOutboundCanAcceptCpuUs = 0;
-        debugPublishDataElapsedUs = 0;
-        debugPublishDataCpuUs = 0;
-        debugAttemptCount = 0;
-        debugLastSubReportMs = millis();
-    }
-#endif
 
     if (retc == COMMS_CORE_RET_OK)
     {
         // Success!
         sub._isPending = false;
+#ifdef ENABLE_CONNECTION_BACKOFF
         sub._consecutiveFailures = 0;
         
         // Restore to active state if we were in backoff
         if (sub._connState != Subscription::CONN_STATE_ACTIVE)
         {
             sub._connState = Subscription::CONN_STATE_ACTIVE;
-            sub._backoffIntervalMs = 0;
+            sub._backoffPercent = 0;
 #ifdef DEBUG_CONNECTION_LOST_RESTORE
             LOG_I(MODULE_PREFIX, "Connection restored for topic %s channelID %d", 
                   sub._pubTopic.c_str(), sub._channelID);
 #endif
         }
+#endif
         return true;
     }
+#ifdef ENABLE_CONNECTION_BACKOFF
     else if (retc == COMMS_CORE_RET_NO_CONN)
     {
         handleConnectionLost(sub);
@@ -799,8 +657,13 @@ bool StatePublisher::attemptPublish(Subscription& sub)
             handleConnectionLost(sub);
         return false;
     }
+#else
+    // Without backoff, just return false and let pending flag trigger immediate retry
+    return false;
+#endif
 }
 
+#ifdef ENABLE_CONNECTION_BACKOFF
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Handle connection lost with staged backoff
 /// @param sub Subscription with connection issues
@@ -816,10 +679,10 @@ void StatePublisher::handleConnectionLost(Subscription& sub)
             if (sub._consecutiveFailures >= 3)
             {
                 sub._connState = Subscription::CONN_STATE_BACKOFF_STAGE_1;
-                sub._backoffIntervalMs = BACKOFF_STAGE_1_MS;
+                sub._backoffPercent = BACKOFF_STAGE_1_PERCENT;
 #ifdef DEBUG_CONNECTION_LOST_RESTORE
-                LOG_I(MODULE_PREFIX, "Entering backoff stage 1 (%dms) for channelID %d", 
-                      BACKOFF_STAGE_1_MS, sub._channelID);
+                LOG_I(MODULE_PREFIX, "connLost: Entering backoff stage 1 (%d%%) for channelID %d", 
+                      BACKOFF_STAGE_1_PERCENT, sub._channelID);
 #endif
             }
             else
@@ -832,10 +695,10 @@ void StatePublisher::handleConnectionLost(Subscription& sub)
             if (sub._consecutiveFailures >= 10)
             {
                 sub._connState = Subscription::CONN_STATE_BACKOFF_STAGE_2;
-                sub._backoffIntervalMs = BACKOFF_STAGE_2_MS;
+                sub._backoffPercent = BACKOFF_STAGE_2_PERCENT;
 #ifdef DEBUG_CONNECTION_LOST_RESTORE
-                LOG_I(MODULE_PREFIX, "Entering backoff stage 2 (%dms) for channelID %d", 
-                      BACKOFF_STAGE_2_MS, sub._channelID);
+                LOG_I(MODULE_PREFIX, "connLost: Entering backoff stage 2 (%d%%) for channelID %d", 
+                      BACKOFF_STAGE_2_PERCENT, sub._channelID);
 #endif
             }
             break;
@@ -844,10 +707,10 @@ void StatePublisher::handleConnectionLost(Subscription& sub)
             if (sub._consecutiveFailures >= 20)
             {
                 sub._connState = Subscription::CONN_STATE_BACKOFF_STAGE_3;
-                sub._backoffIntervalMs = BACKOFF_STAGE_3_MS;
+                sub._backoffPercent = BACKOFF_STAGE_3_PERCENT;
 #ifdef DEBUG_CONNECTION_LOST_RESTORE
-                LOG_I(MODULE_PREFIX, "Entering backoff stage 3 (%dms) for channelID %d", 
-                      BACKOFF_STAGE_3_MS, sub._channelID);
+                LOG_I(MODULE_PREFIX, "connLost: Entering backoff stage 3 (%d%%) for channelID %d", 
+                      BACKOFF_STAGE_3_PERCENT, sub._channelID);
 #endif
             }
             break;
@@ -857,12 +720,13 @@ void StatePublisher::handleConnectionLost(Subscription& sub)
             if (sub._consecutiveFailures >= 100)
             {
 #ifdef DEBUG_CONNECTION_LOST_RESTORE
-                LOG_W(MODULE_PREFIX, "Extended failure for channelID %d (100+ consecutive failures)", sub._channelID);
+                LOG_W(MODULE_PREFIX, "connLost: Extended failure for channelID %d (100+ consecutive failures)", sub._channelID);
 #endif
             }
             break;
     }
 }
+#endif // ENABLE_CONNECTION_BACKOFF
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Parse trigger type from string

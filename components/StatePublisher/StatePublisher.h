@@ -15,8 +15,11 @@
 #include "RaftSysMod.h"
 #include "CommsCoreIF.h"
 
-class RobotController;
+// Enable connection backoff mechanism (staged retry delays when connection fails)
+// Uncomment following line to enable backoff
+#define ENABLE_CONNECTION_BACKOFF
 
+// Show performance stats in debug every N seconds
 // #define DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
 
 class StatePublisher : public RaftSysMod
@@ -79,9 +82,12 @@ private:
 
     static const uint32_t REDUCED_PUB_RATE_WHEN_BUSY_MS = 1000;
     static const uint32_t DEFAULT_MIN_TIME_BETWEEN_MSGS_MS = 100;
-    static const uint32_t BACKOFF_STAGE_1_MS = 5000;
-    static const uint32_t BACKOFF_STAGE_2_MS = 30000;
-    static const uint32_t BACKOFF_STAGE_3_MS = 60000;
+
+#ifdef ENABLE_CONNECTION_BACKOFF
+    static const uint32_t BACKOFF_STAGE_1_PERCENT = 50;
+    static const uint32_t BACKOFF_STAGE_2_PERCENT = 90;
+    static const uint32_t BACKOFF_STAGE_3_PERCENT = 95;
+#endif
 
     // Publication source - defines what can be published and specifies the callbacks
     // used to get the data and detect state changes via a hash
@@ -128,6 +134,7 @@ private:
         // State tracking - each subscription tracks what it has seen/published
         std::vector<uint8_t> _lastStateHash;
 
+#ifdef ENABLE_CONNECTION_BACKOFF
         // Connection state management
         enum ConnState
         {
@@ -138,8 +145,19 @@ private:
             CONN_STATE_BACKOFF_STAGE_3      // Slowest retry (60s)
         };
         ConnState _connState = CONN_STATE_ACTIVE;
-        uint32_t _backoffIntervalMs = 0;            // Current backoff interval
+        uint32_t _backoffPercent = 0;            // Current backoff percentage
         uint32_t _consecutiveFailures = 0;          // Count failures for backoff logic
+
+        // Calculation intervalMs with backoff applied
+        uint32_t calculateBackoffIntervalMs(uint32_t curIntervalMs)
+        {
+            if (_backoffPercent <= 0)
+                return curIntervalMs;
+            if (_backoffPercent >= 100)
+                return curIntervalMs * 10; // Max 10x delay
+            return curIntervalMs * 100 / (100 - _backoffPercent);
+        }
+#endif
     };
 
     // Publication sources (from config, never changes after setup and registerDataSource)
@@ -152,6 +170,7 @@ private:
     // Stats
     uint64_t _debugSlowestPublishUs = 0;
     uint64_t _debugSlowestGetHashUs = 0;
+    uint64_t _debugSlowestLoopUs = 0;
     uint32_t _debugLastShowPerfTimeMs = 0;
 #endif
 
@@ -161,7 +180,9 @@ private:
     Subscription* findSubscription(const String& pubTopic, uint32_t channelID);
     void removeSubscription(const String& pubTopic, uint32_t channelID);
     bool attemptPublish(Subscription& sub);
+#ifdef ENABLE_CONNECTION_BACKOFF
     void handleConnectionLost(Subscription& sub);
+#endif
     CommsCoreRetCode publishData(Subscription& sub);
     static TriggerType_t parseTriggerType(const String& triggerStr);
 
