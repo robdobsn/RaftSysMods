@@ -28,6 +28,13 @@
 // #define DEBUG_PUBLISH_SUPPRESS_RESTART
 // #define DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
 // #define DEBUG_CONNECTION_LOST_RESTORE
+// #define DEBUG_PUBLISH_LOOP_TIMING
+
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+#ifdef ESP_PLATFORM
+#include <xtensa/hal.h>
+#endif
+#endif
 
 // First N bytes of message to show in debug output
 #define DEBUG_SHOW_ONLY_FIRST_N_BYTES_OF_MSG 16
@@ -76,6 +83,26 @@ void StatePublisher::setup()
 /// @brief Loop (called frequently)
 void StatePublisher::loop()
 {
+
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+    static uint32_t debugCallCount = 0;
+    static uint64_t debugTotalElapsedUs = 0;
+    static uint64_t debugTotalCpuUs = 0;
+    static uint64_t debugMaxElapsedUs = 0;
+    static uint64_t debugMaxCpuUs = 0;
+    static uint64_t debugStateDetectElapsedUs = 0;
+    static uint64_t debugStateDetectCpuUs = 0;
+    static uint64_t debugAttemptPublishElapsedUs = 0;
+    static uint64_t debugAttemptPublishCpuUs = 0;
+    static uint32_t debugLastReportMs = millis();
+
+    uint32_t debugStartReportMs = millis();
+    uint32_t debugWorstCaseReportMs = 0;
+    
+    uint64_t loopStartUs = micros();
+    uint32_t loopStartCycles = xthal_get_ccount();
+#endif
+
     // Check valid
     if (!getCommsCore())
         return;
@@ -120,15 +147,17 @@ void StatePublisher::loop()
         std::vector<uint8_t> currentHash;
         if (sub._stateDetectFn)
         {
-#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
-            uint64_t startUs = micros();
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+            uint64_t stateStartUs = micros();
+            uint32_t stateStartCycles = xthal_get_ccount();
 #endif
             sub._stateDetectFn(sub._pubTopic.c_str(), currentHash);
 
-#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
-            uint64_t getStateHashUs = micros() - startUs;
-            if (_debugSlowestGetHashUs < getStateHashUs)
-                _debugSlowestGetHashUs = getStateHashUs;
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+            uint64_t stateElapsedUs = Raft::timeElapsed(micros(), stateStartUs);
+            if (debugStateDetectElapsedUs < stateElapsedUs)
+                debugStateDetectElapsedUs = stateElapsedUs;
+            debugStateDetectCpuUs += (xthal_get_ccount() - stateStartCycles) / 240;
 #endif
 
 #ifdef DEBUG_PUBLISHING_HASH
@@ -215,6 +244,11 @@ void StatePublisher::loop()
         // Attempt to publish if needed
         if (shouldPublish)
         {
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+            uint64_t attemptStartUs = micros();
+            uint32_t attemptStartCycles = xthal_get_ccount();
+            debugStartReportMs = millis();
+#endif
             if (attemptPublish(sub))
             {
                 // Successful publish - update hash if we have one
@@ -223,8 +257,53 @@ void StatePublisher::loop()
                     sub._lastStateHash = currentHash;
                 }
             }
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+            uint64_t attemptElapsedUs = Raft::timeElapsed(micros(), attemptStartUs);
+            if (debugAttemptPublishElapsedUs < attemptElapsedUs)
+                debugAttemptPublishElapsedUs = attemptElapsedUs;
+            debugAttemptPublishCpuUs += (xthal_get_ccount() - attemptStartCycles) / 240;
+            uint32_t lastReportMs = millis() - debugStartReportMs;
+            if (lastReportMs > debugWorstCaseReportMs)
+                debugWorstCaseReportMs = lastReportMs;
+#endif
         }
     }
+
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+    uint64_t loopElapsedUs = Raft::timeElapsed(micros(), loopStartUs);
+    uint64_t loopCpuUs = (xthal_get_ccount() - loopStartCycles) / 240;
+    
+    debugCallCount++;
+    debugTotalElapsedUs += loopElapsedUs;
+    debugTotalCpuUs += loopCpuUs;
+    if (loopElapsedUs > debugMaxElapsedUs)
+        debugMaxElapsedUs = loopElapsedUs;
+    if (loopCpuUs > debugMaxCpuUs)
+        debugMaxCpuUs = loopCpuUs;
+    
+    if (Raft::isTimeout(millis(), debugLastReportMs, 5000))
+    {
+        uint64_t avgElapsedUs = debugCallCount > 0 ? debugTotalElapsedUs / debugCallCount : 0;
+        uint64_t avgCpuUs = debugCallCount > 0 ? debugTotalCpuUs / debugCallCount : 0;
+        
+        LOG_I(MODULE_PREFIX, "loop calls=%d | ELAPSED: avgUs=%lld maxUs=%lld | CPU: avgUs=%lld maxUs=%lld | stateDetect: e=%lld c=%lld | attemptPub: e=%lld c=%lld worstCaseReportMs=%d",
+              debugCallCount, avgElapsedUs, debugMaxElapsedUs, avgCpuUs, debugMaxCpuUs,
+              debugStateDetectElapsedUs, debugStateDetectCpuUs,
+              debugAttemptPublishElapsedUs, debugAttemptPublishCpuUs,
+              debugWorstCaseReportMs);
+        
+        debugCallCount = 0;
+        debugTotalElapsedUs = 0;
+        debugTotalCpuUs = 0;
+        debugMaxElapsedUs = 0;
+        debugMaxCpuUs = 0;
+        debugStateDetectElapsedUs = 0;
+        debugStateDetectCpuUs = 0;
+        debugAttemptPublishElapsedUs = 0;
+        debugAttemptPublishCpuUs = 0;
+        debugLastReportMs = millis();
+    }
+#endif
 
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
     if (Raft::isTimeout(millis(), _debugLastShowPerfTimeMs, 1000))
@@ -294,6 +373,15 @@ bool StatePublisher::registerDataSource(const char* pubTopic, SysMod_publishMsgG
 /// @return CommsCoreRetCode
 CommsCoreRetCode StatePublisher::publishData(Subscription& sub)
 {
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+    static uint64_t debugMsgGenElapsedUs = 0;
+    static uint64_t debugMsgGenCpuUs = 0;
+    static uint64_t debugOutboundHandleElapsedUs = 0;
+    static uint64_t debugOutboundHandleCpuUs = 0;
+    static uint32_t debugPublishDataCount = 0;
+    static uint32_t debugLastPubDataReportMs = millis();
+#endif
+
     // Check comms core
     if (!getCommsCore())
         return COMMS_CORE_RET_FAIL;
@@ -301,12 +389,22 @@ CommsCoreRetCode StatePublisher::publishData(Subscription& sub)
     // Endpoint message we're going to send
     CommsChannelMsg endpointMsg(sub._channelID, MSG_PROTOCOL_ROSSERIAL, 0, MSG_TYPE_PUBLISH);
 
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+    uint64_t msgGenStartUs = micros();
+    uint32_t msgGenStartCycles = xthal_get_ccount();
+#endif
+
     // Generate message
     bool msgOk = false;
     if (sub._msgGenFn)
     {
         msgOk = sub._msgGenFn(sub._pubTopic.c_str(), endpointMsg);
     }
+
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+    debugMsgGenElapsedUs += Raft::timeElapsed(micros(), msgGenStartUs);
+    debugMsgGenCpuUs += (xthal_get_ccount() - msgGenStartCycles) / (esp_clk_cpu_freq() / 1000000);
+#endif
 
 #ifdef DEBUG_PUBLISHING_MESSAGE
 #ifdef DEBUG_ONLY_THIS_TOPIC
@@ -359,8 +457,32 @@ CommsCoreRetCode StatePublisher::publishData(Subscription& sub)
     }
 #endif
 
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+    uint64_t outboundStartUs = micros();
+    uint32_t outboundStartCycles = xthal_get_ccount();
+#endif
+
     // Send message
     CommsCoreRetCode retc = getCommsCore()->outboundHandleMsg(endpointMsg);
+
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+    debugOutboundHandleElapsedUs += Raft::timeElapsed(micros(), outboundStartUs);
+    debugOutboundHandleCpuUs += (xthal_get_ccount() - outboundStartCycles) / (esp_clk_cpu_freq() / 1000000);
+    debugPublishDataCount++;
+    
+    if (Raft::isTimeout(millis(), debugLastPubDataReportMs, 5000))
+    {
+        LOG_I(MODULE_PREFIX, "publishData calls=%d | msgGen: e=%lld c=%lld | outboundHandle: e=%lld c=%lld",
+              debugPublishDataCount, debugMsgGenElapsedUs, debugMsgGenCpuUs,
+              debugOutboundHandleElapsedUs, debugOutboundHandleCpuUs);
+        debugMsgGenElapsedUs = 0;
+        debugMsgGenCpuUs = 0;
+        debugOutboundHandleElapsedUs = 0;
+        debugOutboundHandleCpuUs = 0;
+        debugPublishDataCount = 0;
+        debugLastPubDataReportMs = millis();
+    }
+#endif
 
 #ifdef DEBUG_PUBLISHING_MESSAGE
 #ifdef DEBUG_ONLY_THIS_TOPIC
@@ -587,8 +709,22 @@ void StatePublisher::removeSubscription(const String& pubTopic, uint32_t channel
 /// @return true if publish successful
 bool StatePublisher::attemptPublish(Subscription& sub)
 {
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+    static uint64_t debugOutboundCanAcceptElapsedUs = 0;
+    static uint64_t debugOutboundCanAcceptCpuUs = 0;
+    static uint64_t debugPublishDataElapsedUs = 0;
+    static uint64_t debugPublishDataCpuUs = 0;
+    static uint32_t debugAttemptCount = 0;
+    static uint32_t debugLastSubReportMs = millis();
+#endif
+
     // Mark as pending
     sub._isPending = true;
+
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+    uint64_t canAcceptStartUs = micros();
+    uint32_t canAcceptStartCycles = xthal_get_ccount();
+#endif
 
     // Check if channel can accept messages
     bool noConn = false;
@@ -602,17 +738,34 @@ bool StatePublisher::attemptPublish(Subscription& sub)
         return false;
     }
 
-#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
-    uint64_t startUs = micros();
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+    debugOutboundCanAcceptElapsedUs += Raft::timeElapsed(micros(), canAcceptStartUs);
+    debugOutboundCanAcceptCpuUs += (xthal_get_ccount() - canAcceptStartCycles) / 240;
+    
+    uint64_t publishStartUs = micros();
+    uint32_t publishStartCycles = xthal_get_ccount();
 #endif
 
     // Attempt to publish
     CommsCoreRetCode retc = publishData(sub);
 
-#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
-    uint64_t elapUs = micros() - startUs;
-    if (_debugSlowestPublishUs < elapUs)
-        _debugSlowestPublishUs = elapUs;
+#ifdef DEBUG_PUBLISH_LOOP_TIMING
+    debugPublishDataElapsedUs += Raft::timeElapsed(micros(), publishStartUs);
+    debugPublishDataCpuUs += (xthal_get_ccount() - publishStartCycles) / 240;
+    debugAttemptCount++;
+    
+    if (Raft::isTimeout(millis(), debugLastSubReportMs, 5000))
+    {
+        LOG_I(MODULE_PREFIX, "attemptPublish calls=%d | outboundCanAccept: e=%lld c=%lld | publishData: e=%lld c=%lld",
+              debugAttemptCount, debugOutboundCanAcceptElapsedUs, debugOutboundCanAcceptCpuUs,
+              debugPublishDataElapsedUs, debugPublishDataCpuUs);
+        debugOutboundCanAcceptElapsedUs = 0;
+        debugOutboundCanAcceptCpuUs = 0;
+        debugPublishDataElapsedUs = 0;
+        debugPublishDataCpuUs = 0;
+        debugAttemptCount = 0;
+        debugLastSubReportMs = millis();
+    }
 #endif
 
     if (retc == COMMS_CORE_RET_OK)

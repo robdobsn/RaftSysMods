@@ -38,10 +38,12 @@ public:
     /// @brief Get device type information by address
     /// @param address address of device to get information for
     /// @param includePlugAndPlayInfo true to include plug and play information
+    /// @param deviceTypeIndex (out) device type index
     /// @return JSON string
-    virtual String getDevTypeInfoJsonByAddr(BusElemAddrType address, bool includePlugAndPlayInfo) const override final
+    virtual String getDevTypeInfoJsonByAddr(BusElemAddrType address, bool includePlugAndPlayInfo, uint32_t& deviceTypeIndex) const override final
     {
         // Get device type info
+        deviceTypeIndex = _deviceTypeIndex;
         return deviceTypeRecords.getDevTypeInfoJsonByTypeIdx(_deviceTypeIndex, includePlugAndPlayInfo);
     }
 
@@ -49,11 +51,12 @@ public:
     /// @brief Get device type information by device type name
     /// @param deviceType device type name
     /// @param includePlugAndPlayInfo true to include plug and play information
+    /// @param deviceTypeIndex (out) device type index
     /// @return JSON string
-    virtual String getDevTypeInfoJsonByTypeName(const String& deviceType, bool includePlugAndPlayInfo) const override final
+    virtual String getDevTypeInfoJsonByTypeName(const String& deviceType, bool includePlugAndPlayInfo, uint32_t& deviceTypeIndex) const override final
     {
         // Get device type info
-        return deviceTypeRecords.getDevTypeInfoJsonByTypeName(deviceType, includePlugAndPlayInfo);
+        return deviceTypeRecords.getDevTypeInfoJsonByTypeName(deviceType, includePlugAndPlayInfo, deviceTypeIndex);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////

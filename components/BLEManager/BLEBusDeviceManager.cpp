@@ -321,7 +321,7 @@ String BLEBusDeviceManager::deviceStatusToJson(BusElemAddrType address, bool isO
                 const std::vector<uint8_t>& devicePollResponseData, uint32_t responseSize) const
 {
     // Get the poll response JSON
-    String devJson = deviceTypeRecords.deviceStatusToJson(address, isOnline, &_devTypeRec, devicePollResponseData);
+    String devJson = deviceTypeRecords.deviceStatusToJson(address, isOnline, deviceTypeIndex, devicePollResponseData);
 
     // Debug
 #ifdef DEBUG_GET_DEVICE_JSON_BY_ADDR
