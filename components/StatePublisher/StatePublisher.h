@@ -171,6 +171,7 @@ private:
     uint64_t _debugSlowestPublishUs = 0;
     uint64_t _debugSlowestGetHashUs = 0;
     uint64_t _debugSlowestLoopUs = 0;
+    uint32_t _debugPublishCount = 0;
     uint32_t _debugLastShowPerfTimeMs = 0;
 #endif
 

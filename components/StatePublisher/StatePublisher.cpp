@@ -227,6 +227,9 @@ void StatePublisher::loop()
                 {
                     sub._lastStateHash = currentHash;
                 }
+#ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
+                _debugPublishCount++;
+#endif
             }
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
             uint64_t attemptElapsedUs = micros() - attemptStartUs;
@@ -243,11 +246,15 @@ void StatePublisher::loop()
         _debugSlowestLoopUs = loopTimeUs;
     if (Raft::isTimeout(millis(), _debugLastShowPerfTimeMs, 1000))
     {
-        LOG_I(MODULE_PREFIX, "loop slowest publish %lldus slowest stateHash %lldus slowest totalLoop %lldus", 
-                    _debugSlowestPublishUs, _debugSlowestGetHashUs, _debugSlowestLoopUs);
+        // Calculate publish rate
+        uint32_t elapsedMs = millis() - _debugLastShowPerfTimeMs;
+        float publishRate = (elapsedMs > 0) ? (_debugPublishCount * 1000.0f / elapsedMs) : 0.0f;
+        LOG_I(MODULE_PREFIX, "loop slowest publish %lldus slowest stateHash %lldus slowest totalLoop %lldus pubCount %d rate %.1f msgs/sec", 
+                    _debugSlowestPublishUs, _debugSlowestGetHashUs, _debugSlowestLoopUs, _debugPublishCount, publishRate);
         _debugSlowestPublishUs = 0;
         _debugSlowestGetHashUs = 0;
         _debugSlowestLoopUs = 0;
+        _debugPublishCount = 0;
         _debugLastShowPerfTimeMs = millis();
     }
 #endif
