@@ -80,10 +80,14 @@ private:
         TRIGGER_ON_TIME_OR_CHANGE
     };
 
-    static const uint32_t REDUCED_PUB_RATE_WHEN_BUSY_MS = 1000;
+    // Reduce publish rate to 10% when busy
+    static const uint32_t PUB_RATE_PERCENT_WHEN_BUSY = 10;
+
+    // Default minimum time between messages (ms)
     static const uint32_t DEFAULT_MIN_TIME_BETWEEN_MSGS_MS = 100;
 
 #ifdef ENABLE_CONNECTION_BACKOFF
+    // Backoff stages percentages
     static const uint32_t BACKOFF_STAGE_1_PERCENT = 50;
     static const uint32_t BACKOFF_STAGE_2_PERCENT = 90;
     static const uint32_t BACKOFF_STAGE_3_PERCENT = 95;
@@ -149,13 +153,13 @@ private:
         uint32_t _consecutiveFailures = 0;          // Count failures for backoff logic
 
         // Calculation intervalMs with backoff applied
-        uint32_t calculateBackoffIntervalMs(uint32_t curIntervalMs)
+        uint32_t calculateIntervalIncreaseMs(uint32_t reductionToPercent, uint32_t curIntervalMs)
         {
-            if (_backoffPercent <= 0)
+            if (reductionToPercent <= 0)
                 return curIntervalMs;
-            if (_backoffPercent >= 100)
+            if (reductionToPercent >= 100)
                 return curIntervalMs * 10; // Max 10x delay
-            return curIntervalMs * 100 / (100 - _backoffPercent);
+            return curIntervalMs * 100 / (100 - reductionToPercent);
         }
 #endif
     };

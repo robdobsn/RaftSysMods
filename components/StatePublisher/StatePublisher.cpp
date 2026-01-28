@@ -27,7 +27,7 @@
 // #define DEBUG_FORCE_GENERATION_OF_PUBLISH_MSGS
 // #define DEBUG_PUBLISH_SUPPRESS_RESTART
 // #define DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
-// #define DEBUG_CONNECTION_LOST_RESTORE
+// #define DEBUG_CONNECTION_BACKOFF
 
 // Debug settings for message display
 #define DEBUG_SHOW_ONLY_FIRST_N_BYTES_OF_MSG 16
@@ -94,25 +94,32 @@ void StatePublisher::loop()
             if ((sub._betweenPubsMs > 0) && (sub._betweenPubsMs < checkInterval))
                 checkInterval = sub._betweenPubsMs;
         }
+
+        // Handle reduced publishing rate when busy
+        if (reducePublishingRate)
+        {
+            checkInterval = sub.calculateIntervalIncreaseMs(PUB_RATE_PERCENT_WHEN_BUSY, checkInterval);
+        }
         
+        // Handle pending
+        bool forceCheckDueToPending = sub._isPending;
 #ifdef ENABLE_CONNECTION_BACKOFF
         // Apply backoff if connection has issues
         if (sub._connState != Subscription::CONN_STATE_ACTIVE)
         {
-            checkInterval = sub.calculateBackoffIntervalMs(checkInterval);
+            checkInterval = sub.calculateIntervalIncreaseMs(sub._backoffPercent, checkInterval);
+
+            // If pending but in backoff, clear pending as we won't attempt publish yet
+            forceCheckDueToPending = false;
         }
-        else
 #endif
-        if (reducePublishingRate)
-        {
-            checkInterval = REDUCED_PUB_RATE_WHEN_BUSY_MS;
-        }
 
-        // Check if it's time to check/publish
-        if (!Raft::isTimeout(millis(), sub._lastCheckMs, checkInterval) && !sub._isPending)
+        // See if it's time for a publish trigger check
+        if (!Raft::isTimeout(millis(), sub._lastCheckMs, checkInterval) && !forceCheckDueToPending)
             continue;
+        sub._lastCheckMs = millis();
 
-        // Check state if we have a state detect function
+        // See if we have a state-change detection callback
         bool stateChanged = false;
         std::vector<uint8_t> currentHash;
         if (sub._stateDetectFn)
@@ -208,7 +215,7 @@ void StatePublisher::loop()
         }
 #endif
 
-        // Check if pending
+        // Also publish if pending
         if (sub._isPending)
             shouldPublish = true;
 
@@ -221,8 +228,7 @@ void StatePublisher::loop()
 
             if (attemptPublish(sub))
             {
-                // Successful publish - update timer and hash
-                sub._lastCheckMs = millis();
+                // Successful publish - update hash
                 if (sub._stateDetectFn)
                 {
                     sub._lastStateHash = currentHash;
@@ -249,8 +255,14 @@ void StatePublisher::loop()
         // Calculate publish rate
         uint32_t elapsedMs = millis() - _debugLastShowPerfTimeMs;
         float publishRate = (elapsedMs > 0) ? (_debugPublishCount * 1000.0f / elapsedMs) : 0.0f;
-        LOG_I(MODULE_PREFIX, "loop slowest publish %lldus slowest stateHash %lldus slowest totalLoop %lldus pubCount %d rate %.1f msgs/sec", 
-                    _debugSlowestPublishUs, _debugSlowestGetHashUs, _debugSlowestLoopUs, _debugPublishCount, publishRate);
+
+        // Get connection state of first subscription for info
+        Subscription::ConnState connState = Subscription::CONN_STATE_ACTIVE;
+        if (_subscriptions.size() > 0)
+            connState = _subscriptions.front()._connState;
+        LOG_I(MODULE_PREFIX, "loop slowest publish %lldus slowest stateHash %lldus slowest totalLoop %lldus pubCount %d rate %.1f msgs/sec connState[0] %d", 
+                    _debugSlowestPublishUs, _debugSlowestGetHashUs, _debugSlowestLoopUs, _debugPublishCount, publishRate, 
+                    connState);
         _debugSlowestPublishUs = 0;
         _debugSlowestGetHashUs = 0;
         _debugSlowestLoopUs = 0;
@@ -629,7 +641,6 @@ bool StatePublisher::attemptPublish(Subscription& sub)
 
     // Attempt to publish
     CommsCoreRetCode retc = publishData(sub);
-
     if (retc == COMMS_CORE_RET_OK)
     {
         // Success!
@@ -642,8 +653,8 @@ bool StatePublisher::attemptPublish(Subscription& sub)
         {
             sub._connState = Subscription::CONN_STATE_ACTIVE;
             sub._backoffPercent = 0;
-#ifdef DEBUG_CONNECTION_LOST_RESTORE
-            LOG_I(MODULE_PREFIX, "Connection restored for topic %s channelID %d", 
+#ifdef DEBUG_CONNECTION_BACKOFF
+            LOG_I(MODULE_PREFIX, "attemptPublish connection restored for topic %s channelID %d", 
                   sub._pubTopic.c_str(), sub._channelID);
 #endif
         }
@@ -683,13 +694,13 @@ void StatePublisher::handleConnectionLost(Subscription& sub)
     {
         case Subscription::CONN_STATE_ACTIVE:
         case Subscription::CONN_STATE_LOST:
-            if (sub._consecutiveFailures >= 3)
+            if (sub._consecutiveFailures == 3)
             {
                 sub._connState = Subscription::CONN_STATE_BACKOFF_STAGE_1;
                 sub._backoffPercent = BACKOFF_STAGE_1_PERCENT;
-#ifdef DEBUG_CONNECTION_LOST_RESTORE
-                LOG_I(MODULE_PREFIX, "connLost: Entering backoff stage 1 (%d%%) for channelID %d", 
-                      BACKOFF_STAGE_1_PERCENT, sub._channelID);
+#ifdef DEBUG_CONNECTION_BACKOFF
+                LOG_I(MODULE_PREFIX, "connLost: Entering backoff stage 1 (interval %dms) for channelID %d consecutiveFailures %d", 
+                      sub.calculateIntervalIncreaseMs(BACKOFF_STAGE_1_PERCENT, UTILS_MIN(sub._minTimeBetweenMsgsMs, sub._betweenPubsMs)), sub._channelID, sub._consecutiveFailures);
 #endif
             }
             else
@@ -699,35 +710,35 @@ void StatePublisher::handleConnectionLost(Subscription& sub)
             break;
             
         case Subscription::CONN_STATE_BACKOFF_STAGE_1:
-            if (sub._consecutiveFailures >= 10)
+            if (sub._consecutiveFailures == 10)
             {
                 sub._connState = Subscription::CONN_STATE_BACKOFF_STAGE_2;
                 sub._backoffPercent = BACKOFF_STAGE_2_PERCENT;
-#ifdef DEBUG_CONNECTION_LOST_RESTORE
-                LOG_I(MODULE_PREFIX, "connLost: Entering backoff stage 2 (%d%%) for channelID %d", 
-                      BACKOFF_STAGE_2_PERCENT, sub._channelID);
+#ifdef DEBUG_CONNECTION_BACKOFF
+                LOG_I(MODULE_PREFIX, "connLost: Entering backoff stage 2 (interval %dms) for channelID %d consecutiveFailures %d", 
+                      sub.calculateIntervalIncreaseMs(BACKOFF_STAGE_2_PERCENT, UTILS_MIN(sub._minTimeBetweenMsgsMs, sub._betweenPubsMs)), sub._channelID, sub._consecutiveFailures);
 #endif
             }
             break;
             
         case Subscription::CONN_STATE_BACKOFF_STAGE_2:
-            if (sub._consecutiveFailures >= 20)
+            if (sub._consecutiveFailures == 20)
             {
                 sub._connState = Subscription::CONN_STATE_BACKOFF_STAGE_3;
                 sub._backoffPercent = BACKOFF_STAGE_3_PERCENT;
-#ifdef DEBUG_CONNECTION_LOST_RESTORE
-                LOG_I(MODULE_PREFIX, "connLost: Entering backoff stage 3 (%d%%) for channelID %d", 
-                      BACKOFF_STAGE_3_PERCENT, sub._channelID);
+#ifdef DEBUG_CONNECTION_BACKOFF
+                LOG_I(MODULE_PREFIX, "connLost: Entering backoff stage 3 (interval %dms) for channelID %d consecutiveFailures %d", 
+                      sub.calculateIntervalIncreaseMs(BACKOFF_STAGE_3_PERCENT, UTILS_MIN(sub._minTimeBetweenMsgsMs, sub._betweenPubsMs)), sub._channelID, sub._consecutiveFailures);
 #endif
             }
             break;
             
         case Subscription::CONN_STATE_BACKOFF_STAGE_3:
             // Stay at this stage - could optionally remove subscription after extended failure
-            if (sub._consecutiveFailures >= 100)
+            if (sub._consecutiveFailures == 100)
             {
-#ifdef DEBUG_CONNECTION_LOST_RESTORE
-                LOG_W(MODULE_PREFIX, "connLost: Extended failure for channelID %d (100+ consecutive failures)", sub._channelID);
+#ifdef DEBUG_CONNECTION_BACKOFF
+                LOG_W(MODULE_PREFIX, "connLost: Extended failure for channelID %d (%d consecutive failures)", sub._channelID, sub._consecutiveFailures);
 #endif
             }
             break;
