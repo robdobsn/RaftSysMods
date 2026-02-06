@@ -26,10 +26,14 @@ BusBLE::~BusBLE()
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Setup
+/// @param busNum - bus number
 /// @param config Configuration
 /// @return true if successful
-bool BusBLE::setup(const RaftJsonIF& config)
+bool BusBLE::setup(BusNumType busNum, const RaftJsonIF& config)
 {
+    // Store bus number
+    _busNum = busNum;
+
     // Get bus details
     _busName = config.getString("name", "");
 

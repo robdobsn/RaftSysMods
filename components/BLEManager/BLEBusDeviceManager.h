@@ -40,7 +40,7 @@ public:
     /// @param includePlugAndPlayInfo true to include plug and play information
     /// @param deviceTypeIndex (out) device type index
     /// @return JSON string
-    virtual String getDevTypeInfoJsonByAddr(BusElemAddrType address, bool includePlugAndPlayInfo, uint32_t& deviceTypeIndex) const override final
+    virtual String getDevTypeInfoJsonByAddr(BusElemAddrType address, bool includePlugAndPlayInfo, DeviceTypeIndexType& deviceTypeIndex) const override final
     {
         // Get device type info
         deviceTypeIndex = _deviceTypeIndex;
@@ -53,7 +53,7 @@ public:
     /// @param includePlugAndPlayInfo true to include plug and play information
     /// @param deviceTypeIndex (out) device type index
     /// @return JSON string
-    virtual String getDevTypeInfoJsonByTypeName(const String& deviceType, bool includePlugAndPlayInfo, uint32_t& deviceTypeIndex) const override final
+    virtual String getDevTypeInfoJsonByTypeName(const String& deviceType, bool includePlugAndPlayInfo, DeviceTypeIndexType& deviceTypeIndex) const override final
     {
         // Get device type info
         return deviceTypeRecords.getDevTypeInfoJsonByTypeName(deviceType, includePlugAndPlayInfo, deviceTypeIndex);
@@ -64,7 +64,7 @@ public:
     /// @param deviceTypeIdx device type index
     /// @param includePlugAndPlayInfo include plug and play info
     /// @return JSON string
-    virtual String getDevTypeInfoJsonByTypeIdx(uint16_t deviceTypeIdx, bool includePlugAndPlayInfo) const override final
+    virtual String getDevTypeInfoJsonByTypeIdx(DeviceTypeIndexType deviceTypeIdx, bool includePlugAndPlayInfo) const override final
     {
         // Get device type info
         return deviceTypeRecords.getDevTypeInfoJsonByTypeIdx(deviceTypeIdx, includePlugAndPlayInfo);
@@ -77,9 +77,9 @@ public:
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Get queued device data in binary format
-    /// @param connMode connection mode (inc bus number)
+    /// @param busNumber bus number
     /// @return Binary data vector
-    virtual std::vector<uint8_t> getQueuedDeviceDataBinary(uint32_t connMode) const override final;
+    virtual std::vector<uint8_t> getQueuedDeviceDataBinary(uint32_t busNumber) const override final;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Get decoded poll responses
@@ -197,7 +197,7 @@ private:
 
     // Device type info - common to all BLE devices
     DeviceTypeRecord _devTypeRec;
-    uint32_t _deviceTypeIndex = 0;
+    DeviceTypeIndexType _deviceTypeIndex = 0;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Format device status to JSON
@@ -207,7 +207,7 @@ private:
     /// @param devicePollResponseData poll response data
     /// @param responseSize size of poll response data
     /// @return JSON string
-    String deviceStatusToJson(BusElemAddrType address, bool isOnline, uint16_t deviceTypeIndex, 
+    String deviceStatusToJson(BusElemAddrType address, bool isOnline, DeviceTypeIndexType deviceTypeIndex, 
                     const std::vector<uint8_t>& devicePollResponseData, uint32_t responseSize) const;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -219,13 +219,16 @@ private:
     /// @param structOutSize size of structure (in bytes) to receive decoded data
     /// @param maxRecCount maximum number of records to decode
     /// @return number of records decoded
-    uint32_t decodePollResponses(uint16_t deviceTypeIndex, 
+    uint32_t decodePollResponses(DeviceTypeIndexType deviceTypeIndex, 
                     const uint8_t* pPollBuf, uint32_t pollBufLen, 
                     void* pStructOut, uint32_t structOutSize, 
                     uint16_t maxRecCount, RaftBusDeviceDecodeState& decodeState) const;
 
 
-    BLEBusDeviceState* getBLEBusDeviceState(BusElemAddrType busElemAddr);
+    /// @brief Get device state
+    /// @param addresss of device to get state for
+    /// @return BLEBusDeviceState* or nullptr if not found
+    BLEBusDeviceState* getBLEBusDeviceState(BusElemAddrType address);
 
     // Debug
     static constexpr const char* MODULE_PREFIX = "BLEBusDevMan";

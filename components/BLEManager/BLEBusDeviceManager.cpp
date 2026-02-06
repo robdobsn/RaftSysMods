@@ -10,6 +10,7 @@
 #include "RaftCore.h"
 #include "DeviceTypeRecords.h"
 #include "BLEAdvertDecoder.h"
+#include "BusAddrStatus.h"
 
 // #define DEBUG_GET_DEVICE_ADDRESSES
 // #define DEBUG_GET_DEVICE_DATA_JSON
@@ -119,8 +120,9 @@ String BLEBusDeviceManager::getQueuedDeviceDataJson() const
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Get queued device data in binary format
+/// @param busNumber bus number
 /// @return Binary data vector
-std::vector<uint8_t> BLEBusDeviceManager::getQueuedDeviceDataBinary(uint32_t connMode) const
+std::vector<uint8_t> BLEBusDeviceManager::getQueuedDeviceDataBinary(uint32_t busNumber) const
 {
     // Binary data
     std::vector<uint8_t> binaryData;
@@ -136,7 +138,7 @@ std::vector<uint8_t> BLEBusDeviceManager::getQueuedDeviceDataBinary(uint32_t con
         if (devState.lastDataReceived.size() > 0)
         {
             // Generate binary device message
-            RaftDevice::genBinaryDataMsg(binaryData, connMode, devState.busElemAddr, _deviceTypeIndex, true, devState.lastDataReceived);
+            RaftDevice::genBinaryDataMsg(binaryData, busNumber, devState.busElemAddr, _deviceTypeIndex, true, devState.lastDataReceived);
 
             // Clear data - const cast
             const_cast<BLEBusDeviceState&>(devState).lastDataReceived.clear();
@@ -216,7 +218,8 @@ bool BLEBusDeviceManager::handlePollResult(uint64_t timeNowUs, BusElemAddrType a
         xSemaphoreGive(_accessMutex);
 
         // Callback
-        _raftBus.callBusElemStatusCB({BusElemAddrAndStatus(address, true, false, true, _deviceTypeIndex)});
+        BusAddrStatus addrStatus(address, DeviceOnlineState::ONLINE, true, true, _deviceTypeIndex);
+        _raftBus.callBusElemStatusCB({addrStatus});
 
         // Obtain semaphore again
         if (xSemaphoreTake(_accessMutex, pdMS_TO_TICKS(5)) != pdTRUE)
@@ -284,19 +287,19 @@ bool BLEBusDeviceManager::handlePollResult(uint64_t timeNowUs, BusElemAddrType a
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/// @brief Get device state by address
-/// @param busElemAddr address
+/// @brief Get device state
+/// @param busElemAddr address of device to get state for
 /// @return BLEBusDeviceState* or nullptr
-BLEBusDeviceManager::BLEBusDeviceState* BLEBusDeviceManager::getBLEBusDeviceState(BusElemAddrType busElemAddr)
+BLEBusDeviceManager::BLEBusDeviceState* BLEBusDeviceManager::getBLEBusDeviceState(BusElemAddrType address)
 {
     // Find the device state
     for (auto& devState : _bleBusDeviceStates)
     {
-        if (devState.busElemAddr == busElemAddr)
+        if (devState.busElemAddr == address)
         {
 #ifdef DEBUG_GET_DEVICE_STATE_BY_ADDR
             LOG_I(MODULE_PREFIX, "getBLEBusDeviceState found %04x lastSeenTimeMs %dms ago lastDataLen %d", 
-                    busElemAddr, 
+                    address, 
                     Raft::timeElapsed(millis(), devState.lastSeenTimeMs),
                     devState.lastDataReceived.size());
 #endif
@@ -304,7 +307,7 @@ BLEBusDeviceManager::BLEBusDeviceState* BLEBusDeviceManager::getBLEBusDeviceStat
         }
     }
 #ifdef DEBUG_GET_DEVICE_STATE_BY_ADDR
-    LOG_I(MODULE_PREFIX, "getBLEBusDeviceState not found %04x", busElemAddr);
+    LOG_I(MODULE_PREFIX, "getBLEBusDeviceState not found %04x", address);
 #endif
     return nullptr;
 }

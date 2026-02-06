@@ -37,9 +37,10 @@ public:
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief setup
+    /// @param busNum - bus number
     /// @param config - configuration
     /// @return true if setup was successful
-    virtual bool setup(const RaftJsonIF& config) override final;
+    virtual bool setup(BusNumType busNum, const RaftJsonIF& config) override final;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Get bus devices interface
@@ -72,24 +73,6 @@ public:
     virtual uint32_t getDeviceInfoTimestampMs(bool includeElemOnlineStatusChanges, bool includeDeviceDataUpdates) const override final
     {
         return _bleBusDeviceManager.getDeviceInfoTimestampMs(includeElemOnlineStatusChanges, includeDeviceDataUpdates);
-    }
-
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    /// @brief Convert bus address to string
-    /// @param addr - address
-    /// @return address as a string
-    virtual String addrToString(BusElemAddrType addr) const override final
-    {
-        return String(addr);
-    }
-
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    /// @brief Convert string to bus address
-    /// @param addrStr - address as a string
-    /// @return address
-    virtual BusElemAddrType stringToAddr(const String& addrStr) const override final
-    {
-        return strtol(addrStr.c_str(), NULL, 0);
     }
 
 private:
