@@ -12,7 +12,6 @@
 #include "DeviceTypeRecords.h"
 #include "RaftThreading.h"
 
-class DeviceStatus;
 class RaftJsonIF;
 class DevicePollingInfo;
 class RaftBusDeviceDecodeState;
