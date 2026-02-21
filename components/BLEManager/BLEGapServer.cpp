@@ -1119,7 +1119,7 @@ int BLEGapServer::gapEventDiscovery(struct ble_gap_event *event, String& statusS
             if (_bleConfig.busConnName.length() > 0)
             {
                 // Get the bus
-                RaftBus* pBus = raftBusSystem.getBusByName(_bleConfig.busConnName);
+                RaftBus* pBus = raftBusSystem.getBusByName(_bleConfig.busConnName, false);
                 _pBusDevicesIF = pBus ? pBus->getBusDevicesIF() : nullptr;
             }
         }
