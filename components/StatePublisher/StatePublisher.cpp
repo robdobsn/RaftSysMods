@@ -128,7 +128,7 @@ void StatePublisher::loop()
             uint64_t stateStartUs = micros();
 #endif
 
-            sub._stateDetectFn(sub._pubTopic.c_str(), currentHash);
+            sub._stateDetectFn(sub._topicIndex, currentHash);
 
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
             uint64_t stateElapsedUs = micros() - stateStartUs;
@@ -287,6 +287,11 @@ void StatePublisher::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager
 #ifdef DEBUG_API_SUBSCRIPTION
     LOG_I(MODULE_PREFIX, "addRestAPIEndpoints subscription endpoint added");
 #endif
+
+    // Get publish topics with index mapping
+    endpointManager.addEndpoint("pubtopics", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
+                std::bind(&StatePublisher::apiGetPubTopics, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                "Get all registered publish topic names and their indexes");
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -294,32 +299,35 @@ void StatePublisher::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager
 /// @param pubTopic Publication topic name
 /// @param msgGenCB Message generator callback
 /// @param stateDetectCB State detection callback
-/// @return true if registration successful
-bool StatePublisher::registerDataSource(const char* pubTopic, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB)
+/// @return Topic index (0-based) or UINT16_MAX on failure
+uint16_t StatePublisher::registerDataSource(const char* pubTopic, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB)
 {
     // Search for existing publication source with this topic
+    uint16_t topicIndex = 0;
     for (PubSource& pubSource : _pubSources)
     {   
         // Check topic name
         if (pubSource._pubTopic.equals(pubTopic))
         {
             // Update existing source
-            LOG_I(MODULE_PREFIX, "registerDataSource updated callbacks for topic %s", pubTopic);
+            LOG_I(MODULE_PREFIX, "registerDataSource updated callbacks for topic %s index %d", pubTopic, topicIndex);
             pubSource._msgGenFn = msgGenCB;
             pubSource._stateDetectFn = stateDetectCB;
-            return true;
+            return topicIndex;
         }
+        topicIndex++;
     }
 
     // Not found - create new publication source
     PubSource newPubSource;
     newPubSource._pubTopic = pubTopic;
+    newPubSource._topicIndex = topicIndex;
     newPubSource._msgGenFn = msgGenCB;
     newPubSource._stateDetectFn = stateDetectCB;
     _pubSources.push_back(newPubSource);
     
-    LOG_I(MODULE_PREFIX, "registerDataSource created new publication source for topic %s", pubTopic);
-    return true;
+    LOG_I(MODULE_PREFIX, "registerDataSource created new publication source for topic %s index %d", pubTopic, topicIndex);
+    return topicIndex;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -339,7 +347,7 @@ CommsCoreRetCode StatePublisher::publishData(Subscription& sub)
     bool msgOk = false;
     if (sub._msgGenFn)
     {
-        msgOk = sub._msgGenFn(sub._pubTopic.c_str(), endpointMsg);
+        msgOk = sub._msgGenFn(sub._topicIndex, endpointMsg);
     }
 
 #ifdef DEBUG_PUBLISHING_MESSAGE
@@ -499,6 +507,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                 pSub->setRateHz(pubRateHz);
                 pSub->_minTimeBetweenMsgsMs = minMs;
                 pSub->_trigger = trigger;
+                pSub->_topicIndex = pPubSource->_topicIndex;
                 pSub->_msgGenFn = pPubSource->_msgGenFn;
                 pSub->_stateDetectFn = pPubSource->_stateDetectFn;
                 pSub->_lastCheckMs = 0;  // Reset timer to allow immediate publish
@@ -523,6 +532,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                 newSub.setRateHz(pubRateHz);
                 newSub._minTimeBetweenMsgsMs = minMs;
                 newSub._trigger = trigger;
+                newSub._topicIndex = pPubSource->_topicIndex;
                 newSub._msgGenFn = pPubSource->_msgGenFn;
                 newSub._stateDetectFn = pPubSource->_stateDetectFn;
                 newSub._lastCheckMs = 0;  // Start at 0 to allow immediate first publish
@@ -540,6 +550,29 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
 #endif
             }
         }
+
+        // Build topics array with index info for subscribed topics
+        String topicsJson = "[";
+        bool firstTopic = true;
+        for (String& pubRecToMod : pubRecsToMod)
+        {
+            RaftJson pubRecConf = pubRecToMod;
+            String pubTopic = pubRecConf.getString("topic", pubRecConf.getString("name", "").c_str());
+            PubSource* pPubSource = findPubSource(pubTopic);
+            if (pPubSource)
+            {
+                if (!firstTopic) topicsJson += ",";
+                topicsJson += "{\"name\":\"" + pubTopic + "\",\"idx\":" + String(pPubSource->_topicIndex) + "}";
+                firstTopic = false;
+            }
+        }
+        topicsJson += "]";
+
+        // Create response with topic index mapping
+        Raft::setJsonBoolResult(cmdName.c_str(), respStr, true);
+        // Insert topics array before closing brace
+        respStr = respStr.substring(0, respStr.length() - 1) + ",\"topics\":" + topicsJson + "}";
+        return RAFT_OK;
     }
     else if (actionStr.equalsIgnoreCase("unsubscribe"))
     {
@@ -555,6 +588,28 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
     }
     
     return Raft::setJsonBoolResult(cmdName.c_str(), respStr, true);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Get publish topics API
+/// @param reqStr Request string
+/// @param respStr Response string (output)
+/// @param sourceInfo API source information
+/// @return RaftRetCode
+RaftRetCode StatePublisher::apiGetPubTopics(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo)
+{
+    // Build JSON response with all registered topics and their indices
+    String json = "{\"rslt\":\"ok\",\"topics\":[";
+    bool first = true;
+    for (const PubSource& ps : _pubSources)
+    {
+        if (!first) json += ",";
+        json += "{\"name\":\"" + ps._pubTopic + "\",\"idx\":" + String(ps._topicIndex) + "}";
+        first = false;
+    }
+    json += "]}";
+    respStr = json;
+    return RAFT_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

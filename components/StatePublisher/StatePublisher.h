@@ -47,12 +47,19 @@ public:
     /// @return RaftRetCode
     RaftRetCode apiSubscription(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
+    /// @brief Get publish topics API
+    /// @param reqStr Request string
+    /// @param respStr Response string (output)
+    /// @param sourceInfo API source information
+    /// @return RaftRetCode
+    RaftRetCode apiGetPubTopics(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
+
     /// @brief Register data source (msg generator callback function)
     /// @param pubTopic Publication topic name
     /// @param msgGenCB Message generator callback
     /// @param stateDetectCB State detection callback
-    /// @return true if registration successful
-    virtual bool registerDataSource(const char* pubTopic, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB) override final;
+    /// @return Topic index (0-based) or UINT16_MAX on failure
+    virtual uint16_t registerDataSource(const char* pubTopic, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB) override final;
 
 protected:
     /// @brief Setup
@@ -99,6 +106,7 @@ private:
     {
     public:
         String _pubTopic;
+        uint16_t _topicIndex = UINT16_MAX;
         SysMod_publishMsgGenFn _msgGenFn = nullptr;
         SysMod_stateDetectCB _stateDetectFn = nullptr;
     };
@@ -123,6 +131,7 @@ private:
         }
 
         String _pubTopic;                           // Which topic to publish
+        uint16_t _topicIndex = UINT16_MAX;          // Topic index (0-based)
         uint32_t _channelID = 0;                    // Which channel to publish to
         TriggerType_t _trigger = TRIGGER_ON_TIME_OR_CHANGE; // When to publish
         double _rateHz = 1.0;                       // Publishing rate
