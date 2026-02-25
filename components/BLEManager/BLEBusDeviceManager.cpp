@@ -79,7 +79,7 @@ void BLEBusDeviceManager::getDeviceAddresses(std::vector<BusElemAddrType>& addre
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Get queued device data in JSON format
 /// @return JSON doc
-String BLEBusDeviceManager::getQueuedDeviceDataJson() const
+String BLEBusDeviceManager::getQueuedDeviceDataJson()
 {
     // Return string
     String jsonStr;
@@ -89,20 +89,20 @@ String BLEBusDeviceManager::getQueuedDeviceDataJson() const
         return "{}";
 
     // Iterate list of devices
-    for (const BLEBusDeviceState& devState : _bleBusDeviceStates)
+    for (BLEBusDeviceState& devState : _bleBusDeviceStates)
     {
         // Get poll response JSON
         if (devState.lastDataReceived.size() > 0)
         {
-            String pollResponseJson = deviceStatusToJson(devState.busElemAddr, true, _deviceTypeIndex, 
+            String pollResponseJson = deviceStatusToJson(devState.busElemAddr, DeviceOnlineState::ONLINE, _deviceTypeIndex, 
                             devState.lastDataReceived, devState.lastDataReceived.size());
             if (pollResponseJson.length() > 0)
             {
                 jsonStr += (jsonStr.length() == 0 ? "{" : ",") + pollResponseJson;
             }
 
-            // Clear data - const cast
-            const_cast<BLEBusDeviceState&>(devState).lastDataReceived.clear();
+            // Clear data
+            devState.lastDataReceived.clear();
         }
     }
 
@@ -122,7 +122,7 @@ String BLEBusDeviceManager::getQueuedDeviceDataJson() const
 /// @brief Get queued device data in binary format
 /// @param busNumber bus number
 /// @return Binary data vector
-std::vector<uint8_t> BLEBusDeviceManager::getQueuedDeviceDataBinary(uint32_t busNumber) const
+std::vector<uint8_t> BLEBusDeviceManager::getQueuedDeviceDataBinary(uint32_t busNumber)
 {
     // Binary data
     std::vector<uint8_t> binaryData;
@@ -132,16 +132,16 @@ std::vector<uint8_t> BLEBusDeviceManager::getQueuedDeviceDataBinary(uint32_t bus
         return binaryData;
 
     // Iterate list of devices
-    for (const BLEBusDeviceState& devState : _bleBusDeviceStates)
+    for (BLEBusDeviceState& devState : _bleBusDeviceStates)
     {
         // Get poll response JSON
         if (devState.lastDataReceived.size() > 0)
         {
             // Generate binary device message
-            RaftDevice::genBinaryDataMsg(binaryData, busNumber, devState.busElemAddr, _deviceTypeIndex, true, devState.lastDataReceived);
+            RaftDevice::genBinaryDataMsg(binaryData, busNumber, devState.busElemAddr, _deviceTypeIndex, DeviceOnlineState::ONLINE, devState.lastDataReceived);
 
-            // Clear data - const cast
-            const_cast<BLEBusDeviceState&>(devState).lastDataReceived.clear();
+            // Clear data
+            devState.lastDataReceived.clear();
         }
     }
 
@@ -315,20 +315,20 @@ BLEBusDeviceManager::BLEBusDeviceState* BLEBusDeviceManager::getBLEBusDeviceStat
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Get device status JSON
 /// @param address address
-/// @param isOnline true if device is online
+/// @param onlineState device online state
 /// @param deviceTypeIndex index of device type
 /// @param devicePollResponseData poll response data
 /// @param responseSize size of poll response data
 /// @return JSON string
-String BLEBusDeviceManager::deviceStatusToJson(BusElemAddrType address, bool isOnline, uint16_t deviceTypeIndex, 
+String BLEBusDeviceManager::deviceStatusToJson(BusElemAddrType address, DeviceOnlineState onlineState, uint16_t deviceTypeIndex, 
                 const std::vector<uint8_t>& devicePollResponseData, uint32_t responseSize) const
 {
-    // Get the poll response JSON
-    String devJson = deviceTypeRecords.deviceStatusToJson(address, isOnline, deviceTypeIndex, devicePollResponseData);
+    // Get the poll response JSON using DeviceOnlineState directly
+    String devJson = deviceTypeRecords.deviceStatusToJson(address, onlineState, deviceTypeIndex, devicePollResponseData);
 
     // Debug
 #ifdef DEBUG_GET_DEVICE_JSON_BY_ADDR
-    LOG_I(MODULE_PREFIX, "deviceStatusToJson %04x %s %s", address, isOnline ? "ONLINE" : "OFFLINE", devJson.c_str());
+    LOG_I(MODULE_PREFIX, "deviceStatusToJson %04x %s %s", address, BusAddrStatus::getOnlineStateStr(onlineState), devJson.c_str());
 #endif
     return devJson;
 }
