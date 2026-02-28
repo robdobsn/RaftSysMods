@@ -67,7 +67,7 @@ protected:
     virtual void addCommsChannels(CommsCoreIF& commsCore) override final;
 
     // Handle JSON command
-    virtual RaftRetCode receiveCmdJSON(const char* cmdJSON) override final;
+    virtual RaftRetCode receiveCmdJSON(const char* cmdJSON, String* pResponseJSON = nullptr) override final;
 
 public:
     // XON/XOFF hadnling

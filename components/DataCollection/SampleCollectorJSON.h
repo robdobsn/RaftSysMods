@@ -50,7 +50,7 @@ protected:
     virtual void addRestAPIEndpoints(RestAPIEndpointManager& pEndpoints) override final;
 
     // Receive JSON command
-    virtual RaftRetCode receiveCmdJSON(const char* cmdJSON) override final
+    virtual RaftRetCode receiveCmdJSON(const char* cmdJSON, String* pRespStr = nullptr) override final
     {
         addSample(cmdJSON);
         return RAFT_OK;

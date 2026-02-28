@@ -560,7 +560,7 @@ bool SerialConsole::sendMsg(CommsChannelMsg& msg)
 // Handle JSON command
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON)
+RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON, String* pResponseJSON)
 {
 #if !defined(__linux__) && !defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
     // Extract command from JSON
