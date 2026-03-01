@@ -1,5 +1,14 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Build REQUIRES list conditionally
+set(RAFT_SYSMODS_REQUIRES RaftCore bt app_update)
+if (NOT DEFINED RAFT_FILESYSTEM_SPIFFS_DISABLED)
+  list(APPEND RAFT_SYSMODS_REQUIRES spiffs)
+endif()
+if (NOT DEFINED RAFT_FILESYSTEM_FATSD_DISABLED)
+  list(APPEND RAFT_SYSMODS_REQUIRES fatfs)
+endif()
+
 idf_component_register(
   NAME
     "RaftSysMods"
@@ -41,9 +50,5 @@ idf_component_register(
     "components/SerialConsole"
     "components/StatePublisher"
   REQUIRES
-    RaftCore
-    bt
-    spiffs
-    fatfs
-    app_update
+    ${RAFT_SYSMODS_REQUIRES}
 )
