@@ -11,6 +11,7 @@
 #include "LoggerBase.h"
 #include "RaftArduino.h"
 #include "DNSResolver.h"
+#include "freertos/ringbuf.h"
 #include "sys/types.h"
 #include "sys/socket.h"
 #include "netdb.h"
@@ -23,6 +24,7 @@ public:
     LoggerPapertrail(const RaftJsonIF& logDestConfig, const String& systemName, const String& systemUniqueString);
     virtual ~LoggerPapertrail();
     virtual void log(esp_log_level_t level, const char *tag, const char* msg) override final;
+    virtual void loop() override;
 
 private:
     // Config
@@ -34,8 +36,12 @@ private:
     // Socket
     int _socketFd = -1;
 
-    // Recursion detector
-    bool _inLog = false;
+    // Ring buffer for deferred sending from loop()
+    // log() pushes formatted messages here; loop() drains and sends via UDP.
+    // This avoids calling sendto() from arbitrary thread contexts (e.g. lwIP tcpip thread)
+    // which can cause deadlocks.
+    RingbufHandle_t _ringBuf = nullptr;
+    static const uint32_t RING_BUF_SIZE = 16384;
 
     // Avoid swamping the network
     uint32_t _logWindowStartMs = 0;

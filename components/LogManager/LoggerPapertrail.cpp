@@ -31,10 +31,22 @@ LoggerPapertrail::LoggerPapertrail(const RaftJsonIF& logDestConfig, const String
 
     // Setup resolver
     _dnsResolver.setHostname(_hostname.c_str());
+
+    // Create ring buffer for deferred sending
+    _ringBuf = xRingbufferCreate(RING_BUF_SIZE, RINGBUF_TYPE_NOSPLIT);
+    if (!_ringBuf)
+    {
+        ESP_LOGE(MODULE_PREFIX, "Failed to create ring buffer");
+    }
 }
 
 LoggerPapertrail::~LoggerPapertrail()
 {
+    if (_ringBuf)
+    {
+        vRingbufferDelete(_ringBuf);
+        _ringBuf = nullptr;
+    }
     if (_socketFd >= 0)
     {
         close(_socketFd);
@@ -51,18 +63,9 @@ void LOGGING_FUNCTION_DECORATOR LoggerPapertrail::log(esp_log_level_t level, con
     if ((level > _level) || _isPaused)
         return;
 
-    // Check for recusion (e.g. if the log function itself logs)
-    if (_inLog)
+    // Check ring buffer is valid
+    if (!_ringBuf)
         return;
-    _inLog = true;
-
-    // Check socket
-    ip_addr_t hostIPAddr;
-    if (!checkSocket(hostIPAddr))
-    {
-        _inLog = false;
-        return;
-    }
 
     // Start of log window?
     if (Raft::isTimeout(millis(), _logWindowStartMs, LOG_WINDOW_SIZE_MS))
@@ -77,7 +80,6 @@ void LOGGING_FUNCTION_DECORATOR LoggerPapertrail::log(esp_log_level_t level, con
         if (_logWindowCount >= LOG_WINDOW_MAX_COUNT)
         {
             // Discard
-            _inLog = false;
             return;
         }
     }
@@ -85,26 +87,56 @@ void LOGGING_FUNCTION_DECORATOR LoggerPapertrail::log(esp_log_level_t level, con
     // Format message
     String logMsg = "<22>" + _sysName + ": " + msg;
 
-    // Form the IP address
+    // Push to ring buffer (non-blocking, 0 tick timeout)
+    // If the buffer is full the message is silently dropped - acceptable back-pressure
+    xRingbufferSend(_ringBuf, logMsg.c_str(), logMsg.length() + 1, 0);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Loop - called from main task context, safe to do network I/O
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void LoggerPapertrail::loop()
+{
+    // Check ring buffer is valid
+    if (!_ringBuf)
+        return;
+
+    // Check socket is ready
+    ip_addr_t hostIPAddr;
+    if (!checkSocket(hostIPAddr))
+        return;
+
+    // Form the destination address once
     struct sockaddr_in destAddr;
     destAddr.sin_addr.s_addr = hostIPAddr.u_addr.ip4.addr;
     destAddr.sin_family = AF_INET;
     destAddr.sin_port = htons(atoi(_port.c_str()));
 
-    // Send to papertrail using UDP socket
-    int ret = sendto(_socketFd, logMsg.c_str(), logMsg.length(), 0, (struct sockaddr *)&destAddr, sizeof(destAddr));
-    if (ret < 0)
+    // Drain ring buffer and send each message
+    static const uint32_t MAX_MSGS_PER_LOOP = 10;
+    for (uint32_t i = 0; i < MAX_MSGS_PER_LOOP; i++)
     {
-        if (Raft::isTimeout(millis(), _internalLoggingFailedErrorLastTime, INTERNAL_ERROR_LOG_MIN_GAP_MS))
-        {
-            ESP_LOGI(MODULE_PREFIX, "log failed: %d errno %d socketFd %d ipAddr %s msgLen %d",
-                        ret, errno, _socketFd, ipaddr_ntoa(&hostIPAddr), logMsg.length());
-            _internalLoggingFailedErrorLastTime = millis();
-        }
-    }
+        size_t itemSize = 0;
+        void* pItem = xRingbufferReceive(_ringBuf, &itemSize, 0);
+        if (!pItem)
+            break;
 
-    // Done
-    _inLog = false;
+        // Send to papertrail using UDP socket
+        int ret = sendto(_socketFd, pItem, itemSize - 1, 0, (struct sockaddr *)&destAddr, sizeof(destAddr));
+        if (ret < 0)
+        {
+            if (Raft::isTimeout(millis(), _internalLoggingFailedErrorLastTime, INTERNAL_ERROR_LOG_MIN_GAP_MS))
+            {
+                ESP_LOGI(MODULE_PREFIX, "log failed: %d errno %d socketFd %d ipAddr %s msgLen %d",
+                            ret, errno, _socketFd, ipaddr_ntoa(&hostIPAddr), (int)(itemSize - 1));
+                _internalLoggingFailedErrorLastTime = millis();
+            }
+        }
+
+        // Return item to ring buffer
+        vRingbufferReturnItem(_ringBuf, pItem);
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
