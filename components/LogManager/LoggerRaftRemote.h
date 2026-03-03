@@ -1,8 +1,11 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Raft Remote logger
+// TCP server-based logger: clients connect to receive log stream
+// Uses FreeRTOS ring buffer for thread-safe ingestion from any context
+// Network I/O performed exclusively from loop() on the main task
 //
-// Rob Dobson 2025
+// Rob Dobson 2025-2026
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -10,6 +13,7 @@
 
 #include "LoggerBase.h"
 #include "RaftArduino.h"
+#include "freertos/ringbuf.h"
 #include "sys/types.h"
 #include "sys/socket.h"
 #include "netdb.h"
@@ -38,29 +42,24 @@ private:
     // Rest API endpoint manager
     RestAPIEndpointManager* _pRestAPIEndpointManager = nullptr;
 
-    // Recursion detector
-    bool _inLog = false;
+    // Ring buffer for deferred sending from loop()
+    // log() pushes formatted messages here; loop() drains and sends via TCP.
+    // This avoids calling send() from arbitrary thread contexts.
+    RingbufHandle_t _ringBuf = nullptr;
+    static const uint32_t RING_BUF_SIZE = 16384;
+
+    // Max messages to drain per loop iteration
+    static const uint32_t MAX_MSGS_PER_LOOP = 10;
 
     // Avoid swamping the network
     uint32_t _logWindowStartMs = 0;
     uint32_t _logWindowCount = 0;
     static const uint32_t LOG_WINDOW_SIZE_MS = 60000;
     static const uint32_t LOG_WINDOW_MAX_COUNT = 60;
-    uint32_t _logWindowThrottleStartMs = 0;
-    static const uint32_t LOG_WINDOW_THROTTLE_BACKOFF_MS = 30000;
-
-    // Avoid logging internal errors too often
-    uint32_t _internalDNSResolveErrorLastTimeMs = 0;
-    uint32_t _internalSocketCreateErrorLastTimeMs = 0;
-    uint32_t _internalLoggingFailedErrorLastTime = 0;
-    static const uint32_t INTERNAL_ERROR_LOG_MIN_GAP_MS = 10000;
 
     // Connection checking
     uint32_t _connCheckLastMs = 0;
     static const uint32_t CONN_CHECK_INTERVAL_MS = 500;
-
-    // Count of blocked messages
-    mutable uint32_t _connBusyCount = 0;
 
     // Debug
     uint32_t _debugLastMs = 0;

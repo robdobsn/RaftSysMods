@@ -10,6 +10,7 @@
 #include "LogManager.h"
 #include "SysManager.h"
 #include "LoggerCore.h"
+#include "LoggerLoki.h"
 #include "LoggerPapertrail.h"
 #include "LoggerRaftRemote.h"
 
@@ -59,6 +60,13 @@ void LogManager::setup()
             LoggerPapertrail *pLogger = new LoggerPapertrail(logDestConfig, getSystemName(), getSystemUniqueString());
             loggerCore.addLogger(pLogger);
             // LOG_I(MODULE_PREFIX, "Added Papertrail logger");
+        }
+        else if (logDestType.equalsIgnoreCase("Loki"))
+        {
+            // Construct Grafana Loki logger
+            LoggerLoki *pLogger = new LoggerLoki(logDestConfig, getSystemName(), getSystemUniqueString());
+            loggerCore.addLogger(pLogger);
+            // LOG_I(MODULE_PREFIX, "Added Loki logger");
         }
     }
 }

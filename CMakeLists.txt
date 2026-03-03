@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 # Build REQUIRES list conditionally
-set(RAFT_SYSMODS_REQUIRES RaftCore bt app_update)
+set(RAFT_SYSMODS_REQUIRES RaftCore bt app_update esp_http_client)
 if (NOT DEFINED RAFT_FILESYSTEM_SPIFFS_DISABLED)
   list(APPEND RAFT_SYSMODS_REQUIRES spiffs)
 endif()
@@ -28,6 +28,7 @@ idf_component_register(
     "components/DataCollection/SampleCollectorJSON.cpp"
     "components/ESPOTAUpdate/ESPOTAUpdate.cpp"
     "components/FileManager/FileManager.cpp"
+    "components/LogManager/LoggerLoki.cpp"
     "components/LogManager/LoggerPapertrail.cpp"
     "components/LogManager/LoggerRaftRemote.cpp"
     "components/LogManager/LogManager.cpp"

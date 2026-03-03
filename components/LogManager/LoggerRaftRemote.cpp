@@ -1,8 +1,9 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Raft Remote logger
+// TCP server-based logger using ring buffer for thread safety
 //
-// Rob Dobson 2025
+// Rob Dobson 2025-2026
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -30,12 +31,19 @@ LoggerRaftRemote::LoggerRaftRemote(const RaftJsonIF& logDestConfig, const String
     _port = logDestConfig.getLong("port", 0);
     _sysName = logDestConfig.getString("sysName", systemName.c_str());
     _sysName += "_" + systemUniqueString;
+
+    // Ring buffer is created lazily when a client connects (saves 16KB when idle)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Destructor
 LoggerRaftRemote::~LoggerRaftRemote()
 {
+    if (_ringBuf)
+    {
+        vRingbufferDelete(_ringBuf);
+        _ringBuf = nullptr;
+    }
     if (_clientSocketFd >= 0) 
         close(_clientSocketFd);
     if (_serverSocketFd >= 0)
@@ -43,7 +51,7 @@ LoggerRaftRemote::~LoggerRaftRemote()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/// @brief Log a message
+/// @brief Log a message - called from any task context, must be safe and non-blocking
 /// @param level Log level
 /// @param tag Tag
 /// @param msg Message
@@ -53,34 +61,95 @@ void LOGGING_FUNCTION_DECORATOR LoggerRaftRemote::log(esp_log_level_t level, con
     if ((level > _level) || _isPaused)
         return;
 
-    // Check for recusion (e.g. if the log function itself logs)
-    if (_inLog)
+    // Check ring buffer is valid
+    if (!_ringBuf)
         return;
-    _inLog = true;
 
-    // Check for connection
-    if (!checkConnection())
+    // Rate limiting - start of log window?
+    if (Raft::isTimeout(millis(), _logWindowStartMs, LOG_WINDOW_SIZE_MS))
     {
-        _inLog = false;
-        return;
+        _logWindowStartMs = millis();
+        _logWindowCount = 1;
     }
-
-    // Send message to client
-    int ret = send(_clientSocketFd, msg, strlen(msg), 0);
-    if (ret < 0) {
-        // Check for EAGAIN or EWOULDBLOCK
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-        {
-            _connBusyCount++;
-            _inLog = false;
+    else
+    {
+        _logWindowCount++;
+        if (_logWindowCount >= LOG_WINDOW_MAX_COUNT)
             return;
-        }
-        ESP_LOGE(MODULE_PREFIX, "Failed to send log message: errno %d", errno);
-        close(_clientSocketFd);
-        _clientSocketFd = -1;
     }
 
-    _inLog = false;
+    // Push the message string including null terminator to ring buffer
+    // (non-blocking, 0 tick timeout - silently dropped if buffer full)
+    size_t msgLen = strlen(msg);
+    xRingbufferSend(_ringBuf, msg, msgLen + 1, 0);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Loop - called from main task context, safe to do network I/O
+void LoggerRaftRemote::loop()
+{
+#ifdef DEBUG_LOGGER_RAFTREMOTE_LOOP
+    // Check if time for debug
+    if (Raft::isTimeout(millis(), _debugLastMs, DEBUG_INTERVAL_MS))
+    {
+        _debugLastMs = millis();
+        ESP_LOGI(MODULE_PREFIX, "loop clientFd %d serverFd %d", (int)_clientSocketFd, (int)_serverSocketFd);
+    }
+#endif
+
+    // Check if time to check server and connection
+    if (Raft::isTimeout(millis(), _connCheckLastMs, CONN_CHECK_INTERVAL_MS))
+    {
+        _connCheckLastMs = millis();
+
+        // Check if server socket needs starting
+        if (_serverSocketFd < 0)
+        {
+            startServer();
+        }
+        else
+        {
+            // Check connection and handle incoming data
+            checkConnection();
+            if (_clientSocketFd >= 0)
+            {
+                handleIncomingData();
+            }
+        }
+    }
+
+    // Drain ring buffer and send to connected client
+    if (!_ringBuf || _clientSocketFd < 0)
+        return;
+
+    for (uint32_t i = 0; i < MAX_MSGS_PER_LOOP; i++)
+    {
+        size_t itemSize = 0;
+        void* pItem = xRingbufferReceive(_ringBuf, &itemSize, 0);
+        if (!pItem)
+            break;
+
+        // Send to connected client (itemSize includes null terminator, send without it)
+        int ret = send(_clientSocketFd, pItem, itemSize - 1, 0);
+        if (ret < 0)
+        {
+            if (errno != EAGAIN && errno != EWOULDBLOCK)
+            {
+                ESP_LOGE(MODULE_PREFIX, "send failed errno %d", errno);
+                close(_clientSocketFd);
+                _clientSocketFd = -1;
+                // Free ring buffer since no client is connected
+                vRingbufferReturnItem(_ringBuf, pItem);
+                vRingbufferDelete(_ringBuf);
+                _ringBuf = nullptr;
+                break;
+            }
+            // EAGAIN - socket busy, skip this message
+        }
+
+        // Return item to ring buffer
+        vRingbufferReturnItem(_ringBuf, pItem);
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -170,7 +239,6 @@ bool LoggerRaftRemote::checkConnection()
         {
             ESP_LOGE(MODULE_PREFIX, "checkConnection FAIL accept errno %d", errno);
         }
-        _inLog = false;
         return false;
     }
 
@@ -193,51 +261,24 @@ bool LoggerRaftRemote::checkConnection()
         return false;
     }
 
-    // Debug
+    // Create ring buffer now that we have a client to send to
+    if (!_ringBuf)
+    {
+        _ringBuf = xRingbufferCreate(RING_BUF_SIZE, RINGBUF_TYPE_NOSPLIT);
+        if (!_ringBuf)
+        {
+            ESP_LOGE(MODULE_PREFIX, "Failed to create ring buffer");
+            close(_clientSocketFd);
+            _clientSocketFd = -1;
+            return false;
+        }
+    }
+
 #ifdef DEBUG_LOGGER_RAFTREMOTE_SOCKET
     ESP_LOGI(MODULE_PREFIX, "checkConnection OK handle %d", _clientSocketFd);
 #endif
 
-    // Debug
-    // ESP_LOGI(MODULE_PREFIX, "checkConnection OK hostname %s port %s level %s sysName %s socketFd %d socketFlags %04x", 
-    //                     _hostname.c_str(), _port.c_str(), getLevelStr(), _sysName.c_str(), _socketFd, 
-    //                     fcntl(_socketFd, F_GETFL, 0));
     return true;
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/// @brief Loop
-void LoggerRaftRemote::loop()
-{
-#ifdef DEBUG_LOGGER_RAFTREMOTE_LOOP
-    // Check if time for debug
-    if (Raft::isTimeout(millis(), _debugLastMs, DEBUG_INTERVAL_MS))
-    {
-        _debugLastMs = millis();
-        ESP_LOGI(MODULE_PREFIX, "loop clientFd %d numConnBusy %d", (int)_clientSocketFd, (int)_connBusyCount);
-    }
-#endif
-
-    // Check if time to check server and connection
-    if (!Raft::isTimeout(millis(), _connCheckLastMs, CONN_CHECK_INTERVAL_MS))
-        return;
-    _connCheckLastMs = millis();
-
-    // Check if server socket needs starting
-    if (_serverSocketFd < 0)
-    {
-        startServer();
-        return;
-    }
-
-    // Check connection
-    checkConnection();
-
-    // If client connected, handle incoming data
-    if (_clientSocketFd >= 0)
-    {
-        handleIncomingData();
-    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -261,7 +302,6 @@ void LoggerRaftRemote::handleIncomingData()
             bytesRead--;
         }
 
-        // Debug
 #ifdef DEBUG_LOGGER_RAFTREMOTE_DETAIL
         String debugStr;
         Raft::hexDump((const uint8_t*)buf, bytesRead, debugStr);
@@ -289,6 +329,12 @@ void LoggerRaftRemote::handleIncomingData()
         ESP_LOGE(MODULE_PREFIX, "handleIncomingData FAIL recv errno %d", errno);
         close(_clientSocketFd);
         _clientSocketFd = -1;
+        // Free ring buffer since no client is connected
+        if (_ringBuf)
+        {
+            vRingbufferDelete(_ringBuf);
+            _ringBuf = nullptr;
+        }
     }
 }
 
@@ -305,6 +351,12 @@ void LoggerRaftRemote::sendResponse(const String& response)
             ESP_LOGE(MODULE_PREFIX, "sendResponse FAIL errno %d", errno);
             close(_clientSocketFd);
             _clientSocketFd = -1;
+            // Free ring buffer since no client is connected
+            if (_ringBuf)
+            {
+                vRingbufferDelete(_ringBuf);
+                _ringBuf = nullptr;
+            }
         }
     }
 }
