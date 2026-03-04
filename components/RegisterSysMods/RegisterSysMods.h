@@ -23,6 +23,7 @@
 #endif
 #include "CommandFile.h"
 #include "CommandSerial.h"
+#include "FlashCriticalSection.h"
 #ifdef NETWORKING_IS_ENABLED
 #include "CommandSocket.h"
 #endif
@@ -68,6 +69,9 @@ namespace RegisterSysMods
 #ifdef ESP_PLATFORM
         sysManager.registerSysMod("ESPOTAUpdate", ESPOTAUpdate::create);
 #endif
+
+        // Flash critical section coordinator
+        sysManager.registerSysMod("FlashCritical", FlashCriticalSection::create, true);
         
         // FileManager
         sysManager.registerSysMod("FileManager", FileManager::create, true);

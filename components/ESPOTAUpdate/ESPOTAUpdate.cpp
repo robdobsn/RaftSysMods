@@ -482,6 +482,9 @@ bool ESPOTAUpdate::startOTAUpdate(size_t fileLen)
     LOG_I(MODULE_PREFIX, "startOTAUpdate writing to partition subtype %d at offset 0x%x",
             update_partition->subtype, update_partition->address);
 
+    if (!_otaFlashGuard)
+        _otaFlashGuard = std::unique_ptr<FlashCriticalGuard>(new FlashCriticalGuard("ota-update"));
+
     // Start OTA update
     esp_err_t err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &_espOTAHandle);
 
@@ -503,6 +506,7 @@ bool ESPOTAUpdate::startOTAUpdate(size_t fileLen)
     }
     else
     {
+        _otaFlashGuard.reset();
 #ifdef DEBUG_ESP_OTA_UPDATE
         // Debug
         LOG_E(MODULE_PREFIX, "startOTAUpdate esp_ota_begin failed, error=%d", err);
@@ -531,6 +535,7 @@ bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
             _otaStatus.lastOTAUpdateResult = "FailedCancelled";
             xSemaphoreGive(_fwUpdateStatusSemaphore);
         }
+        _otaFlashGuard.reset();
         return false;
     }
 
@@ -554,6 +559,7 @@ bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
             _otaStatus.lastOTAUpdateResult = "FailedOTAEnd";
             xSemaphoreGive(_fwUpdateStatusSemaphore);
         }
+        _otaFlashGuard.reset();
         return false;
     }
 
@@ -571,6 +577,7 @@ bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
             _otaStatus.lastOTAUpdateResult = "FailedSetBootPartition";
             xSemaphoreGive(_fwUpdateStatusSemaphore);
         }
+        _otaFlashGuard.reset();
         return false;
     }
 
@@ -588,5 +595,6 @@ bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
             _otaStatus.lastOTAUpdateResult = "OK";
             xSemaphoreGive(_fwUpdateStatusSemaphore);
         }
+    _otaFlashGuard.reset();
     return true;
 }

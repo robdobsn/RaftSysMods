@@ -16,6 +16,9 @@
 #include "MiniHDLC.h"
 #include "RaftThreading.h"
 #include "esp_ota_ops.h"
+#include "FlashCriticalGuard.h"
+
+#include <memory>
 
 class RestAPIEndpointManager;
 class APISourceInfo;
@@ -97,6 +100,9 @@ private:
 
     // Queue of OTA update requests
     QueueHandle_t _otaUpdateQueue = nullptr;
+
+    // Flash critical guard for OTA operations
+    std::unique_ptr<FlashCriticalGuard> _otaFlashGuard;
 
 private:
     // Handle received data
