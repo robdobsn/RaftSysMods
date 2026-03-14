@@ -2,10 +2,10 @@ cmake_minimum_required(VERSION 3.16)
 
 # Build REQUIRES list conditionally
 set(RAFT_SYSMODS_REQUIRES RaftCore bt app_update esp_http_client)
-if (NOT DEFINED RAFT_FILESYSTEM_SPIFFS_DISABLED)
+if (NOT (DEFINED FS_TYPE AND FS_TYPE STREQUAL "littlefs"))
   list(APPEND RAFT_SYSMODS_REQUIRES spiffs)
 endif()
-if (NOT DEFINED RAFT_FILESYSTEM_FATSD_DISABLED)
+if (DEFINED RAFT_ENABLE_SD AND RAFT_ENABLE_SD)
   list(APPEND RAFT_SYSMODS_REQUIRES fatfs)
 endif()
 
