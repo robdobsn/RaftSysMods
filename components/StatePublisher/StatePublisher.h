@@ -61,6 +61,17 @@ public:
     /// @return Topic index (0-based) or UINT16_MAX on failure
     virtual uint16_t registerDataSource(const char* pubTopic, SysMod_publishMsgGenFn msgGenCB, SysMod_stateDetectCB stateDetectCB) override final;
 
+    /// @brief Create a subscription programmatically
+    /// @param pubTopic Publication topic name (must match a registered data source)
+    /// @param channelID Comms channel ID to publish to
+    /// @param rateHz Publishing rate in Hz
+    /// @param trigger type for the subscription, or TRIGGER_NONE on failure
+    /// @param minTimeBetweenMsgsMs Minimum time between messages in milliseconds (to prevent flooding when trigger is state change)
+    /// @return true if subscription created/updated successfully
+    virtual bool createSubscription(const String& pubTopic, uint32_t channelID, double rateHz, 
+            TriggerType_t trigger = TRIGGER_ON_TIME_OR_CHANGE, 
+            uint32_t minTimeBetweenMsgsMs = DEFAULT_MIN_TIME_BETWEEN_MSGS_MS) override final;
+
 protected:
     /// @brief Setup
     virtual void setup() override final;
@@ -78,20 +89,14 @@ protected:
     {
     }
 
-private:
-    enum TriggerType_t
-    {
-        TRIGGER_NONE,
-        TRIGGER_ON_TIME_INTERVALS,
-        TRIGGER_ON_STATE_CHANGE,
-        TRIGGER_ON_TIME_OR_CHANGE
-    };
+    /// @brief Parse trigger type from string
+    /// @param triggerStr 
+    /// @return TriggerType_t, or TRIGGER_NONE if unknown
+    static TriggerType_t parseTriggerType(const String& triggerStr);
 
+private:
     // Reduce publish rate to 10% when busy
     static const uint32_t PUB_RATE_PERCENT_WHEN_BUSY = 10;
-
-    // Default minimum time between messages (ms)
-    static const uint32_t DEFAULT_MIN_TIME_BETWEEN_MSGS_MS = 100;
 
 #ifdef ENABLE_CONNECTION_BACKOFF
     // Backoff stages percentages
@@ -198,7 +203,6 @@ private:
     void handleConnectionLost(Subscription& sub);
 #endif
     CommsCoreRetCode publishData(Subscription& sub);
-    static TriggerType_t parseTriggerType(const String& triggerStr);
 
     // Log prefix
     static constexpr const char *MODULE_PREFIX = "StatePub";

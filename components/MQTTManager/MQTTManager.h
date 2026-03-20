@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <map>
 #include "RaftSysMod.h"
 #include "RaftMQTTClient.h"
 #include "CommsChannelMsg.h"
@@ -41,12 +42,18 @@ protected:
     // Add protocol endpoints
     virtual void addCommsChannels(CommsCoreIF& commsCoreIF) override final;
 
+    // Post-setup - create subscriptions for pub sources
+    virtual void postSetup() override final;
+
 private:
     // MQTT client
     RaftMQTTClient _mqttClient;
 
     // EndpointID used to identify this message channel to the CommsCoreIF object
     uint32_t _commsChannelID;
+
+    // Map of topic name to channel ID
+    std::map<String, uint32_t> _topicChannelIDs;
 
     // Helpers
     bool sendMQTTMsg(const String& topicName, CommsChannelMsg& msg);

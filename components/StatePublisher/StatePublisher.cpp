@@ -591,6 +591,68 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Create a subscription programmatically
+/// @param pubTopic Publication topic name (must match a registered data source)
+/// @param channelID Comms channel ID to publish to
+/// @param rateHz Publishing rate in Hz
+/// @param trigger type for the subscription, or TRIGGER_NONE on failure
+/// @param minTimeBetweenMsgsMs Minimum time between messages in milliseconds (to prevent flooding when trigger is state change)
+/// @return true if subscription created/updated successfully
+bool StatePublisher::createSubscription(const String& pubTopic, uint32_t channelID, double rateHz, 
+        TriggerType_t trigger, 
+        uint32_t minTimeBetweenMsgsMs)
+{
+    // Verify publication source exists
+    PubSource* pPubSource = findPubSource(pubTopic);
+    if (!pPubSource)
+    {
+        LOG_W(MODULE_PREFIX, "createSubscription unknown topic %s", pubTopic.c_str());
+        return false;
+    }
+
+    // Find or create subscription for this topic+channel
+    Subscription* pSub = findSubscription(pubTopic, channelID);
+    if (pSub)
+    {
+        // Update existing subscription
+        pSub->setRateHz(rateHz);
+        pSub->_topicIndex = pPubSource->_topicIndex;
+        pSub->_msgGenFn = pPubSource->_msgGenFn;
+        pSub->_stateDetectFn = pPubSource->_stateDetectFn;
+        pSub->_lastCheckMs = 0;
+        pSub->_isPending = true;
+        pSub->_trigger = trigger;
+        pSub->_minTimeBetweenMsgsMs = minTimeBetweenMsgsMs;
+        LOG_I(MODULE_PREFIX, "createSubscription updated topic %s channelID %d rateHz %.2f trigger %d minTimeBetweenMsgsMs %d", 
+              pubTopic.c_str(), channelID, rateHz, trigger, minTimeBetweenMsgsMs);
+    }
+    else
+    {
+        // Create new subscription
+        Subscription newSub;
+        newSub._pubTopic = pubTopic;
+        newSub._channelID = channelID;
+        newSub.setRateHz(rateHz);
+        newSub._trigger = trigger;
+        newSub._minTimeBetweenMsgsMs = minTimeBetweenMsgsMs;
+        newSub._topicIndex = pPubSource->_topicIndex;
+        newSub._msgGenFn = pPubSource->_msgGenFn;
+        newSub._stateDetectFn = pPubSource->_stateDetectFn;
+        newSub._lastCheckMs = 0;
+        newSub._isPending = true;
+#ifdef ENABLE_CONNECTION_BACKOFF
+        newSub._connState = Subscription::CONN_STATE_ACTIVE;
+        newSub._consecutiveFailures = 0;
+        newSub._backoffPercent = 0;
+#endif
+        _subscriptions.push_back(newSub);
+        LOG_I(MODULE_PREFIX, "createSubscription created topic %s channelID %d rateHz %.2f trigger %d minTimeBetweenMsgsMs %d", 
+              pubTopic.c_str(), channelID, rateHz, trigger, minTimeBetweenMsgsMs);
+    }
+    return true;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Get publish topics API
 /// @param reqStr Request string
 /// @param respStr Response string (output)
