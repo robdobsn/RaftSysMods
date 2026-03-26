@@ -29,6 +29,9 @@ public:
     virtual ~LoggerRaftRemote();
     virtual void log(esp_log_level_t level, const char *tag, const char* msg) override final;
     virtual void loop() override final;
+    virtual bool disconnect() override;
+    virtual bool configure(const RaftJsonIF& config) override;
+    virtual String getExtendedStatusJSON() const override;
 
 private:
     // Config
@@ -43,10 +46,14 @@ private:
     RestAPIEndpointManager* _pRestAPIEndpointManager = nullptr;
 
     // Ring buffer for deferred sending from loop()
-    // log() pushes formatted messages here; loop() drains and sends via TCP.
+    // log() pushes items here; loop() drains and sends via TCP.
     // This avoids calling send() from arbitrary thread contexts.
+    // Item format: [1 byte: esp_log_level_t][N bytes: "tag: msg\0"]
     RingbufHandle_t _ringBuf = nullptr;
-    static const uint32_t RING_BUF_SIZE = 16384;
+    uint32_t _ringBufSize = 16384;
+
+    // Max size of a single log item (level byte + message)
+    static const uint32_t MAX_LOG_ITEM_SIZE = 1024;
 
     // Max messages to drain per loop iteration
     static const uint32_t MAX_MSGS_PER_LOOP = 10;
@@ -54,8 +61,17 @@ private:
     // Avoid swamping the network
     uint32_t _logWindowStartMs = 0;
     uint32_t _logWindowCount = 0;
-    static const uint32_t LOG_WINDOW_SIZE_MS = 60000;
-    static const uint32_t LOG_WINDOW_MAX_COUNT = 60;
+    uint32_t _logWindowSizeMs = 60000;
+    uint32_t _logWindowMaxCount = 60;
+
+    // Backoff on send failure to avoid repeatedly blocking the main loop
+    uint32_t _sendFailBackoffStartMs = 0;
+    bool _inSendBackoff = false;
+    static const uint32_t SEND_FAIL_BACKOFF_MS = 30000;
+
+    // Internal error throttling
+    uint32_t _internalErrorLastTimeMs = 0;
+    static const uint32_t INTERNAL_ERROR_LOG_MIN_GAP_MS = 10000;
 
     // Connection checking
     uint32_t _connCheckLastMs = 0;
@@ -70,6 +86,8 @@ private:
     bool checkConnection();
     void handleIncomingData();
     void sendResponse(const String& response);
+    void closeClientAndFreeRingBuf();
+    static const char* levelStr(esp_log_level_t level);
 
     // Log prefix
     static constexpr const char *MODULE_PREFIX = "LogRaftRemote";

@@ -66,7 +66,7 @@ void LOGGING_FUNCTION_DECORATOR LoggerRaftRemote::log(esp_log_level_t level, con
         return;
 
     // Rate limiting - start of log window?
-    if (Raft::isTimeout(millis(), _logWindowStartMs, LOG_WINDOW_SIZE_MS))
+    if (Raft::isTimeout(millis(), _logWindowStartMs, _logWindowSizeMs))
     {
         _logWindowStartMs = millis();
         _logWindowCount = 1;
@@ -74,14 +74,31 @@ void LOGGING_FUNCTION_DECORATOR LoggerRaftRemote::log(esp_log_level_t level, con
     else
     {
         _logWindowCount++;
-        if (_logWindowCount >= LOG_WINDOW_MAX_COUNT)
+        if (_logWindowCount >= _logWindowMaxCount)
             return;
     }
 
-    // Push the message string including null terminator to ring buffer
-    // (non-blocking, 0 tick timeout - silently dropped if buffer full)
+    // msg already contains the full formatted log line (e.g. "I (12345) Tag: message\n")
+    // so store it as-is without adding level or tag prefix
     size_t msgLen = strlen(msg);
-    xRingbufferSend(_ringBuf, msg, msgLen + 1, 0);
+
+    // Strip trailing newline if present (we add our own when sending)
+    if (msgLen > 0 && msg[msgLen - 1] == '\n')
+        msgLen--;
+
+    // Truncate if too large for ring buffer
+    if (msgLen >= MAX_LOG_ITEM_SIZE)
+        msgLen = MAX_LOG_ITEM_SIZE - 1;
+
+    // Build item on stack: [msg\0]
+    char item[MAX_LOG_ITEM_SIZE];
+    memcpy(item, msg, msgLen);
+    size_t itemLen = msgLen + 1;
+    item[msgLen] = '\0';
+
+    // Push to ring buffer (non-blocking, 0 tick timeout)
+    // If the buffer is full the message is silently dropped
+    xRingbufferSend(_ringBuf, item, itemLen, 0);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -118,6 +135,14 @@ void LoggerRaftRemote::loop()
         }
     }
 
+    // Back off after send failure to avoid repeatedly blocking main loop
+    if (_inSendBackoff)
+    {
+        if (!Raft::isTimeout(millis(), _sendFailBackoffStartMs, SEND_FAIL_BACKOFF_MS))
+            return;
+        _inSendBackoff = false;
+    }
+
     // Drain ring buffer and send to connected client
     if (!_ringBuf || _clientSocketFd < 0)
         return;
@@ -129,22 +154,32 @@ void LoggerRaftRemote::loop()
         if (!pItem)
             break;
 
-        // Send to connected client (itemSize includes null terminator, send without it)
-        int ret = send(_clientSocketFd, pItem, itemSize - 1, 0);
-        if (ret < 0)
+        // Item is the raw formatted log line (no level byte prefix)
+        const char* msg = (const char*)pItem;
+
+        // Send as "message\n"
+        char sendBuf[MAX_LOG_ITEM_SIZE + 2];
+        int sendLen = snprintf(sendBuf, sizeof(sendBuf), "%s\n", msg);
+        if (sendLen > 0)
         {
-            if (errno != EAGAIN && errno != EWOULDBLOCK)
+            int ret = send(_clientSocketFd, sendBuf, sendLen, 0);
+            if (ret < 0)
             {
-                ESP_LOGE(MODULE_PREFIX, "send failed errno %d", errno);
-                close(_clientSocketFd);
-                _clientSocketFd = -1;
-                // Free ring buffer since no client is connected
-                vRingbufferReturnItem(_ringBuf, pItem);
-                vRingbufferDelete(_ringBuf);
-                _ringBuf = nullptr;
-                break;
+                if (errno != EAGAIN && errno != EWOULDBLOCK)
+                {
+                    if (Raft::isTimeout(millis(), _internalErrorLastTimeMs, INTERNAL_ERROR_LOG_MIN_GAP_MS))
+                    {
+                        ESP_LOGE(MODULE_PREFIX, "send failed errno %d", errno);
+                        _internalErrorLastTimeMs = millis();
+                    }
+                    vRingbufferReturnItem(_ringBuf, pItem);
+                    closeClientAndFreeRingBuf();
+                    _sendFailBackoffStartMs = millis();
+                    _inSendBackoff = true;
+                    break;
+                }
+                // EAGAIN - socket busy, skip this message
             }
-            // EAGAIN - socket busy, skip this message
         }
 
         // Return item to ring buffer
@@ -264,7 +299,7 @@ bool LoggerRaftRemote::checkConnection()
     // Create ring buffer now that we have a client to send to
     if (!_ringBuf)
     {
-        _ringBuf = xRingbufferCreate(RING_BUF_SIZE, RINGBUF_TYPE_NOSPLIT);
+        _ringBuf = xRingbufferCreate(_ringBufSize, RINGBUF_TYPE_NOSPLIT);
         if (!_ringBuf)
         {
             ESP_LOGE(MODULE_PREFIX, "Failed to create ring buffer");
@@ -326,15 +361,12 @@ void LoggerRaftRemote::handleIncomingData()
     else if (bytesRead < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
     {
         // Handle connection error
-        ESP_LOGE(MODULE_PREFIX, "handleIncomingData FAIL recv errno %d", errno);
-        close(_clientSocketFd);
-        _clientSocketFd = -1;
-        // Free ring buffer since no client is connected
-        if (_ringBuf)
+        if (Raft::isTimeout(millis(), _internalErrorLastTimeMs, INTERNAL_ERROR_LOG_MIN_GAP_MS))
         {
-            vRingbufferDelete(_ringBuf);
-            _ringBuf = nullptr;
+            ESP_LOGE(MODULE_PREFIX, "handleIncomingData FAIL recv errno %d", errno);
+            _internalErrorLastTimeMs = millis();
         }
+        closeClientAndFreeRingBuf();
     }
 }
 
@@ -348,15 +380,115 @@ void LoggerRaftRemote::sendResponse(const String& response)
         int ret = send(_clientSocketFd, response.c_str(), response.length(), 0);
         if (ret < 0)
         {
-            ESP_LOGE(MODULE_PREFIX, "sendResponse FAIL errno %d", errno);
-            close(_clientSocketFd);
-            _clientSocketFd = -1;
-            // Free ring buffer since no client is connected
-            if (_ringBuf)
+            if (Raft::isTimeout(millis(), _internalErrorLastTimeMs, INTERNAL_ERROR_LOG_MIN_GAP_MS))
             {
-                vRingbufferDelete(_ringBuf);
-                _ringBuf = nullptr;
+                ESP_LOGE(MODULE_PREFIX, "sendResponse FAIL errno %d", errno);
+                _internalErrorLastTimeMs = millis();
             }
+            closeClientAndFreeRingBuf();
         }
     }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Close client socket and free ring buffer
+void LoggerRaftRemote::closeClientAndFreeRingBuf()
+{
+    if (_clientSocketFd >= 0)
+    {
+        close(_clientSocketFd);
+        _clientSocketFd = -1;
+    }
+    if (_ringBuf)
+    {
+        vRingbufferDelete(_ringBuf);
+        _ringBuf = nullptr;
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Convert esp_log_level_t to level string
+const char* LoggerRaftRemote::levelStr(esp_log_level_t level)
+{
+    switch (level)
+    {
+        case ESP_LOG_ERROR:   return "E";
+        case ESP_LOG_WARN:    return "W";
+        case ESP_LOG_INFO:    return "I";
+        case ESP_LOG_DEBUG:   return "D";
+        case ESP_LOG_VERBOSE: return "V";
+        default:              return "?";
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Disconnect any active client connection
+/// @return true if a connection was disconnected
+bool LoggerRaftRemote::disconnect()
+{
+    if (_clientSocketFd < 0)
+        return false;
+    closeClientAndFreeRingBuf();
+    return true;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Configure logger parameters at runtime
+/// @param config JSON containing optional keys: level, maxcount, windowms, bufsize
+/// @return true if any parameter was applied
+bool LoggerRaftRemote::configure(const RaftJsonIF& config)
+{
+    bool changed = LoggerBase::configure(config);
+
+    // Rate limit max count
+    long maxCount = config.getLong("maxcount", -1);
+    if (maxCount > 0)
+    {
+        _logWindowMaxCount = (uint32_t)maxCount;
+        changed = true;
+    }
+
+    // Rate limit window
+    long windowMs = config.getLong("windowms", -1);
+    if (windowMs > 0)
+    {
+        _logWindowSizeMs = (uint32_t)windowMs;
+        changed = true;
+    }
+
+    // Ring buffer size (takes effect on next client connect)
+    long bufSize = config.getLong("bufsize", -1);
+    if (bufSize > 0)
+    {
+        _ringBufSize = (uint32_t)bufSize;
+        changed = true;
+    }
+
+    return changed;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Get extended JSON status
+/// @return JSON string with type-specific details
+String LoggerRaftRemote::getExtendedStatusJSON() const
+{
+    String json = "{";
+    json += "\"type\":\"" + _loggerType + "\"";
+    json += ",\"level\":\"";
+    json += getLevelStr(_level);
+    json += "\"";
+    json += ",\"enabled\":";
+    json += _isPaused ? "0" : "1";
+    json += ",\"connected\":";
+    json += (_clientSocketFd >= 0) ? "1" : "0";
+    json += ",\"port\":";
+    json += _port;
+    json += ",\"maxcount\":";
+    json += String(_logWindowMaxCount);
+    json += ",\"windowms\":";
+    json += String(_logWindowSizeMs);
+    json += ",\"bufsize\":";
+    json += String(_ringBufSize);
+    json += "}";
+    return json;
 }

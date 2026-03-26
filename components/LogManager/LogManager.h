@@ -30,10 +30,16 @@ protected:
     // Setup
     virtual void setup() override final;
 
+    // Add REST API endpoints
+    virtual void addRestAPIEndpoints(RestAPIEndpointManager& endpointManager) override final;
+
     // Loop
     virtual void loop() override final;
 
 private:
+    // API handler
+    RaftRetCode apiLog(const String& reqStr, String& respStr, const APISourceInfo& sourceInfo);
+
     // Log prefix
     static constexpr const char *MODULE_PREFIX = "LogMan";
 
