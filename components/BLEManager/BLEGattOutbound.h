@@ -85,6 +85,9 @@ private:
     uint32_t _outbountMsgInFlightLastMs = 0;
     uint32_t _outMsgsInFlightTimeoutMs = BLEConfig::BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS;
 
+    // Reserve slots in the outbound queue for non-publish messages
+    uint16_t _outQReserveForNonPublish = BLEConfig::DEFAULT_OUTBOUND_QUEUE_RESERVE_FOR_NON_PUBLISH;
+
     // Mutex for in flight variable
     SemaphoreHandle_t _inFlightMutex = nullptr;
     static const uint32_t WAIT_FOR_INFLIGHT_MUTEX_MAX_MS = 2;

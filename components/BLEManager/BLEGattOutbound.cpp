@@ -52,6 +52,9 @@ bool BLEGattOutbound::setup(const BLEConfig& bleConfig)
     _outMsgsInFlightTimeoutMs = bleConfig.outMsgsInFlightTimeoutMs;
     _minMsBetweenSends = bleConfig.minMsBetweenSends;
 
+    // Reserve slots for non-publish messages (clamp to queue size - 1 to ensure at least 1 slot for publish)
+    _outQReserveForNonPublish = bleConfig.outQReserveForNonPublish;
+
     // Setup queue
     _outboundQueue.setMaxLen(bleConfig.outboundQueueSize);
 
@@ -115,9 +118,9 @@ void BLEGattOutbound::serviceOutboundQueue()
 
 bool BLEGattOutbound::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn)
 {
-    // Only send PUBLISH messages if nothing else pending
+    // Only send PUBLISH messages if enough space is reserved for non-publish messages
     if (msgType == MSG_TYPE_PUBLISH)
-        return (!_sendUsingIndication || (_outboundMsgsInFlight == 0)) && (_outboundQueue.count() == 0);
+        return _outboundQueue.count() + _outQReserveForNonPublish < _outboundQueue.maxLen();
 
     // Check the queue is empty
     return _outboundQueue.count() < _outboundQueue.maxLen();
