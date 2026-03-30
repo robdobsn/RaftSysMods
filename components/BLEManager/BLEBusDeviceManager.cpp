@@ -137,8 +137,16 @@ std::vector<uint8_t> BLEBusDeviceManager::getQueuedDeviceDataBinary(uint32_t bus
         // Get poll response JSON
         if (devState.lastDataReceived.size() > 0)
         {
-            // Generate binary device message
-            RaftDevice::genBinaryDataMsg(binaryData, busNumber, devState.busElemAddr, _deviceTypeIndex, DeviceOnlineState::ONLINE, devState.lastDataReceived);
+            // Build length-prefixed sample payload
+            std::vector<uint8_t> payload;
+            uint16_t dataLen = devState.lastDataReceived.size();
+            if (dataLen > 255) dataLen = 255;
+            payload.push_back(static_cast<uint8_t>(dataLen));
+            payload.insert(payload.end(), devState.lastDataReceived.begin(), 
+                           devState.lastDataReceived.begin() + dataLen);
+
+            // Generate binary device message with seqNum 0 (BLE devices don't use per-device seq)
+            RaftDevice::genBinaryDataMsg(binaryData, busNumber, devState.busElemAddr, _deviceTypeIndex, DeviceOnlineState::ONLINE, 0, payload);
 
             // Clear data
             devState.lastDataReceived.clear();
