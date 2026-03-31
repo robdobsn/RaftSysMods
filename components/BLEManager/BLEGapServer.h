@@ -113,6 +113,14 @@ public:
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Get the outbound queue handler
+    /// @return reference to the BLEGattOutbound instance
+    BLEGattOutbound& getOutbound()
+    {
+        return _gattServer.getOutbound();
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Request timed disconnect of the BLE server
     void requestTimedDisconnect()
     {

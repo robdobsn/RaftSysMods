@@ -545,7 +545,7 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
             break;
         case BLE_GAP_EVENT_NOTIFY_TX:
             statusStr = BLEGattServer::getHSErrorMsg(event->notify_tx.status);
-            _gattServer.getOutbound().notifyTxComplete(event->notify_tx.status);
+            _gattServer.getOutbound().notifyTxComplete(event->notify_tx.status, event->notify_tx.indication != 0);
             break;
         case BLE_GAP_EVENT_SUBSCRIBE:
             // Handle subscription to GATT attr

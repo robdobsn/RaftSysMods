@@ -38,7 +38,7 @@ public:
     void stop();
 
     // Tx complete
-    void notifyTxComplete(int statusBLEHSCode);
+    void notifyTxComplete(int statusBLEHSCode, bool isIndication);
 
     // Message sending
     bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
@@ -56,6 +56,12 @@ public:
         return _preferredMtuSize;
     }
 
+    // Runtime config for indicate/notify per queue
+    void setCommandUseIndication(bool useIndication) { _commandUseIndication = useIndication; }
+    bool getCommandUseIndication() const { return _commandUseIndication; }
+    void setPublishUseIndication(bool useIndication) { _publishUseIndication = useIndication; }
+    bool getPublishUseIndication() const { return _publishUseIndication; }
+
 private:
     // GATT server
     BLEGattServer& _gattServer;
@@ -63,30 +69,27 @@ private:
     // Stats
     BLEManStats& _bleStats;
 
-    // Send using indication
-    bool _sendUsingIndication = false;
+    // Command queue: typically uses indication (ACK'd, reliable)
+    ThreadSafeQueue<ProtocolRawMsg> _commandQueue;
+    bool _commandUseIndication = true;
+    uint16_t _commandMsgPos = 0;
 
-    // Outbound queue of messages
-    ThreadSafeQueue<ProtocolRawMsg> _outboundQueue;
+    // Publish queue: typically uses notification (faster, no ACK wait)
+    ThreadSafeQueue<ProtocolRawMsg> _publishQueue;
+    bool _publishUseIndication = false;
+    uint16_t _publishMsgPos = 0;
 
-    // Position in current message being sent
-    uint16_t _outboundMsgPos = 0;
-
-    // Min time between adjacent outbound messages
-    uint32_t _lastOutboundMsgMs = 0;
-    uint32_t _minMsBetweenSends = BLEConfig::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS;
+    // Min time between adjacent outbound notification sends
+    uint32_t _lastNotifySendMs = 0;
+    uint32_t _minMsBetweenNotifySends = BLEConfig::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS;
 
     // Task that runs the outbound queue (if enabled)
     volatile TaskHandle_t _outboundMsgTaskHandle = nullptr;
 
-    // Outbound messages in flight
+    // Outbound indications in flight (only applies to whichever queue uses indication)
     volatile uint32_t _outboundMsgsInFlight = 0;
-    uint16_t _outMsgsInFlightMax = BLEConfig::DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX;
     uint32_t _outbountMsgInFlightLastMs = 0;
     uint32_t _outMsgsInFlightTimeoutMs = BLEConfig::BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS;
-
-    // Reserve slots in the outbound queue for non-publish messages
-    uint16_t _outQReserveForNonPublish = BLEConfig::DEFAULT_OUTBOUND_QUEUE_RESERVE_FOR_NON_PUBLISH;
 
     // Mutex for in flight variable
     SemaphoreHandle_t _inFlightMutex = nullptr;
@@ -102,10 +105,17 @@ private:
     // Reduce send packet size from MTU by this amount
     static const uint32_t MTU_SIZE_REDUCTION = 12;
 
-    // Outbound queue
+    // Outbound queue handling
     void serviceOutboundQueue();
-    bool handleSendFromOutboundQueue();
+    bool handleSendFromQueue(ThreadSafeQueue<ProtocolRawMsg>& queue, uint16_t& msgPos, 
+                bool useIndication, const char* queueName);
     void outboundMsgTask();
+
+    // Helper to get max send length
+    uint32_t getMaxSendLen() const;
+
+    // Check if indication is in flight (with optional timeout handling)
+    bool isIndicationInFlight();
     
 #endif // CONFIG_BT_ENABLED
 

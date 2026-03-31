@@ -17,7 +17,8 @@
 #include "BLEManStats.h"
 
 // Warn
-// #define WARN_ON_OUTBOUND_MSG_TIMEOUT
+#define WARN_ON_OUTBOUND_MSG_TIMEOUT
+#define WARN_ON_PUBLISH_QUEUE_FULL
 
 // Debug
 // #define DEBUG_SEND_FROM_OUTBOUND_QUEUE
@@ -27,7 +28,8 @@
 BLEGattOutbound::BLEGattOutbound(BLEGattServer& gattServer, BLEManStats& bleStats) :
         _gattServer(gattServer),
         _bleStats(bleStats),
-        _outboundQueue(BLEConfig::DEFAULT_OUTBOUND_MSG_QUEUE_SIZE)
+        _commandQueue(BLEConfig::DEFAULT_OUTBOUND_MSG_QUEUE_SIZE),
+        _publishQueue(BLEConfig::DEFAULT_PUBLISH_QUEUE_SIZE)
 {
     _inFlightMutex = xSemaphoreCreateMutex();
 }
@@ -46,17 +48,15 @@ bool BLEGattOutbound::setup(const BLEConfig& bleConfig)
     _preferredMtuSize = bleConfig.preferredMTUSize;
     _actualMtuSize = bleConfig.preferredMTUSize;
 
-    // Send params
-    _sendUsingIndication = bleConfig.sendUsingIndication;
-    _outMsgsInFlightMax = bleConfig.outMsgsInFlightMax;
+    // Send params - command queue uses the global sendUseInd setting, publish queue uses publishUseIndication
+    _commandUseIndication = bleConfig.sendUsingIndication;
+    _publishUseIndication = bleConfig.publishUseIndication;
     _outMsgsInFlightTimeoutMs = bleConfig.outMsgsInFlightTimeoutMs;
-    _minMsBetweenSends = bleConfig.minMsBetweenSends;
+    _minMsBetweenNotifySends = bleConfig.minMsBetweenSends;
 
-    // Reserve slots for non-publish messages (clamp to queue size - 1 to ensure at least 1 slot for publish)
-    _outQReserveForNonPublish = bleConfig.outQReserveForNonPublish;
-
-    // Setup queue
-    _outboundQueue.setMaxLen(bleConfig.outboundQueueSize);
+    // Setup queues
+    _commandQueue.setMaxLen(bleConfig.outboundQueueSize);
+    _publishQueue.setMaxLen(bleConfig.publishQueueSize);
 
     // Check if a thread should be started for sending
     if (bleConfig.useTaskForSending)
@@ -109,7 +109,14 @@ void BLEGattOutbound::serviceOutboundQueue()
 {
     // Send if not using alternate thread
     if (_outboundMsgTaskHandle == nullptr)
-        handleSendFromOutboundQueue();
+    {
+        // Service command queue first (higher priority), then publish queue
+        // Don't interleave: if one queue has a partially-sent HDLC message,
+        // don't send from the other queue (would corrupt the HDLC framing)
+        handleSendFromQueue(_commandQueue, _commandMsgPos, _commandUseIndication, "cmd");
+        if (_commandMsgPos == 0)
+            handleSendFromQueue(_publishQueue, _publishMsgPos, _publishUseIndication, "pub");
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -118,12 +125,20 @@ void BLEGattOutbound::serviceOutboundQueue()
 
 bool BLEGattOutbound::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn)
 {
-    // Only send PUBLISH messages if enough space is reserved for non-publish messages
     if (msgType == MSG_TYPE_PUBLISH)
-        return _outboundQueue.count() + _outQReserveForNonPublish < _outboundQueue.maxLen();
+    {
+        bool canSend = _publishQueue.count() < _publishQueue.maxLen();
+#ifdef WARN_ON_PUBLISH_QUEUE_FULL
+        if (!canSend)
+        {
+            LOG_W(MODULE_PREFIX, "isReadyToSend PUBLISH DROPPED qCount %d maxLen %d",
+                        _publishQueue.count(), _publishQueue.maxLen());
+        }
+#endif
+        return canSend;
+    }
 
-    // Check the queue is empty
-    return _outboundQueue.count() < _outboundQueue.maxLen();
+    return _commandQueue.count() < _commandQueue.maxLen();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -144,71 +159,101 @@ bool BLEGattOutbound::sendMsg(CommsChannelMsg& msg)
 #endif
 #endif
 
-    // Add to the queue
+    // Route to appropriate queue based on message type
     ProtocolRawMsg bleOutMsg(msg.getBuf(), msg.getBufLen());
-    bool putOk = _outboundQueue.put(bleOutMsg);
-    if (!putOk)
+    bool putOk = false;
+    if (msg.getMsgTypeCode() == MSG_TYPE_PUBLISH)
     {
-        LOG_W(MODULE_PREFIX, "sendBLEMsg FAILEDTOSEND totalLen %d", msg.getBufLen());
+        putOk = _publishQueue.put(bleOutMsg);
+        if (!putOk)
+        {
+            LOG_W(MODULE_PREFIX, "sendBLEMsg PUBLISH FAILEDTOSEND totalLen %d qCount %d", 
+                        msg.getBufLen(), _publishQueue.count());
+        }
+    }
+    else
+    {
+        putOk = _commandQueue.put(bleOutMsg);
+        if (!putOk)
+        {
+            LOG_W(MODULE_PREFIX, "sendBLEMsg CMD FAILEDTOSEND totalLen %d qCount %d", 
+                        msg.getBufLen(), _commandQueue.count());
+        }
     }
     return putOk;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Handle sending from outbound queue
+// Get max send length based on MTU
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool BLEGattOutbound::handleSendFromOutboundQueue()
+uint32_t BLEGattOutbound::getMaxSendLen() const
 {
-    // When using send with indication we get a confirmation of each packet being sent and this is used to
-    // control the rate of sending. When not using indication we send using timed intervals.
-    if (_sendUsingIndication)
-    {
-        // Check if less than the max number of messages in flight
-        if (_outboundMsgsInFlight > 0)
-        {
-            // Check for timeout on in flight messages
-            if (Raft::isTimeout(millis(), _outbountMsgInFlightLastMs, _outMsgsInFlightTimeoutMs))
-            {
-                // Debug
-#ifdef WARN_ON_OUTBOUND_MSG_TIMEOUT
-                LOG_W(MODULE_PREFIX, "handleSendFromOutboundQueue msg timeout");
-#endif
+    return ((_actualMtuSize != 0) && (_actualMtuSize > MTU_SIZE_REDUCTION+1)) 
+            ? _actualMtuSize - MTU_SIZE_REDUCTION : _maxPacketLen;
+}
 
-                // Timeout so clear the in flight count
-                _outboundMsgsInFlight = 0;
-            }
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Check if an indication is in flight (with timeout handling)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool BLEGattOutbound::isIndicationInFlight()
+{
+    if (_outboundMsgsInFlight > 0)
+    {
+        // Check for timeout on in flight messages
+        if (Raft::isTimeout(millis(), _outbountMsgInFlightLastMs, _outMsgsInFlightTimeoutMs))
+        {
+#ifdef WARN_ON_OUTBOUND_MSG_TIMEOUT
+            LOG_W(MODULE_PREFIX, "isIndicationInFlight msg timeout - clearing inFlight");
+#endif
+            _outboundMsgsInFlight = 0;
             return false;
         }
+        return true;
     }
+    return false;
+}
 
-    // Check time since last send
-    if (!_sendUsingIndication)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Handle sending from a specific queue
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool BLEGattOutbound::handleSendFromQueue(ThreadSafeQueue<ProtocolRawMsg>& queue, 
+                uint16_t& msgPos, bool useIndication, const char* queueName)
+{
+    // If this queue uses indication, check if an indication is already in flight
+    if (useIndication && isIndicationInFlight())
+        return false;
+
+    // If this queue uses notification, check time since last notify send
+    if (!useIndication)
     {
-        if (!Raft::isTimeout(millis(), _lastOutboundMsgMs, _minMsBetweenSends))
+        if (!Raft::isTimeout(millis(), _lastNotifySendMs, _minMsBetweenNotifySends))
             return false;
     }
 
     // Peek next message in queue
     ProtocolRawMsg bleOutMsg;
-    if (!_outboundQueue.peek(bleOutMsg))
+    if (!queue.peek(bleOutMsg))
         return false;
 
     // Extract next section of message to send
     uint32_t toSendLen = 0;
     bool removeFromQueue = true;
-    if (bleOutMsg.getBufLen() > _outboundMsgPos)
-        toSendLen = bleOutMsg.getBufLen() - _outboundMsgPos;
-    uint32_t maxLen = ((_actualMtuSize != 0) && (_actualMtuSize > MTU_SIZE_REDUCTION+1)) ? _actualMtuSize - MTU_SIZE_REDUCTION : _maxPacketLen;
+    if (bleOutMsg.getBufLen() > msgPos)
+        toSendLen = bleOutMsg.getBufLen() - msgPos;
+    uint32_t maxLen = getMaxSendLen();
     if (toSendLen > maxLen)
         toSendLen = maxLen;
-    if (bleOutMsg.getBufLen() > _outboundMsgPos + toSendLen)
+    if (bleOutMsg.getBufLen() > msgPos + toSendLen)
         removeFromQueue = false;
+
     BLEGattServerSendResult rslt = BLEGATT_SERVER_SEND_RESULT_TRY_AGAIN;
     if (toSendLen != 0)
     {
         // Handle messages in flight calculation when using indication
-        if (_sendUsingIndication)
+        if (useIndication)
         {
             _outbountMsgInFlightLastMs = millis();
             if (xSemaphoreTake(_inFlightMutex, pdMS_TO_TICKS(WAIT_FOR_INFLIGHT_MUTEX_MAX_MS)) == pdTRUE)
@@ -218,13 +263,16 @@ bool BLEGattOutbound::handleSendFromOutboundQueue()
             }
         }
 
+        // Record last notify send time
+        if (!useIndication)
+            _lastNotifySendMs = millis();
+
         // Send to central
-        _lastOutboundMsgMs = millis();
-        rslt = _gattServer.sendToCentral(bleOutMsg.getBuf() + _outboundMsgPos, toSendLen);
+        rslt = _gattServer.sendToCentral(bleOutMsg.getBuf() + msgPos, toSendLen, useIndication);
         if (rslt == BLEGATT_SERVER_SEND_RESULT_OK)
         {
             _bleStats.txMsg(bleOutMsg.getBufLen(), rslt);
-            _outboundMsgPos += toSendLen;
+            msgPos += toSendLen;
         }
 
         // Handle try-again failures
@@ -240,8 +288,8 @@ bool BLEGattOutbound::handleSendFromOutboundQueue()
             removeFromQueue = true;
         }
 
-        // Handle messages in flight calculation when using indication
-        if ((rslt != BLEGATT_SERVER_SEND_RESULT_OK) && _sendUsingIndication)
+        // Handle messages in flight calculation when using indication - decrement on failure
+        if ((rslt != BLEGATT_SERVER_SEND_RESULT_OK) && useIndication)
         {
             if (xSemaphoreTake(_inFlightMutex, pdMS_TO_TICKS(WAIT_FOR_INFLIGHT_MUTEX_MAX_MS)) == pdTRUE)
             {
@@ -254,12 +302,12 @@ bool BLEGattOutbound::handleSendFromOutboundQueue()
     // Remove from queue if required
     if (removeFromQueue)
     {
-        _outboundQueue.get(bleOutMsg);
-        _outboundMsgPos = 0;
+        queue.get(bleOutMsg);
+        msgPos = 0;
     }
 
 #ifdef DEBUG_SEND_FROM_OUTBOUND_QUEUE
-    if (_sendUsingIndication)
+    if (useIndication)
     {
         uint32_t msgsInFlight = 0;
         if (xSemaphoreTake(_inFlightMutex, pdMS_TO_TICKS(WAIT_FOR_INFLIGHT_MUTEX_MAX_MS)) == pdTRUE)
@@ -267,15 +315,15 @@ bool BLEGattOutbound::handleSendFromOutboundQueue()
             msgsInFlight = _outboundMsgsInFlight;
             xSemaphoreGive(_inFlightMutex);
         }
-        LOG_I(MODULE_PREFIX, "handleSendFromOutboundQueue sendLen %d totalLen %d msgPos %d sendOk %d inFlight %d leftInQueue %d removeFromQ %d", 
-                toSendLen, bleOutMsg.getBufLen(), _outboundMsgPos, rslt, msgsInFlight, _outboundQueue.count(), removeFromQueue);
+        LOG_I(MODULE_PREFIX, "handleSendFromQ %s sendLen %d totalLen %d msgPos %d sendOk %d inFlight %d leftInQ %d removeFromQ %d", 
+                queueName, toSendLen, bleOutMsg.getBufLen(), msgPos, rslt, msgsInFlight, queue.count(), removeFromQueue);
     }
     else
     {
-        LOG_I(MODULE_PREFIX, "handleSendFromOutboundQueue sendLen %d totalLen %d msgPos %d sendOk %s leftInQueue %d removeFromQ %d", 
-            toSendLen, bleOutMsg.getBufLen(), _outboundMsgPos, 
+        LOG_I(MODULE_PREFIX, "handleSendFromQ %s sendLen %d totalLen %d msgPos %d sendOk %s leftInQ %d removeFromQ %d", 
+            queueName, toSendLen, bleOutMsg.getBufLen(), msgPos, 
             rslt == BLEGATT_SERVER_SEND_RESULT_OK ? "OK" : rslt == BLEGATT_SERVER_SEND_RESULT_FAIL ? "FAIL" : "TRYAGAIN", 
-            _outboundQueue.count(), removeFromQueue);
+            queue.count(), removeFromQueue);
     }
 #endif
 
@@ -291,8 +339,12 @@ void BLEGattOutbound::outboundMsgTask()
     // Run the task until asked to stop
     while (ulTaskNotifyTake(pdTRUE, 0) == 0)
     {        
-        // Handle queue
-        handleSendFromOutboundQueue();
+        // Handle both queues
+        // Don't interleave: if one queue has a partially-sent HDLC message,
+        // don't send from the other queue (would corrupt the HDLC framing)
+        handleSendFromQueue(_commandQueue, _commandMsgPos, _commandUseIndication, "cmd");
+        if (_commandMsgPos == 0)
+            handleSendFromQueue(_publishQueue, _publishMsgPos, _publishUseIndication, "pub");
 
         // Yield
         vTaskDelay(1);
@@ -307,34 +359,36 @@ void BLEGattOutbound::outboundMsgTask()
 // Notify tx complete
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void BLEGattOutbound::notifyTxComplete(int statusBLEHSCode)
+void BLEGattOutbound::notifyTxComplete(int statusBLEHSCode, bool isIndication)
 {
-    // Check if using indications - if so use this notification to handle the in-flight count
-    if (_sendUsingIndication)
+    // This callback fires for both notifications (isIndication=false) and indications (isIndication=true)
+    // For notifications: status=0 means sent (no ACK)
+    // For indications: status=0 means sent, status=BLE_HS_EDONE(14) means ACK received
+    // Only process indication events since _outboundMsgsInFlight only tracks indications
+    if (!isIndication)
+        return;
+
+    // Decrement messages in flight on ACK received (EDONE) or failure (non-zero, non-sent)
+    if (statusBLEHSCode != 0)
     {
-        // Decrement messages in flight if either DONE or FAIL
-        if (statusBLEHSCode != 0)
+        uint32_t msgsInFlight = 0;
+        if (xSemaphoreTake(_inFlightMutex, pdMS_TO_TICKS(WAIT_FOR_INFLIGHT_MUTEX_MAX_MS)) == pdTRUE)
         {
-            uint32_t msgsInFlight = 0;
-            if (xSemaphoreTake(_inFlightMutex, pdMS_TO_TICKS(WAIT_FOR_INFLIGHT_MUTEX_MAX_MS)) == pdTRUE)
+            // Decrement messages in flight
+            if (_outboundMsgsInFlight != 0)
             {
-                // Decrement messages in flight
-                if (_outboundMsgsInFlight != 0)
-                {
-                    // Decrement the in flight count
-                    _outboundMsgsInFlight = _outboundMsgsInFlight - 1;
-                }
-                msgsInFlight = _outboundMsgsInFlight;
-                xSemaphoreGive(_inFlightMutex);
+                _outboundMsgsInFlight = _outboundMsgsInFlight - 1;
             }
-            _outbountMsgInFlightLastMs = millis();
-            (msgsInFlight = msgsInFlight); // avoid warning when not debugging
+            msgsInFlight = _outboundMsgsInFlight;
+            xSemaphoreGive(_inFlightMutex);
+        }
+        _outbountMsgInFlightLastMs = millis();
+        (msgsInFlight = msgsInFlight); // avoid warning when not debugging
 
 #ifdef DEBUG_SEND_FROM_OUTBOUND_QUEUE
-            LOG_I(MODULE_PREFIX, "notifyTxComplete status %s msgsInFlight %d", 
-                    BLEGattServer::getHSErrorMsg(statusBLEHSCode), msgsInFlight);
+        LOG_I(MODULE_PREFIX, "notifyTxComplete status %s msgsInFlight %d", 
+                BLEGattServer::getHSErrorMsg(statusBLEHSCode), msgsInFlight);
 #endif
-        }
     }
 }
 

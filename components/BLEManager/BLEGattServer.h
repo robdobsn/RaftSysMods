@@ -78,8 +78,8 @@ public:
     // Subscription
     void handleSubscription(struct ble_gap_event * pEvent, String& statusStr);
 
-    // Send to central (using notification)
-    BLEGattServerSendResult sendToCentral(const uint8_t* pBuf, uint32_t bufLen);
+    // Send to central (using notification or indication)
+    BLEGattServerSendResult sendToCentral(const uint8_t* pBuf, uint32_t bufLen, bool useIndication);
 
     // Check if notification is enabled
     bool isNotificationEnabled()

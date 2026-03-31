@@ -73,6 +73,7 @@ private:
     // APIs
     RaftRetCode apiBLERestart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
     RaftRetCode apiBLEDisconnect(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
+    RaftRetCode apiBLEConfig(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
 
 #endif
 

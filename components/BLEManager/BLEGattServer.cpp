@@ -21,8 +21,8 @@
 
 // Warn
 #define WARN_ON_BLE_CHAR_WRITE_FAIL
-#define WARN_ON_BLE_CHAR_READ_UNEXPECTED
-#define WARN_ON_BLE_CHAR_WRITE_UNEXPECTED
+// #define WARN_ON_BLE_CHAR_READ_UNEXPECTED
+// #define WARN_ON_BLE_CHAR_WRITE_UNEXPECTED
 #define WARN_ON_BLE_CHAR_WRITE_TAKING_TOO_LONG
 
 // Debug
@@ -344,7 +344,7 @@ void BLEGattServer::registrationCallbackStatic(struct ble_gatt_register_ctxt *ct
 #define ble_gatts_notify_custom ble_gattc_notify_custom
 #endif
 
-BLEGattServerSendResult BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen)
+BLEGattServerSendResult BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen, bool useIndication)
 {
     // Check connected
     if (!BLEGattServer::_bleIsConnected)
@@ -371,7 +371,7 @@ BLEGattServerSendResult BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32
 
     // Send
     int rc = 0;
-    if (_sendUsingIndication)
+    if (useIndication)
     {
         rc = ble_gatts_indicate_custom(_bleGapConnHandle, _characteristicValueAttribHandle, om);
     }

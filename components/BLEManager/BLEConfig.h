@@ -58,12 +58,14 @@ public:
     static const int DEFAULT_TASK_PRIORITY = 1;
     static const int DEFAULT_TASK_SIZE_BYTES = 4000;
     static const int DEFAULT_OUTBOUND_MSG_QUEUE_SIZE = 30;
-    static const uint32_t BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS = 50;
+    static const uint32_t BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS = 5;
     static const uint32_t MAX_BLE_PACKET_LEN_DEFAULT = 500;
     static const uint32_t PREFERRED_MTU_SIZE = 512;
     static const uint32_t DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX = 10;
     static const uint32_t BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS = 500;
     static const uint32_t DEFAULT_OUTBOUND_QUEUE_RESERVE_FOR_NON_PUBLISH = 10;
+    static const uint32_t DEFAULT_PUBLISH_QUEUE_SIZE = 30;
+    static const bool DEFAULT_PUBLISH_USE_INDICATE = false;
     static const uint32_t DEFAULT_CONN_INTERVAL_BLE_UNITS = 12; // 15ms
     static const uint32_t DEFAULT_CONN_LATENCY = 0;
     static const uint32_t PREF_SUPERVISORY_TIMEOUT_MS = 10000;
@@ -129,6 +131,8 @@ public:
         outMsgsInFlightMax = config.getLong("outMsgsInFlightMax", DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX);
         outMsgsInFlightTimeoutMs = config.getLong("outMsgsInFlightMs", BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS);
         outQReserveForNonPublish = config.getLong("outQResvNonPub", DEFAULT_OUTBOUND_QUEUE_RESERVE_FOR_NON_PUBLISH);
+        publishQueueSize = config.getLong("pubQSize", DEFAULT_PUBLISH_QUEUE_SIZE);
+        publishUseIndication = config.getBool("pubUseInd", DEFAULT_PUBLISH_USE_INDICATE);
 
         // Task settings
         taskCore = config.getLong("taskCore", DEFAULT_TASK_CORE);
@@ -261,6 +265,8 @@ public:
     uint16_t outMsgsInFlightMax = DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX;
     uint32_t outMsgsInFlightTimeoutMs = BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS;
     uint16_t outQReserveForNonPublish = DEFAULT_OUTBOUND_QUEUE_RESERVE_FOR_NON_PUBLISH;
+    uint16_t publishQueueSize = DEFAULT_PUBLISH_QUEUE_SIZE;
+    bool publishUseIndication:1 = DEFAULT_PUBLISH_USE_INDICATE;
 
     // Task settings
     uint8_t taskCore = DEFAULT_TASK_CORE;

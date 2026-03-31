@@ -149,6 +149,9 @@ void BLEManager::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager)
     endpointManager.addEndpoint("bledisconnect", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
                         std::bind(&BLEManager::apiBLEDisconnect, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
                         "Disconnect BLE");
+    endpointManager.addEndpoint("bleconfig", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
+                        std::bind(&BLEManager::apiBLEConfig, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                        "Get/set BLE outbound config - params: cmdUseInd=0/1, pubUseInd=0/1");
 #endif
 }
 
@@ -183,6 +186,57 @@ RaftRetCode BLEManager::apiBLEDisconnect(const String &reqStr, String &respStr, 
 
     // Disconnect in progress
     return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
+}
+#endif
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief API BLE Config - get/set outbound queue configuration
+/// @param reqStr request string - params: cmdUseInd=0/1, pubUseInd=0/1
+/// @param respStr response string (out) JSON response with current config
+/// @param sourceInfo source of the API call
+/// @return RaftRetCode
+#ifdef CONFIG_BT_ENABLED
+RaftRetCode BLEManager::apiBLEConfig(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+{
+    // Get outbound reference
+    BLEGattOutbound& outbound = _gapServer.getOutbound();
+
+    // Check for parameters to set
+    String cmdUseIndStr = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1);
+    String pubUseIndStr = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 2);
+
+    if (cmdUseIndStr.length() > 0)
+    {
+        // Parse key=value pairs
+        if (cmdUseIndStr.startsWith("cmdUseInd="))
+        {
+            outbound.setCommandUseIndication(cmdUseIndStr.substring(10).toInt() != 0);
+        }
+        else if (cmdUseIndStr.startsWith("pubUseInd="))
+        {
+            outbound.setPublishUseIndication(cmdUseIndStr.substring(10).toInt() != 0);
+        }
+    }
+    if (pubUseIndStr.length() > 0)
+    {
+        if (pubUseIndStr.startsWith("cmdUseInd="))
+        {
+            outbound.setCommandUseIndication(pubUseIndStr.substring(10).toInt() != 0);
+        }
+        else if (pubUseIndStr.startsWith("pubUseInd="))
+        {
+            outbound.setPublishUseIndication(pubUseIndStr.substring(10).toInt() != 0);
+        }
+    }
+
+    // Return current config
+    char respBuf[128];
+    snprintf(respBuf, sizeof(respBuf), 
+            R"({"rslt":"ok","cmdUseInd":%d,"pubUseInd":%d})",
+            outbound.getCommandUseIndication() ? 1 : 0,
+            outbound.getPublishUseIndication() ? 1 : 0);
+    respStr = respBuf;
+    return RaftRetCode::RAFT_OK;
 }
 #endif
 
