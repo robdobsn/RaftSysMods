@@ -28,7 +28,7 @@
 #include "driver/usb_serial_jtag_vfs.h"
 #endif
 
-#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) || defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
 #include "driver/usb_serial_jtag.h"
 #endif
 #endif // __linux__
@@ -136,7 +136,7 @@ void SerialConsole::setup()
                     _isEnabled ? "YES" : "NO", _crlfOnTx ? "YES" : "NO");
     }
 
-#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
+#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) || defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
 
     // Configure USB-JTAG if required
     usb_serial_jtag_driver_config_t usb_serial_jtag_config = {
@@ -160,6 +160,44 @@ void SerialConsole::setup()
     LOG_I(MODULE_PREFIX, "setup USB JTAG OK enabled %s rxBufLen %d txBufLen %d", 
                 _isEnabled ? "YES" : "NO", _rxBufferSize, _txBufferSize);
 
+#if defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
+    // If using USB as secondary console, ensure UART driver is installed for stdin reads
+    esp_err_t uartErr = uart_driver_install((uart_port_t)_uartNum, _rxBufferSize, _txBufferSize, 0,
+                            NULL, 0);
+    if (uartErr != ESP_OK)
+    {
+        LOG_E(MODULE_PREFIX, "setup FAILED uartNum %d can't install uart driver, err %d", _uartNum, uartErr);
+        return;
+    }
+    _uartDriverInstalled = true;
+
+    if (_baudRate != 0)
+    {
+        const uart_config_t uart_config = {
+                .baud_rate = _baudRate,
+                .data_bits = UART_DATA_8_BITS,
+                .parity = UART_PARITY_DISABLE,
+                .stop_bits = UART_STOP_BITS_1,
+                .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+                .rx_flow_ctrl_thresh = 100,
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
+                .use_ref_tick = true,
+#else
+                .source_clk = UART_SCLK_DEFAULT,
+#endif
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 1)
+                .flags = {},
+#endif
+        };
+        uartErr = uart_param_config((uart_port_t)_uartNum, &uart_config);
+        if (uartErr != ESP_OK)
+        {
+            LOG_E(MODULE_PREFIX, "setup FAILED uartNum %d can't initialize uart, err %d", _uartNum, uartErr);
+            return;
+        }
+    }
+#endif
+
 #else
 
     // Config required if baud rate specified
@@ -179,6 +217,7 @@ void SerialConsole::setup()
         LOG_E(MODULE_PREFIX, "setup FAILED uartNum %d can't install uart driver, err %d", _uartNum, err);
         return;
     }
+    _uartDriverInstalled = true;
 
     // Check if a config required
     if (configRequired)
@@ -285,29 +324,66 @@ int SerialConsole::getChar()
 #else
         // ESP32: Check anything available
         size_t numCharsAvailable = 0;
-#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
         esp_err_t err = ESP_OK;
         numCharsAvailable = 1;
-#else
-        esp_err_t err = uart_get_buffered_data_len((uart_port_t)_uartNum, &numCharsAvailable);
-#endif
         if ((err == ESP_OK) && (numCharsAvailable > 0))
         {
-            // Get char
             uint8_t charRead;
-#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
             if (usb_serial_jtag_read_bytes(&charRead, 1, 0) > 0)
-#else
-            if (uart_read_bytes((uart_port_t)_uartNum, &charRead, 1, 0) > 0)
-#endif
             {
-                // Debug
 #ifdef DEBUG_SERIAL_CONSOLE
                 LOG_I(MODULE_PREFIX, "getChar %02x", charRead);
 #endif
                 return charRead;
             }
         }
+#elif defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
+        // Try USB first so USB terminal input reaches stdin, then fall back to UART
+        esp_err_t err = ESP_OK;
+        numCharsAvailable = 1;
+        if ((err == ESP_OK) && (numCharsAvailable > 0))
+        {
+            uint8_t charRead;
+            if (usb_serial_jtag_read_bytes(&charRead, 1, 0) > 0)
+            {
+#ifdef DEBUG_SERIAL_CONSOLE
+                LOG_I(MODULE_PREFIX, "getChar %02x", charRead);
+#endif
+                return charRead;
+            }
+        }
+        if (_uartDriverInstalled)
+            err = uart_get_buffered_data_len((uart_port_t)_uartNum, &numCharsAvailable);
+        else
+            err = ESP_FAIL;
+        if ((err == ESP_OK) && (numCharsAvailable > 0))
+        {
+            uint8_t charRead;
+            if (uart_read_bytes((uart_port_t)_uartNum, &charRead, 1, 0) > 0)
+            {
+#ifdef DEBUG_SERIAL_CONSOLE
+                LOG_I(MODULE_PREFIX, "getChar %02x", charRead);
+#endif
+                return charRead;
+            }
+        }
+#else
+        esp_err_t err = ESP_FAIL;
+        if (_uartDriverInstalled)
+            err = uart_get_buffered_data_len((uart_port_t)_uartNum, &numCharsAvailable);
+        if ((err == ESP_OK) && (numCharsAvailable > 0))
+        {
+            uint8_t charRead;
+            if (uart_read_bytes((uart_port_t)_uartNum, &charRead, 1, 0) > 0)
+            {
+#ifdef DEBUG_SERIAL_CONSOLE
+                LOG_I(MODULE_PREFIX, "getChar %02x", charRead);
+#endif
+                return charRead;
+            }
+        }
+#endif
 #endif // __linux__
     }
     else
@@ -329,8 +405,10 @@ void SerialConsole::putStr(const char* pStr)
         // Linux: write to stdout
         write(STDOUT_FILENO, pStr, strlen(pStr));
 #elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
-        // LOG_I(MODULE_PREFIX, "putStr strlen %d", strnlen(pStr, _txBufferSize/2+1));
-        usb_serial_jtag_write_bytes((const char*)pStr, strnlen(pStr, _txBufferSize/2+1), 1);
+    usb_serial_jtag_write_bytes((const char*)pStr, strnlen(pStr, _txBufferSize/2+1), 1);
+#elif defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
+    uart_write_bytes((uart_port_t)_uartNum, pStr, strnlen(pStr, _txBufferSize/2+1));
+    usb_serial_jtag_write_bytes((const char*)pStr, strnlen(pStr, _txBufferSize/2+1), 1);
 #else
         uart_write_bytes((uart_port_t)_uartNum, pStr, strnlen(pStr, _txBufferSize/2+1));
 #endif
@@ -345,8 +423,10 @@ void SerialConsole::putStr(const String& str)
         // Linux: write to stdout
         write(STDOUT_FILENO, str.c_str(), str.length());
 #elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
-        // LOG_I(MODULE_PREFIX, "putString strlen %d", str.length());
-        usb_serial_jtag_write_bytes(str.c_str(), str.length(), 1);
+    usb_serial_jtag_write_bytes(str.c_str(), str.length(), 1);
+#elif defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
+    uart_write_bytes((uart_port_t)_uartNum, str.c_str(), str.length());
+    usb_serial_jtag_write_bytes(str.c_str(), str.length(), 1);
 #else
         uart_write_bytes((uart_port_t)_uartNum, str.c_str(), str.length());
 #endif
