@@ -84,6 +84,7 @@ private:
     // isEnabled and isInitialised
     bool _isEnabled = false;
     bool _isInitialised = false;
+    bool _uartDriverInstalled = false;
 
     // CRLF string on tx line end
     bool _crlfOnTx = DEFAULT_CRLF_ON_TX;
