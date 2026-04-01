@@ -64,7 +64,7 @@ public:
     static const uint32_t DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX = 10;
     static const uint32_t BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS = 500;
     static const uint32_t DEFAULT_OUTBOUND_QUEUE_RESERVE_FOR_NON_PUBLISH = 10;
-    static const uint32_t DEFAULT_PUBLISH_QUEUE_SIZE = 30;
+    static const uint32_t DEFAULT_PUBLISH_QUEUE_SIZE = 50;
     static const bool DEFAULT_PUBLISH_USE_INDICATE = false;
     static const uint32_t DEFAULT_CONN_INTERVAL_BLE_UNITS = 12; // 15ms
     static const uint32_t DEFAULT_CONN_LATENCY = 0;
