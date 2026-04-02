@@ -86,6 +86,9 @@ private:
     // Task that runs the outbound queue (if enabled)
     volatile TaskHandle_t _outboundMsgTaskHandle = nullptr;
 
+    // Semaphore to wake outbound task when messages are enqueued or indication ACKs arrive
+    SemaphoreHandle_t _outboundSemaphore = nullptr;
+
     // Outbound indications in flight (only applies to whichever queue uses indication)
     volatile uint32_t _outboundMsgsInFlight = 0;
     uint32_t _outbountMsgInFlightLastMs = 0;

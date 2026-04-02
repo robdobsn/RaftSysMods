@@ -32,12 +32,15 @@ BLEGattOutbound::BLEGattOutbound(BLEGattServer& gattServer, BLEManStats& bleStat
         _publishQueue(BLEConfig::DEFAULT_PUBLISH_QUEUE_SIZE)
 {
     _inFlightMutex = xSemaphoreCreateMutex();
+    _outboundSemaphore = xSemaphoreCreateBinary();
 }
 
 BLEGattOutbound::~BLEGattOutbound()
 {
     if (_inFlightMutex)
         vSemaphoreDelete(_inFlightMutex);
+    if (_outboundSemaphore)
+        vSemaphoreDelete(_outboundSemaphore);
 }
 
 // Setup
@@ -180,6 +183,11 @@ bool BLEGattOutbound::sendMsg(CommsChannelMsg& msg)
                         msg.getBufLen(), _commandQueue.count());
         }
     }
+
+    // Wake the outbound task if it is waiting
+    if (putOk && _outboundSemaphore)
+        xSemaphoreGive(_outboundSemaphore);
+
     return putOk;
 }
 
@@ -346,8 +354,11 @@ void BLEGattOutbound::outboundMsgTask()
         if (_commandMsgPos == 0)
             handleSendFromQueue(_publishQueue, _publishMsgPos, _publishUseIndication, "pub");
 
-        // Yield
-        vTaskDelay(1);
+        // Wait for new message enqueue or indication ACK (or timeout for pacing)
+        if (_outboundSemaphore)
+            xSemaphoreTake(_outboundSemaphore, pdMS_TO_TICKS(_minMsBetweenNotifySends));
+        else
+            vTaskDelay(1);
     }
 
     // Task has exited
@@ -383,6 +394,10 @@ void BLEGattOutbound::notifyTxComplete(int statusBLEHSCode, bool isIndication)
             xSemaphoreGive(_inFlightMutex);
         }
         _outbountMsgInFlightLastMs = millis();
+
+        // Wake the outbound task to send next queued message immediately
+        if (_outboundSemaphore)
+            xSemaphoreGive(_outboundSemaphore);
         (msgsInFlight = msgsInFlight); // avoid warning when not debugging
 
 #ifdef DEBUG_SEND_FROM_OUTBOUND_QUEUE
