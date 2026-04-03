@@ -73,6 +73,7 @@ public:
     static const uint32_t DEFAULT_LL_PACKET_LENGTH = 251;
     static const uint32_t DEFAULT_SCAN_INTERVAL_MS = 200;
     static const uint32_t DEFAULT_SCAN_WINDOW_MS = 150;
+    static const uint32_t DEFAULT_ADVERTISING_INTERVAL_MS = 250;
 
     bool setup(const RaftJsonIF& config)
     {
@@ -98,7 +99,7 @@ public:
         connLatencyPref = config.getLong("connLatencyPref", DEFAULT_CONN_LATENCY);
 
         // Advertising
-        advertisingIntervalMs = config.getLong("advIntervalMs", 0);
+        advertisingIntervalMs = config.getLong("advIntervalMs", DEFAULT_ADVERTISING_INTERVAL_MS);
         advManufData = config.getString("advManufData", "");
         advManufTotalByteLimit = config.getLong("advManufValueBytes", 0);
         advManufValue = config.getString("advManufValue", "");

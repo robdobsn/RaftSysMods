@@ -44,13 +44,13 @@ void FileManager::setup()
 void FileManager::applySetup()
 {
     // Config settings
-    String localFsDefaultName = configGetString("LocalFsDefault", "");
+    String localFsDefaultName = configGetString("LocalFsDefault", "littlefs");
     FileSystem::LocalFileSystemType localFsTypeDefault = FileSystem::LOCAL_FS_DISABLE;
     if (localFsDefaultName.equalsIgnoreCase("spiffs"))
         localFsTypeDefault = FileSystem::LOCAL_FS_SPIFFS;
     else if (localFsDefaultName.equalsIgnoreCase("littlefs"))
         localFsTypeDefault = FileSystem::LOCAL_FS_LITTLEFS;
-    bool localFsFormatIfCorrupt = configGetBool("LocalFsFormatIfCorrupt", false);
+    bool localFsFormatIfCorrupt = configGetBool("LocalFsFormatIfCorrupt", true);
     bool enableSD = configGetBool("SDEnabled", false);
     bool defaultToSDIfAvailable = configGetBool("DefaultSD", false);
     bool cacheFileSystemInfo = configGetBool("CacheFileSysInfo", false);
