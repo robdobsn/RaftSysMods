@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 # Build REQUIRES list conditionally
-set(RAFT_SYSMODS_REQUIRES RaftCore bt app_update esp_http_client)
+set(RAFT_SYSMODS_REQUIRES RaftCore bt app_update esp_http_client esp_ringbuf)
 if (NOT (DEFINED FS_TYPE AND FS_TYPE STREQUAL "littlefs"))
   list(APPEND RAFT_SYSMODS_REQUIRES spiffs)
 endif()
@@ -52,4 +52,8 @@ idf_component_register(
     "components/StatePublisher"
   REQUIRES
     ${RAFT_SYSMODS_REQUIRES}
+  PRIV_REQUIRES
+    esp_driver_uart
+    esp_driver_gpio
+    esp_driver_usb_serial_jtag
 )
