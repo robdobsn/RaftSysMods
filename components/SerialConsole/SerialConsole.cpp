@@ -24,6 +24,8 @@
 #include "sdkconfig.h"
 #include "esp_idf_version.h"
 #include "driver/uart.h"
+#include "esp_log_write.h"
+#include "freertos/FreeRTOS.h"
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
 #include "driver/usb_serial_jtag_vfs.h"
 #endif
@@ -154,6 +156,29 @@ void SerialConsole::setup()
     // Tell vfs to use the driver
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0) 
     usb_serial_jtag_vfs_use_driver();
+#endif
+
+    // Redirect ESP-IDF log output through the ring-buffer driver path.
+    // The default VFS path flushes one USB packet per newline (~67 KB/s
+    // ceiling). usb_serial_jtag_write_bytes coalesces data and reaches the
+    // ~200 KB/s USB FS ceiling. Only install the hook when USB JTAG is the
+    // PRIMARY console (not secondary) so UART output is preserved when UART
+    // is primary.
+    // Timeout trade-off: small value drops on congestion (no back-pressure);
+    // large value blocks the caller. Override with compile-time define
+    // RAFT_LOGGER_USB_JTAG_WRITE_TIMEOUT_MS.
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
+#ifndef RAFT_LOGGER_USB_JTAG_WRITE_TIMEOUT_MS
+#define RAFT_LOGGER_USB_JTAG_WRITE_TIMEOUT_MS 10
+#endif
+    esp_log_set_vprintf([](const char* fmt, va_list args) -> int {
+        char buf[512];
+        int len = vsnprintf(buf, sizeof(buf), fmt, args);
+        if (len > 0)
+            usb_serial_jtag_write_bytes(buf, (size_t)len,
+                                        pdMS_TO_TICKS(RAFT_LOGGER_USB_JTAG_WRITE_TIMEOUT_MS));
+        return len;
+    });
 #endif
 
     // Debug
