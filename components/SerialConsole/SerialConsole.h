@@ -50,7 +50,7 @@ public:
     static const int DEFAULT_UART_NUM = 0;
     static const int DEFAULT_BAUD_RATE = 115200;
     static const int DEFAULT_RX_BUFFER_SIZE = 1024;
-    static const int DEFAULT_TX_BUFFER_SIZE = 2048;
+    static const int DEFAULT_TX_BUFFER_SIZE = 4096;
     static const bool DEFAULT_CRLF_ON_TX = true;
 
 protected:
