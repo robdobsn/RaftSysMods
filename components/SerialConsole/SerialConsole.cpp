@@ -175,8 +175,26 @@ void SerialConsole::setup()
         char buf[512];
         int len = vsnprintf(buf, sizeof(buf), fmt, args);
         if (len > 0)
-            usb_serial_jtag_write_bytes(buf, (size_t)len,
-                                        pdMS_TO_TICKS(RAFT_LOGGER_USB_JTAG_WRITE_TIMEOUT_MS));
+        {
+            // Translate LF -> CRLF without an extra buffer: write text
+            // segments up to each '\n', then emit "\r\n". This mirrors the
+            // VFS stdio behavior we bypassed.
+            const TickType_t toTicks = pdMS_TO_TICKS(RAFT_LOGGER_USB_JTAG_WRITE_TIMEOUT_MS);
+            int segStart = 0;
+            int clamped = len < (int)sizeof(buf) ? len : (int)sizeof(buf);
+            for (int i = 0; i < clamped; i++)
+            {
+                if (buf[i] == '\n')
+                {
+                    if (i > segStart)
+                        usb_serial_jtag_write_bytes(buf + segStart, (size_t)(i - segStart), toTicks);
+                    usb_serial_jtag_write_bytes("\r\n", 2, toTicks);
+                    segStart = i + 1;
+                }
+            }
+            if (clamped > segStart)
+                usb_serial_jtag_write_bytes(buf + segStart, (size_t)(clamped - segStart), toTicks);
+        }
         return len;
     });
 #endif
