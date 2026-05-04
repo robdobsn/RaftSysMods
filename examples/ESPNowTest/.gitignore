@@ -1,0 +1,9 @@
+build
+logs
+raftdevlibs
+sdkconfig
+managed_components
+compile_commands.json
+*.pyc
+node_modules
+.raftcli_history

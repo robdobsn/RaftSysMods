@@ -1,0 +1,13 @@
+menu "RaftSysMods"
+
+config RAFT_SYSMODS_ENABLE_ESPNOW
+    bool "Enable ESPNow SysMod"
+    default n
+    depends on ESP_WIFI_ENABLED
+    help
+        Build and register the optional ESPNow transport SysMod.
+
+        This pulls in ESPNowManager sources and the esp_wifi component
+        dependency so ProtocolExchange traffic can be carried over ESPNow.
+
+endmenu

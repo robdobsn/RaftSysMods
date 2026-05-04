@@ -1,0 +1,110 @@
+{
+  "BLEMan": {
+    "advIntervalMs": 100,
+    "busConnName": "BusBLE",
+    "central": false,
+    "connIntvPrefMs": 15,
+    "enable": 1,
+    "nimLogLev": "E",
+    "peripheral": true,
+    "scanBTHome": 0,
+    "uuidCmdRespCommand": "bb76677e-9cfd-4626-a510-0d305be57c8e",
+    "uuidCmdRespResponse": "bb76677e-9cfd-4626-a510-0d305be57c8f",
+    "uuidCmdRespService": "bb76677e-9cfd-4626-a510-0d305be57c8d"
+  },
+  "CmdsAtStart": "",
+  "DevMan": {
+    "Buses": {
+      "buslist": []
+    },
+    "Devices": []
+  },
+  "ESPOTAUpdate": {
+    "OTADirect": 1,
+    "enable": 1
+  },
+  "ESPNow": {
+    "allowBroadcast": 0,
+    "channel": 0,
+    "enable": 1,
+    "interface": "ESPNow",
+    "learnPeers": 0,
+    "maxPayload": 250,
+    "maxPeers": 4,
+    "peers": [],
+    "protocol": "RICSerial",
+    "rxQueueMax": 20,
+    "txQueueMax": 12,
+    "wifiOwner": "netman"
+  },
+  "FileManager": {
+    "enable": 1
+  },
+  "LogManager": {
+    "enable": 0,
+    "logDests": [
+      {
+        "enable": false,
+        "port": 8080,
+        "type": "RaftRemote"
+      }
+    ]
+  },
+  "MQTTMan": {
+    "brokerHostname": "mqttbroker",
+    "brokerPort": 1883,
+    "clientID": "",
+    "enable": 0,
+    "topics": [
+      {
+        "inbound": 1,
+        "name": "examplein",
+        "path": "example/in",
+        "qos": 1
+      },
+      {
+        "inbound": 0,
+        "name": "exampleout",
+        "path": "example/out",
+        "qos": 1
+      }
+    ]
+  },
+  "MainSysMod": {
+    "exampleGroup": {
+      "exampleKey": "Welcome to Raft!"
+    }
+  },
+  "NetMan": {
+    "wifiAPEn": 1,
+    "wifiAPPW": "raftpassword",
+    "wifiAPSSID": "RaftAP",
+    "wifiSTAEn": 1
+  },
+  "Publish": {
+    "enable": 1
+  },
+  "SerialConsole": {
+    "enable": 1
+  },
+  "SysManager": {
+    "monitorPeriodMs": 10000,
+    "pauseWiFiforBLE": 1,
+    "reportList": [
+      "NetMan",
+      "SysMan"
+    ],
+    "slowSysModMs": 50
+  },
+  "SysTypeName": "qtpys3",
+  "WebServer": {
+    "enable": 1,
+    "websockets": [
+      {
+        "pcol": "RICSerial",
+        "pfix": "ws"
+      }
+    ]
+  },
+  "WebUI": ""
+}

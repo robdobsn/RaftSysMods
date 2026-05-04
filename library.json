@@ -36,6 +36,7 @@
       "-Icomponents/CommandFile",
       "-Icomponents/CommandSerial",
       "-Icomponents/CommandSocket",
+      "-Icomponents/ESPNowManager",
       "-Icomponents/ESPOTAUpdate",
       "-Icomponents/FileManager",
       "-Icomponents/LogManager",

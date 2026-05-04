@@ -30,6 +30,9 @@
 #include "ESPOTAUpdate.h"
 #include "LogManager.h"
 #endif
+#if defined(ESP_PLATFORM) && defined(NETWORKING_IS_ENABLED) && defined(RAFT_SYSMODS_ENABLE_ESPNOW)
+#include "ESPNowManager.h"
+#endif
 #include "FileManager.h"
 #ifdef NETWORKING_IS_ENABLED
 #include "MQTTManager.h"
@@ -67,6 +70,11 @@ namespace RegisterSysMods
         // ESPOTAUpdate
 #ifdef ESP_PLATFORM
         sysManager.registerSysMod("ESPOTAUpdate", ESPOTAUpdate::create);
+#endif
+
+        // ESPNow
+#if defined(ESP_PLATFORM) && defined(NETWORKING_IS_ENABLED) && defined(RAFT_SYSMODS_ENABLE_ESPNOW)
+        sysManager.registerSysMod("ESPNow", ESPNowManager::create, false, "NetMan");
 #endif
         
         // FileManager
