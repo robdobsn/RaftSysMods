@@ -24,6 +24,7 @@
 #undef max
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
+#include "host/ble_hs.h"
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
@@ -247,6 +248,9 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
     // Status result
     String statusStr;
 
+    // NimBLE host structures are not safe to query until host is enabled and synced.
+    bool bleHostReady = _isInit && ble_hs_is_enabled() && ble_hs_synced();
+
     // RSSI
     String rssiStr = _isConnected ? R"("rssi":)" + String(_rssi) : "";
 
@@ -254,15 +258,15 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
     if (shortForm)
     {
         // Connection info
-        bool gapConn = ble_gap_conn_active();
-        bool isAdv = ble_gap_adv_active();
-        bool isDisco = ble_gap_disc_active();
+        bool gapConn = bleHostReady ? ble_gap_conn_active() : false;
+        bool isAdv = bleHostReady ? ble_gap_adv_active() : false;
+        bool isDisco = bleHostReady ? ble_gap_disc_active() : false;
         String connStr = String(R"("s":")") + 
                 (_isConnected ? (gapConn ? "actv" : "conn") : (isAdv ? "adv" : (isDisco ? "disco" : "none"))) + 
                 R"(")";
 
         // Advertising name
-        String advNameStr = isAdv ? R"("adv":")" + String(ble_svc_gap_device_name()) + R"(")" : "";
+        String advNameStr = (bleHostReady && isAdv) ? R"("adv":")" + String(ble_svc_gap_device_name()) + R"(")" : "";
 
         // Status str
         statusStr = connStr;
@@ -274,15 +278,15 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
     else
     {
         // Advertising
-        bool advertisingActive = ble_gap_adv_active();
+        bool advertisingActive = bleHostReady ? ble_gap_adv_active() : false;
         String isAdvStr = R"("isAdv":)" + String(advertisingActive ? 1 : 0);
-        String advNameStr = advertisingActive ? R"("advName":")" + String(ble_svc_gap_device_name()) : "";
+        String advNameStr = (bleHostReady && advertisingActive) ? R"("advName":")" + String(ble_svc_gap_device_name()) : "";
 
         // Discovery active
-        String isDiscoveryStr = R"("isDisc":)" + String(ble_gap_disc_active() ? 1 : 0);
+        String isDiscoveryStr = R"("isDisc":)" + String((bleHostReady && ble_gap_disc_active()) ? 1 : 0);
 
         // Connection active
-        String connStr = R"("isConn":)" + String(ble_gap_conn_active() ? 1 : 0);
+        String connStr = R"("isConn":)" + String((bleHostReady && ble_gap_conn_active()) ? 1 : 0);
 
         // BLE MAC address
         String bleMACStr = R"("BLEMAC":")" + getSystemMACAddressStr(ESP_MAC_BT, ":") + R"(")";
