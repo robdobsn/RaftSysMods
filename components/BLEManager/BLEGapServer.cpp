@@ -1108,7 +1108,8 @@ int BLEGapServer::gapEventDiscovery(struct ble_gap_event *event, String& statusS
                                     event->disc.length_data);
     if (rc != NIMBLE_RETC_OK) {
 #ifdef WARN_ON_BLE_ADV_DATA_PARSE_ERROR
-        LOG_W(MODULE_PREFIX, "gapEventDiscovery FAILED to parse advertisement data; rc=%d", rc);
+        LOG_W(MODULE_PREFIX, "gapEventDiscovery FAILED to parse advertisement data; rc %d hex %s",
+                rc, Raft::getHexStr(event->disc.data, event->disc.length_data).c_str());
 #endif
         return rc;
     }
