@@ -164,48 +164,46 @@ void StatePublisher::loop()
             }
         }
 
-        // Determine if we should publish based on trigger type
+        // Determine if we should publish based on trigger type.
+        // NOTE: the check interval above is deliberately shortened (down to
+        // _minTimeBetweenMsgsMs) so that state changes are detected promptly.
+        // The publish decision must therefore be gated on the time since the
+        // LAST PUBLISH (_lastPublishMs), not on the wake-up cadence, otherwise
+        // the configured rate is ignored and every wake-up publishes.
+        //   - heartbeat: a full _betweenPubsMs has elapsed since the last publish
+        //   - change:    state changed AND at least _minTimeBetweenMsgsMs has
+        //                elapsed since the last publish (floor to avoid flooding)
+        bool timeForHeartbeat = Raft::isTimeout(millis(), sub._lastPublishMs, sub._betweenPubsMs);
+        bool changeReady = stateChanged &&
+                    Raft::isTimeout(millis(), sub._lastPublishMs, sub._minTimeBetweenMsgsMs);
+
         bool shouldPublish = false;
         switch (sub._trigger)
         {
             case TRIGGER_ON_TIME_INTERVALS:
-                shouldPublish = true;  // Time interval elapsed
-#ifdef DEBUG_PUBLISHING_REASON
-                LOG_I(MODULE_PREFIX, "loop publish due to timeout for topic %s channelID %d", 
-                      sub._pubTopic.c_str(), sub._channelID);
-#endif
+                shouldPublish = timeForHeartbeat;
                 break;
-                
+
             case TRIGGER_ON_STATE_CHANGE:
-                shouldPublish = stateChanged;
-#ifdef DEBUG_PUBLISHING_REASON
-                if (shouldPublish)
-                {
-                    LOG_I(MODULE_PREFIX, "loop publish due to state change for topic %s channelID %d", 
-                          sub._pubTopic.c_str(), sub._channelID);
-                }
-#endif
+                shouldPublish = changeReady;
                 break;
-                
+
             case TRIGGER_ON_TIME_OR_CHANGE:
-                shouldPublish = true;  // Either time OR change (we already checked time)
-#ifdef DEBUG_PUBLISHING_REASON
-                if (stateChanged)
-                {
-                    LOG_I(MODULE_PREFIX, "loop publish due to state change for topic %s channelID %d", 
-                          sub._pubTopic.c_str(), sub._channelID);
-                }
-                else
-                {
-                    LOG_I(MODULE_PREFIX, "loop publish due to timeout for topic %s channelID %d", 
-                          sub._pubTopic.c_str(), sub._channelID);
-                }
-#endif
+                shouldPublish = timeForHeartbeat || changeReady;
                 break;
-                
+
             default:
                 break;
         }
+
+#ifdef DEBUG_PUBLISHING_REASON
+        if (shouldPublish)
+        {
+            LOG_I(MODULE_PREFIX, "loop publish due to %s for topic %s channelID %d",
+                  changeReady ? "state change" : "timeout",
+                  sub._pubTopic.c_str(), sub._channelID);
+        }
+#endif
 
 #ifdef DEBUG_PUBLISHING_REASON
         if (sub._isPending && !shouldPublish)
@@ -228,7 +226,9 @@ void StatePublisher::loop()
 
             if (attemptPublish(sub))
             {
-                // Successful publish - update hash
+                // Successful publish - record the time (gates the next publish)
+                // and update the last-seen state hash
+                sub._lastPublishMs = millis();
                 if (sub._stateDetectFn)
                 {
                     sub._lastStateHash = currentHash;

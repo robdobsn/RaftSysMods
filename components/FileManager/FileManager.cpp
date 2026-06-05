@@ -52,7 +52,9 @@ void FileManager::applySetup()
         localFsTypeDefault = FileSystem::LOCAL_FS_SPIFFS;
     else if (localFsDefaultName.equalsIgnoreCase("littlefs"))
         localFsTypeDefault = FileSystem::LOCAL_FS_LITTLEFS;
-    bool localFsFormatIfCorrupt = configGetBool("LocalFsFormatIfCorrupt", true);
+    // Accept either casing of the config key (older configs use "LocalFSFormatIfCorrupt")
+    bool localFsFormatIfCorrupt = configGetBool("LocalFsFormatIfCorrupt",
+                configGetBool("LocalFSFormatIfCorrupt", true));
     bool enableSD = configGetBool("SDEnabled", false);
     bool defaultToSDIfAvailable = configGetBool("DefaultSD", false);
     bool cacheFileSystemInfo = configGetBool("CacheFileSysInfo", false);

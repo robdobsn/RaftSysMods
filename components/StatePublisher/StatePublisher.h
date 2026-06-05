@@ -142,7 +142,8 @@ private:
         double _rateHz = 1.0;                       // Publishing rate
         uint32_t _betweenPubsMs = 0;                // Calculated from rateHz
         uint32_t _minTimeBetweenMsgsMs = DEFAULT_MIN_TIME_BETWEEN_MSGS_MS; // Minimum interval between messages
-        uint32_t _lastCheckMs = 0;                  // Last time we checked/attempted publish
+        uint32_t _lastCheckMs = 0;                  // Last time we checked for a publish trigger
+        uint32_t _lastPublishMs = 0;                // Last time a message was actually published
         bool _isPending = false;                    // Publish is due but not sent yet
 
         // Callbacks (copied from PubSource for performance - avoids lookup in loop)
