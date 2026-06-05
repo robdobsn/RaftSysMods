@@ -482,8 +482,19 @@ bool ESPOTAUpdate::startOTAUpdate(size_t fileLen)
     LOG_I(MODULE_PREFIX, "startOTAUpdate writing to partition subtype %d at offset 0x%x",
             update_partition->subtype, update_partition->address);
 
+    // Determine the size to pass to esp_ota_begin. Passing the actual image size
+    // (rather than OTA_SIZE_UNKNOWN) means esp_ota_begin erases only the sectors
+    // required for the image instead of the entire partition - this significantly
+    // reduces the up-front flash-erase time (and hence the period during which the
+    // flash cache is disabled and the web server task is starved).
+    size_t eraseSize = OTA_SIZE_UNKNOWN;
+    if ((fileLen > 0) && (fileLen <= update_partition->size))
+        eraseSize = fileLen;
+
     // Start OTA update
-    esp_err_t err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &_espOTAHandle);
+    uint64_t otaBeginStartUs = micros();
+    esp_err_t err = esp_ota_begin(update_partition, eraseSize, &_espOTAHandle);
+    uint64_t otaBeginElapsedUs = micros() - otaBeginStartUs;
 
     // Timeing of esp_ota_begin
     if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 1) == pdTRUE))
@@ -491,6 +502,12 @@ bool ESPOTAUpdate::startOTAUpdate(size_t fileLen)
         _otaStatus.espOTABeginFnUs = micros() - _otaStatus.startUs;
         xSemaphoreGive(_fwUpdateStatusSemaphore);
     }
+
+    // Info on erase time as this blocks the system (flash cache disabled) and is the
+    // main cause of long stalls during OTA - useful for diagnosing connection timeouts
+    LOG_I(MODULE_PREFIX, "startOTAUpdate esp_ota_begin eraseSize %d (fileLen %d partSize %d) took %.1f ms result %s",
+            (int)eraseSize, (int)fileLen, (int)update_partition->size,
+            otaBeginElapsedUs / 1000.0, esp_err_to_name(err));
 
     // Check result
     if (err == ESP_OK) 

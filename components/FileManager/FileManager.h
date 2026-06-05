@@ -62,6 +62,16 @@ private:
     // The second part of the path is the folder and filename - note that / must be replaced with ~ in folder
     RaftRetCode apiFileRead(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
 
+    // Read a binary-safe section of a file (base64 encoded in a JSON response)
+    // reqStr: filesection/<fs>/<filename>/<start>/<len>  (/ replaced with ~ in filename)
+    // Response: {"rslt":"ok","fs":..,"fname":..,"start":..,"len":..,"total":..,"data":"<base64>"}
+    RaftRetCode apiFileSection(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
+
+    // Compute a content hash (CRC16-CCITT) of a file - used for sync change detection
+    // reqStr: filehash/<fs>/<filename>  (/ replaced with ~ in filename)
+    // Response: {"rslt":"ok","fs":..,"fname":..,"size":..,"crc16":"<hex>"}
+    RaftRetCode apiFileHash(const String &reqStr, String& respStr, const APISourceInfo& sourceInfo);
+
     // Delete file on the file system
     // In the reqStr the first part of the path is the file system name (e.g. sd or local)
     // The second part of the path is the filename - note that / must be replaced with ~ in filename
