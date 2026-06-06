@@ -11,6 +11,7 @@
 #include "RestAPIEndpointManager.h"
 #include "Logger.h"
 #include "esp_system.h"
+#include "esp_task_wdt.h"
 #include "RaftArduino.h"
 #include "SysManager.h"
 #include "ProtocolExchange.h"
@@ -492,9 +493,23 @@ bool ESPOTAUpdate::startOTAUpdate(size_t fileLen)
         eraseSize = fileLen;
 
     // Start OTA update
+    // esp_ota_begin erases up to `eraseSize` bytes and disables the flash cache for
+    // the duration, which can take several seconds. While the cache is off, the
+    // IDLE task on the current core cannot run, so the task watchdog would trigger
+    // (cosmetic, but produces a noisy backtrace). Temporarily unsubscribe IDLE
+    // from the WDT for the duration of the erase.
+    TaskHandle_t idleHandle = xTaskGetIdleTaskHandleForCore(xPortGetCoreID());
+    bool wdtIdleResubscribe = false;
+    if (idleHandle && esp_task_wdt_status(idleHandle) == ESP_OK)
+    {
+        esp_task_wdt_delete(idleHandle);
+        wdtIdleResubscribe = true;
+    }
     uint64_t otaBeginStartUs = micros();
     esp_err_t err = esp_ota_begin(update_partition, eraseSize, &_espOTAHandle);
     uint64_t otaBeginElapsedUs = micros() - otaBeginStartUs;
+    if (wdtIdleResubscribe && idleHandle)
+        esp_task_wdt_add(idleHandle);
 
     // Timeing of esp_ota_begin
     if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 1) == pdTRUE))
