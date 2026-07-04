@@ -58,6 +58,10 @@ void FileManager::applySetup()
     bool enableSD = configGetBool("SDEnabled", false);
     bool defaultToSDIfAvailable = configGetBool("DefaultSD", false);
     bool cacheFileSystemInfo = configGetBool("CacheFileSysInfo", false);
+    // When true the SD used-bytes scan (which can take several seconds) runs at
+    // boot; when false (default) it runs lazily on first use of the SD card. Either
+    // way it runs on a background task and never stalls the main loop.
+    bool sdScanUsedAtBoot = configGetBool("SDScanUsedAtBoot", false);
 
     // SD pins
     String pinName = configGetString("SDMOSI", "");
@@ -76,7 +80,7 @@ void FileManager::applySetup()
 
     // Setup file system
     fileSystem.setup(localFsTypeDefault, localFsFormatIfCorrupt, enableSD, sdMOSIPin, sdMISOPin, sdCLKPin, sdCSPin, 
-                defaultToSDIfAvailable, cacheFileSystemInfo);
+                defaultToSDIfAvailable, cacheFileSystemInfo, sdScanUsedAtBoot);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

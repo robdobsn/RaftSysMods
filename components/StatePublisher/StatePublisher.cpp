@@ -359,10 +359,13 @@ CommsCoreRetCode StatePublisher::publishData(Subscription& sub)
     }
 #endif
 
+    // A message generator declining to produce data (e.g. a camera rate-limiting
+    // its captures) is not a comms failure - treat as "nothing to publish this
+    // cycle" so it doesn't trigger connection-lost backoff or pending retry storms
     if (!msgOk)
-        return COMMS_CORE_RET_FAIL;
+        return COMMS_CORE_RET_OK;
     if (endpointMsg.getBufLen() == 0)
-        return COMMS_CORE_RET_FAIL;
+        return COMMS_CORE_RET_OK;
 
 #ifdef DEBUG_PUBLISHING_MESSAGE
 #ifdef DEBUG_ONLY_THIS_TOPIC
