@@ -11,7 +11,6 @@
 #include "RestAPIEndpointManager.h"
 #include "Logger.h"
 #include "esp_system.h"
-#include "esp_task_wdt.h"
 #include "RaftArduino.h"
 #include "SysManager.h"
 #include "ProtocolExchange.h"
@@ -492,24 +491,16 @@ bool ESPOTAUpdate::startOTAUpdate(size_t fileLen)
     if ((fileLen > 0) && (fileLen <= update_partition->size))
         eraseSize = fileLen;
 
-    // Start OTA update
-    // esp_ota_begin erases up to `eraseSize` bytes and disables the flash cache for
-    // the duration, which can take several seconds. While the cache is off, the
-    // IDLE task on the current core cannot run, so the task watchdog would trigger
-    // (cosmetic, but produces a noisy backtrace). Temporarily unsubscribe IDLE
-    // from the WDT for the duration of the erase.
-    TaskHandle_t idleHandle = xTaskGetIdleTaskHandleForCore(xPortGetCoreID());
-    bool wdtIdleResubscribe = false;
-    if (idleHandle && esp_task_wdt_status(idleHandle) == ESP_OK)
-    {
-        esp_task_wdt_delete(idleHandle);
-        wdtIdleResubscribe = true;
-    }
+    // Start OTA update.
+    // esp_ota_begin erases up to `eraseSize` bytes and disables the flash cache
+    // for the duration, which can take several seconds. While the cache is off,
+    // the IDLE task on the current core cannot run, so the task watchdog may
+    // trigger and print a backtrace. The OTA itself is unaffected (the backtrace
+    // is informational) and the longer idle timeout in RaftWebConnection now
+    // tolerates the stall, so we leave the WDT alone here.
     uint64_t otaBeginStartUs = micros();
     esp_err_t err = esp_ota_begin(update_partition, eraseSize, &_espOTAHandle);
     uint64_t otaBeginElapsedUs = micros() - otaBeginStartUs;
-    if (wdtIdleResubscribe && idleHandle)
-        esp_task_wdt_add(idleHandle);
 
     // Timeing of esp_ota_begin
     if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 1) == pdTRUE))
