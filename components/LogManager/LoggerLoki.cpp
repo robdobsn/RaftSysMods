@@ -75,6 +75,23 @@ LoggerLoki::LoggerLoki(const RaftJsonIF& logDestConfig, const String& systemName
     {
         ESP_LOGE(MODULE_PREFIX, "Failed to create ring buffer");
     }
+    else
+    {
+        // Worker task performs all network I/O so slow/unreachable Loki can't stall the main loop
+        BaseType_t retc = xTaskCreatePinnedToCore(
+                    LoggerLoki::workerTaskStatic,
+                    "LokiLog",
+                    WORKER_TASK_STACK_BYTES,
+                    this,
+                    WORKER_TASK_PRIORITY,
+                    &_workerTaskHandle,
+                    tskNO_AFFINITY);
+        if (retc != pdPASS)
+        {
+            ESP_LOGE(MODULE_PREFIX, "Failed to create worker task");
+            _workerTaskHandle = nullptr;
+        }
+    }
 
     ESP_LOGI(MODULE_PREFIX, "created host %s port %d path %s sysName %s auth %s",
              _hostname.c_str(), _port, _path.c_str(), _sysName.c_str(),
@@ -83,6 +100,10 @@ LoggerLoki::LoggerLoki(const RaftJsonIF& logDestConfig, const String& systemName
 
 LoggerLoki::~LoggerLoki()
 {
+    // Signal worker to exit and wait for it (worker checks flag at least every WORKER_IDLE_DELAY_MS)
+    _shutdownRequested = true;
+    while (_workerRunning)
+        vTaskDelay(pdMS_TO_TICKS(10));
     destroyHttpClient();
     if (_ringBuf)
     {
@@ -145,74 +166,92 @@ void LOGGING_FUNCTION_DECORATOR LoggerLoki::log(esp_log_level_t level, const cha
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Loop - called from main task context, safe to do network I/O
+// Worker task - dedicated task for network I/O, never runs on the main loop
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void LoggerLoki::loop()
+void LoggerLoki::workerTaskStatic(void* pArg)
 {
-    if (!_ringBuf)
-        return;
+    ((LoggerLoki*)pArg)->workerTask();
+}
 
-    // Back off after send failure to avoid repeatedly blocking main loop
-    if (_inSendBackoff)
+void LoggerLoki::workerTask()
+{
+    _workerRunning = true;
+    while (!_shutdownRequested)
     {
-        if (!Raft::isTimeout(millis(), _sendFailBackoffStartMs, SEND_FAIL_BACKOFF_MS))
-            return;
-        _inSendBackoff = false;
-    }
+        // Back off after send failure to avoid hammering an unreachable endpoint
+        if (_inSendBackoff)
+        {
+            if (!Raft::isTimeout(millis(), _sendFailBackoffStartMs, SEND_FAIL_BACKOFF_MS))
+            {
+                vTaskDelay(pdMS_TO_TICKS(WORKER_IDLE_DELAY_MS));
+                continue;
+            }
+            _inSendBackoff = false;
+        }
 
-    // Don't send until we have valid wall-clock time (SNTP synced)
-    // Messages accumulate safely in the ring buffer until then
-    if (!isTimeValid())
-        return;
+        // Don't send until we have valid wall-clock time (SNTP synced)
+        // Messages accumulate safely in the ring buffer until then
+        if (!isTimeValid())
+        {
+            vTaskDelay(pdMS_TO_TICKS(WORKER_IDLE_DELAY_MS));
+            continue;
+        }
 
-    // Drain messages from ring buffer
-    void* items[MAX_MSGS_PER_BATCH];
-    size_t itemSizes[MAX_MSGS_PER_BATCH];
-    uint32_t count = 0;
-
-    for (uint32_t i = 0; i < MAX_MSGS_PER_BATCH; i++)
-    {
+        // Wait for the first message (bounded so shutdown stays responsive)
+        void* items[MAX_MSGS_PER_BATCH];
+        size_t itemSizes[MAX_MSGS_PER_BATCH];
+        uint32_t count = 0;
         size_t itemSize = 0;
-        void* pItem = xRingbufferReceive(_ringBuf, &itemSize, 0);
+        void* pItem = xRingbufferReceive(_ringBuf, &itemSize, pdMS_TO_TICKS(WORKER_IDLE_DELAY_MS));
         if (!pItem)
-            break;
-
+            continue;
         items[count] = pItem;
         itemSizes[count] = itemSize;
         count++;
-    }
 
-    // Nothing to send?
-    if (count == 0)
-        return;
+        // Brief linger so messages logged together are batched together
+        vTaskDelay(pdMS_TO_TICKS(BATCH_LINGER_MS));
+        while (count < MAX_MSGS_PER_BATCH)
+        {
+            pItem = xRingbufferReceive(_ringBuf, &itemSize, 0);
+            if (!pItem)
+                break;
+            items[count] = pItem;
+            itemSizes[count] = itemSize;
+            count++;
+        }
 
-    // Ensure HTTP client is ready
-    if (!ensureHttpClient())
-    {
-        // Can't send - return items to ring buffer (messages are lost)
+        // Ensure HTTP client is ready
+        if (!ensureHttpClient())
+        {
+            // Can't send - release items (messages are lost) and retry after a short delay
+            for (uint32_t i = 0; i < count; i++)
+                vRingbufferReturnItem(_ringBuf, items[i]);
+            vTaskDelay(pdMS_TO_TICKS(HTTP_SETUP_RETRY_MS));
+            continue;
+        }
+
+        // Format JSON payload and determine highest severity level
+        String payload;
+        const char* highestLevelStr = nullptr;
+        formatBatchPayload(payload, highestLevelStr, items, itemSizes, count);
+
+        // Send batch (blocking HTTP POST - safe here on the worker task)
+        bool ok = sendBatch(payload, highestLevelStr);
+        if (!ok)
+        {
+            // Back off before retrying
+            _sendFailBackoffStartMs = millis();
+            _inSendBackoff = true;
+        }
+
+        // Release all items
         for (uint32_t i = 0; i < count; i++)
             vRingbufferReturnItem(_ringBuf, items[i]);
-        return;
     }
-
-    // Format JSON payload and determine highest severity level
-    String payload;
-    const char* highestLevelStr = nullptr;
-    formatBatchPayload(payload, highestLevelStr, items, itemSizes, count);
-
-    // Send batch
-    bool ok = sendBatch(payload, highestLevelStr);
-    if (!ok)
-    {
-        // Back off before retrying
-        _sendFailBackoffStartMs = millis();
-        _inSendBackoff = true;
-    }
-
-    // Return all items to ring buffer
-    for (uint32_t i = 0; i < count; i++)
-        vRingbufferReturnItem(_ringBuf, items[i]);
+    _workerRunning = false;
+    vTaskDelete(nullptr);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
