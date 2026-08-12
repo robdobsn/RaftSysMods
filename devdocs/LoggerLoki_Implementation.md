@@ -1,5 +1,7 @@
 # LoggerLoki Implementation Guide
 
+> **UPDATE 2026-08-12:** Network I/O was moved from `loop()` (main task) to a dedicated low-priority worker task (`LokiLog`, 6 KB stack, priority 1). The synchronous `esp_http_client_perform()` on the main task caused ~45 s main-loop stalls per minute on a weak WiFi link (observed on SandBot, RSSI −88), freezing motion control. `log()` still pushes to the ring buffer from any context; the worker task blocks on the ring buffer (500 ms timeout for shutdown responsiveness), lingers 200 ms to batch, then POSTs. `loop()` is no longer overridden. Sections below describing main-task `loop()` I/O reflect the original design.
+
 ## Overview
 
 This document describes the implementation of a Grafana Loki logger (`LoggerLoki`) for the Raft framework. The logger follows the same architecture as the existing `LoggerPapertrail` — extending `LoggerBase`, using a FreeRTOS ring buffer for thread-safe log ingestion, and performing network I/O exclusively from the main task via `loop()`.
