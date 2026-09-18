@@ -78,6 +78,8 @@ LoggerLoki::LoggerLoki(const RaftJsonIF& logDestConfig, const String& systemName
     else
     {
         // Worker task performs all network I/O so slow/unreachable Loki can't stall the main loop
+        // (running flag is set before the task is created so the destructor always waits for the worker to exit)
+        _workerRunning = true;
         BaseType_t retc = xTaskCreatePinnedToCore(
                     LoggerLoki::workerTaskStatic,
                     "LokiLog",
@@ -90,6 +92,7 @@ LoggerLoki::LoggerLoki(const RaftJsonIF& logDestConfig, const String& systemName
         {
             ESP_LOGE(MODULE_PREFIX, "Failed to create worker task");
             _workerTaskHandle = nullptr;
+            _workerRunning = false;
         }
     }
 
@@ -100,7 +103,9 @@ LoggerLoki::LoggerLoki(const RaftJsonIF& logDestConfig, const String& systemName
 
 LoggerLoki::~LoggerLoki()
 {
-    // Signal worker to exit and wait for it (worker checks flag at least every WORKER_IDLE_DELAY_MS)
+    // Signal worker to exit and wait for it (worker checks flag at least every WORKER_IDLE_DELAY_MS
+    // but may be in a blocking HTTP POST) - the ring buffer must not be deleted until the worker has exited
+    // Note that the logger must have been removed from LoggerCore before it is destroyed (as log() uses the ring buffer)
     _shutdownRequested = true;
     while (_workerRunning)
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -176,7 +181,6 @@ void LoggerLoki::workerTaskStatic(void* pArg)
 
 void LoggerLoki::workerTask()
 {
-    _workerRunning = true;
     while (!_shutdownRequested)
     {
         // Back off after send failure to avoid hammering an unreachable endpoint

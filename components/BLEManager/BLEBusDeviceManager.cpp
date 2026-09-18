@@ -43,6 +43,73 @@ void BLEBusDeviceManager::setup(const RaftJsonIF& config)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Loop (must be called from the main task)
+/// @note Poll results are stored by handlePollResult() on the NimBLE host task. The resulting bus element status
+///       and device data change callbacks are made here as they must run on the main task
+void BLEBusDeviceManager::loop()
+{
+    // Check if any callbacks are pending
+    if (!_callbacksPending.exchange(false))
+        return;
+
+    // Get pending status changes
+    std::vector<BusAddrStatus> statusChanges;
+    if (xSemaphoreTake(_accessMutex, pdMS_TO_TICKS(5)) != pdTRUE)
+    {
+        // Try again next time
+        _callbacksPending = true;
+        return;
+    }
+    for (BLEBusDeviceState& devState : _bleBusDeviceStates)
+    {
+        if (devState.statusCBPending)
+        {
+            devState.statusCBPending = false;
+            statusChanges.push_back(BusAddrStatus(devState.busElemAddr, DeviceOnlineState::ONLINE, true, true, _deviceTypeIndex));
+        }
+    }
+    xSemaphoreGive(_accessMutex);
+
+    // Status callback (made without the mutex held as it may result in a call to registerForDeviceData)
+    if (statusChanges.size() > 0)
+        _raftBus.callBusElemStatusCB(statusChanges);
+
+    // Get pending data changes - this is done after the status callback so that a data change callback registered
+    // in the status callback receives the data which caused the device to be discovered
+    struct PendingDataCB
+    {
+        BusElemAddrType address;
+        RaftDeviceDataChangeCB dataChangeCB;
+        const void* pCallbackInfo;
+        std::vector<uint8_t> data;
+    };
+    std::vector<PendingDataCB> pendingDataCBs;
+    if (xSemaphoreTake(_accessMutex, pdMS_TO_TICKS(5)) != pdTRUE)
+    {
+        // Try again next time
+        _callbacksPending = true;
+        return;
+    }
+    for (BLEBusDeviceState& devState : _bleBusDeviceStates)
+    {
+        if (devState.dataCBPending)
+        {
+            devState.dataCBPending = false;
+            if (devState.dataChangeCB)
+                pendingDataCBs.push_back({devState.busElemAddr, devState.dataChangeCB, devState.pCallbackInfo, std::move(devState.dataCBData)});
+            devState.dataCBData.clear();
+        }
+    }
+    xSemaphoreGive(_accessMutex);
+
+    // Data change callbacks (made without the mutex held)
+    for (PendingDataCB& pendingDataCB : pendingDataCBs)
+    {
+        pendingDataCB.dataChangeCB(pendingDataCB.address, pendingDataCB.data, pendingDataCB.pCallbackInfo);
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Get list of device addresses attached to the bus
 /// @param pAddrList pointer to array to receive addresses
 /// @param onlyAddressesWithIdentPollResponses true to only return addresses with poll responses    
@@ -177,7 +244,7 @@ uint32_t BLEBusDeviceManager::getDeviceInfoTimestampMs(bool includeElemOnlineSta
         return 0;
 
 #ifdef DEBUG_GET_DEVICE_DATA_TIMESTAMP
-    LOG_I(MODULE_PREFIX, "getDeviceInfoTimestampMs %d", _deviceDataLastSetMs);
+    LOG_I(MODULE_PREFIX, "getDeviceInfoTimestampMs %d", (int)_deviceDataLastSetMs.load());
 #endif
 
     // Return time of last set
@@ -219,19 +286,12 @@ bool BLEBusDeviceManager::handlePollResult(uint64_t timeNowUs, BusElemAddrType a
         BLEBusDeviceState devState;
         devState.busElemAddr = address;
         devState.lastBTHomePacketID = deviceID;
+
+        // The bus element status callback is made from loop() on the main task (this function
+        // is called on the NimBLE host task)
+        devState.statusCBPending = true;
         _bleBusDeviceStates.push_back(devState);
         isFirst = true;
-
-        // Return semaphore
-        xSemaphoreGive(_accessMutex);
-
-        // Callback
-        BusAddrStatus addrStatus(address, DeviceOnlineState::ONLINE, true, true, _deviceTypeIndex);
-        _raftBus.callBusElemStatusCB({addrStatus});
-
-        // Obtain semaphore again
-        if (xSemaphoreTake(_accessMutex, pdMS_TO_TICKS(5)) != pdTRUE)
-            return false;
 
         // Get the device state
         pDevState = getBLEBusDeviceState(address);
@@ -246,19 +306,21 @@ bool BLEBusDeviceManager::handlePollResult(uint64_t timeNowUs, BusElemAddrType a
 
     // Check if device state available
     bool isNotARepeat = isFirst || (pDevState && (pDevState->lastBTHomePacketID != deviceID));
-    RaftDeviceDataChangeCB dataChangeCB = nullptr;
-    const void* pCallbackInfo = nullptr;
+    bool callbacksPending = isFirst;
     if (pDevState && isNotARepeat)
     {
-        // Call data change callback if set
-        if (pDevState->dataChangeCB)
+        // Check if the data change callback should be called - the callback is made from loop() on the main task
+        // Note that for the first data from a device the callback is not yet registered (it is generally
+        // registered in the status callback) so the data is always marked pending in that case
+        if (isFirst || pDevState->dataChangeCB)
         {
             // Check if time to report
-            if ((pDevState->minTimeBetweenReportsMs == 0) || (Raft::isTimeout(timeNowMs, pDevState->lastSeenTimeMs, pDevState->minTimeBetweenReportsMs)))
+            if (isFirst || (pDevState->minTimeBetweenReportsMs == 0) || (Raft::isTimeout(timeNowMs, pDevState->lastSeenTimeMs, pDevState->minTimeBetweenReportsMs)))
             {
                 // Note that the callback should be called
-                dataChangeCB = pDevState->dataChangeCB;
-                pCallbackInfo = pDevState->pCallbackInfo;
+                pDevState->dataCBData = pollResultData;
+                pDevState->dataCBPending = true;
+                callbacksPending = true;
             }
         }
 
@@ -274,12 +336,9 @@ bool BLEBusDeviceManager::handlePollResult(uint64_t timeNowUs, BusElemAddrType a
     // Return semaphore
     xSemaphoreGive(_accessMutex);
 
-    // Call data change callback if required
-    if (dataChangeCB)
-    {
-        // Call the callback
-        dataChangeCB(address, pollResultData, pCallbackInfo);
-    }
+    // Flag that callbacks are required (this must be done after the pending data is stored)
+    if (callbacksPending)
+        _callbacksPending = true;
 
     // Debug
 #ifdef DEBUG_HANDLE_POLL_RESULT

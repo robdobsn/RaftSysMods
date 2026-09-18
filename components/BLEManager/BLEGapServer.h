@@ -17,6 +17,7 @@
 #undef min
 #undef max
 #endif
+#include <atomic>
 #include "BLEConsts.h"
 #include "BLEManStats.h"
 #include "BLEGattServer.h"
@@ -90,17 +91,19 @@ public:
     /// @return true if the BLE server is connected
     bool isConnected() const
     {
-        return _isConnected;
+        return _bleGapConnHandle.load() != BLE_HS_CONN_HANDLE_NONE;
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Disconnect the BLE server immediately
     void disconnect()
     {
-        if (_isConnected && _bleGapConnHandle != 0)
+        // Snapshot the connection handle (it is written on the NimBLE host task)
+        uint16_t connHandle = _bleGapConnHandle.load();
+        if (connHandle != BLE_HS_CONN_HANDLE_NONE)
         {
             // The reason code 0x13 corresponds to "Remote User Terminated Connection"
-            int rc = ble_gap_terminate(_bleGapConnHandle, 0x13);
+            int rc = ble_gap_terminate(connHandle, 0x13);
             if (rc != NIMBLE_RETC_OK)
             {
                 LOG_W(MODULE_PREFIX, "disconnect failed %s (%d)", BLEGattServer::getHSErrorMsg(rc).c_str(), rc);
@@ -124,9 +127,9 @@ public:
     /// @brief Request timed disconnect of the BLE server
     void requestTimedDisconnect()
     {
-        // Set state to stop required
-        _bleRestartState = BLERestartState_DisconnectRequired;
+        // Set state to stop required (timestamp must be written before the state)
         _bleRestartLastMs = millis();
+        _bleRestartState = BLERestartState_DisconnectRequired;
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -138,9 +141,9 @@ public:
         uint32_t reqConnIntervalBLEUnits = std::round(Raft::clamp(reqConnIntervalMs, 7.5, 4000.0) / 1.25f);
 
         // Request change if connection interval different
-        if (reqConnIntervalBLEUnits != _bleConfig.connIntervalPreferredBLEUnits)
+        if (reqConnIntervalBLEUnits != _connIntervalPrefBLEUnits.load())
         {
-            _bleConfig.connIntervalPreferredBLEUnits = reqConnIntervalBLEUnits;
+            _connIntervalPrefBLEUnits = reqConnIntervalBLEUnits;
             _connIntervalCheckPending = true;
         }
     }
@@ -158,6 +161,10 @@ private:
     // BLE device initialised
     bool _isInit = false;
 
+    // NimBLE host is synced (set on the NimBLE host task in onSync, cleared on host reset and before the stack is stopped)
+    // NimBLE functions must not be called from the main task unless this is set
+    std::atomic<bool> _bleHostReady{false};
+
     // Get advertising name function
     GetAdvertisingInfoFnType _getAdvertisingInfoFn = nullptr;
     static const uint32_t BLE_GAP_MAX_ADV_NAME_LEN = 29;
@@ -171,7 +178,8 @@ private:
     // BLE_OWN_ADDR_RANDOM - Random address for privacy (48 bit but stays the same across connections)
     // BLE_OWN_ADDR_RPA_RANDOM_DEFAULT - Random address for privacy (48 bit but changes regularly)
     // BLE_OWN_ADDR_RPA_PUBLIC_DEFAULT - Public address (48 bit like a MAC address and unique to each device)
-    uint8_t _ownAddrType = 0;
+    // Written on the NimBLE host task in onSync (before _bleHostReady is set)
+    std::atomic<uint8_t> _ownAddrType{0};
 
     // Gatt server
     BLEGattServer _gattServer;
@@ -179,18 +187,28 @@ private:
     // BLE advertisement decoder
     BLEAdvertDecoder _bleAdvertDecoder;
 
-    // BLE Bus device manager
-    RaftBusDevicesIF* _pBusDevicesIF = nullptr;
+    // BLE Bus device manager - set on the main task in loop() and used on the NimBLE host task
+    std::atomic<RaftBusDevicesIF*> _pBusDevicesIF{nullptr};
 
     // ChannelID used to identify this message channel to the CommsCoreIF
     uint32_t _commsChannelID = CommsCoreIF::CHANNEL_ID_UNDEFINED;
 
-    // Status
-    bool _isConnected = false;
-    uint16_t _bleGapConnHandle = 0;
+    // Connection handle - BLE_HS_CONN_HANDLE_NONE when not connected
+    // This is the single source of truth for connection state - it is written on the NimBLE host task
+    // and should be snapshotted once in any function that uses it
+    std::atomic<uint16_t> _bleGapConnHandle{BLE_HS_CONN_HANDLE_NONE};
+
+    // Count of connections made (incremented on the NimBLE host task before the handle is set) and the
+    // count/state last handled by loop() on the main task - used to call _statusChangeFn from the main task only
+    std::atomic<uint32_t> _connectCount{0};
+    uint32_t _connectCountHandled = 0;
+    bool _connStateReported = false;
+
+    // Preferred connection interval (BLE units) - initialised from config and changed by setReqConnInterval()
+    std::atomic<uint16_t> _connIntervalPrefBLEUnits{BLEConfig::DEFAULT_CONN_INTERVAL_BLE_UNITS};
 
     // Cached RSSI value - updated regularly in loop()
-    int8_t _rssi = 0;
+    std::atomic<int8_t> _rssi{0};
     uint32_t _rssiLastMs = 0;
     static const uint32_t RSSI_CHECK_MS = 2000;
 
@@ -210,26 +228,32 @@ private:
         BLERestartState_StartRequired,
         BLERestartState_DisconnectRequired
     };
-    BLERestartState _bleRestartState = BLERestartState_Idle;
+    std::atomic<BLERestartState> _bleRestartState{BLERestartState_Idle};
     static const uint32_t BLE_RESTART_BEFORE_STOP_MS = 200;
     static const uint32_t BLE_RESTART_BEFORE_START_MS = 200;
     static const uint32_t BLE_RESTART_BEFORE_DISCONNECT_MS = 200;
-    uint32_t _bleRestartLastMs = 0;
+    std::atomic<uint32_t> _bleRestartLastMs{0};
 
 #ifdef USE_TIMED_ADVERTISING_CHECK
     // Advertising check timeout
-    bool _advertisingCheckRequired = false;
-    uint32_t _advertisingCheckMs = 0;
+    std::atomic<bool> _advertisingCheckRequired{false};
+    std::atomic<uint32_t> _advertisingCheckMs{0};
     static const uint32_t ADVERTISING_CHECK_MS = 3000;
 #endif
 
+    // Advertising start required - set on the NimBLE host task (on sync, disconnect, advertising complete, etc)
+    // and actioned by loop() on the main task which is the only task that calls startAdvertising()
+    std::atomic<bool> _advertisingStartRequired{false};
+
     // Check connection interval some time after connection
-    bool _connIntervalCheckPending = false;
-    uint32_t _connIntervalCheckPendingStartMs = 0;
+    // (the start time must be written before the pending flag)
+    std::atomic<bool> _connIntervalCheckPending{false};
+    std::atomic<uint32_t> _connIntervalCheckPendingStartMs{0};
     static const uint32_t CONN_INTERVAL_CHECK_MS = 200;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Start BLE advertising
+    /// @note Must only be called from the main task (NimBLE host task events set _advertisingStartRequired instead)
     /// @return true if advertising started successfully
     bool startAdvertising();
     
@@ -268,7 +292,12 @@ private:
     /// @brief Set the connection state of the BLE server
     /// @param isConnected True if the BLE connection is established, false otherwise.
     /// @param connHandle The connection handle associated with the current BLE connection.
-    void setConnState(bool isConnected, uint16_t connHandle = 0);
+    /// @note This may be called on the NimBLE host task - status change callbacks are made from loop()
+    void setConnState(bool isConnected, uint16_t connHandle = BLE_HS_CONN_HANDLE_NONE);
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Handle connection state changes (calls the status change function from the main task)
+    void loopConnStateChangeHandler();
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Callback function for GATT characteristic access

@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <atomic>
+#include "Logger.h"
 #include "RaftBusDevicesIF.h"
 #include "DeviceTypeRecords.h"
 #include "RaftThreading.h"
@@ -26,6 +28,11 @@ public:
     /// @brief Setup
     /// @param config configuration
     void setup(const RaftJsonIF& config);
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Loop (must be called from the main task)
+    /// @note Raises bus element status and device data change callbacks for results stored by handlePollResult()
+    void loop();
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Get list of device addresses attached to the bus
@@ -103,9 +110,17 @@ public:
     /// @param dataChangeCB Callback for data change
     /// @param minTimeBetweenReportsMs Minimum time between reports (ms)
     /// @param pCallbackInfo Callback info (passed to the callback)
+    /// @note The callback is called from loop() on the main task
     virtual void registerForDeviceData(BusElemAddrType address, RaftDeviceDataChangeCB dataChangeCB, 
                 uint32_t minTimeBetweenReportsMs, const void* pCallbackInfo) override final
     {
+        // Obtain semaphore (device states are also accessed from the NimBLE host task)
+        if (xSemaphoreTake(_accessMutex, pdMS_TO_TICKS(REGISTER_MUTEX_MAX_WAIT_MS)) != pdTRUE)
+        {
+            LOG_W(MODULE_PREFIX, "registerForDeviceData failed to obtain mutex");
+            return;
+        }
+
         // Get device state
         BLEBusDeviceState* pDevState = getBLEBusDeviceState(address);
         if (pDevState)
@@ -114,6 +129,31 @@ public:
             pDevState->minTimeBetweenReportsMs = minTimeBetweenReportsMs;
             pDevState->pCallbackInfo = pCallbackInfo;
         }
+
+        // Return semaphore
+        xSemaphoreGive(_accessMutex);
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Unregister for device data notifications for a specific address
+    /// @param address address
+    /// @param pCallbackInfo Callback info that was passed when registering (identifies the subscriber)
+    /// @return true if a matching registration was found (and removed)
+    /// @note Callbacks are made from loop() on the main task so (when this is called from the main task)
+    ///       the callback cannot be in progress and will not be called again after this returns
+    virtual bool unregisterForDeviceData(BusElemAddrType address, const void* pCallbackInfo) override final
+    {
+        return unregisterForDeviceDataHelper(true, address, pCallbackInfo) > 0;
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Unregister for device data notifications on all addresses
+    /// @param pCallbackInfo Callback info that was passed when registering (identifies the subscriber)
+    /// @return number of registrations removed
+    /// @note see unregisterForDeviceData
+    virtual uint32_t unregisterForDeviceDataAll(const void* pCallbackInfo) override final
+    {
+        return unregisterForDeviceDataHelper(false, 0, pCallbackInfo);
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -123,6 +163,7 @@ public:
     /// @param pollResultData poll result data
     /// @param pPollInfo pointer to device polling info (maybe nullptr) 
     /// @return true if result stored
+    /// @note This is called on the NimBLE host task so it only stores the result - callbacks are made from loop()
     virtual bool handlePollResult(uint64_t timeNowUs, BusElemAddrType address, 
                             const std::vector<uint8_t>& pollResultData, const DevicePollingInfo* pPollInfo) override final;
 
@@ -187,12 +228,52 @@ private:
         RaftDeviceDataChangeCB dataChangeCB = nullptr;
         uint32_t minTimeBetweenReportsMs = 1000;
         const void* pCallbackInfo = nullptr;
+
+        // Callbacks pending (set in handlePollResult() and actioned in loop() on the main task)
+        bool statusCBPending = false;
+        bool dataCBPending = false;
+        std::vector<uint8_t> dataCBData;
     };
     static const uint32_t MAX_BLE_BUS_DEVICES = 20;
     std::list<BLEBusDeviceState> _bleBusDeviceStates;
 
-    // Time of last device data change
-    uint32_t _deviceDataLastSetMs = 0;
+    // Time of last device data change (written on the NimBLE host task)
+    std::atomic<uint32_t> _deviceDataLastSetMs{0};
+
+    // Flag indicating callbacks are pending (set on the NimBLE host task and actioned in loop() on the main task)
+    std::atomic<bool> _callbacksPending{false};
+
+    // Max wait for mutex when registering for device data
+    static const uint32_t REGISTER_MUTEX_MAX_WAIT_MS = 100;
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Helper for unregistering for device data notifications
+    /// @param matchAddress true to only unregister for the specified address
+    /// @param address address (used if matchAddress is true)
+    /// @param pCallbackInfo Callback info that was passed when registering (identifies the subscriber)
+    /// @return number of registrations removed
+    uint32_t unregisterForDeviceDataHelper(bool matchAddress, BusElemAddrType address, const void* pCallbackInfo)
+    {
+        // Obtain semaphore (device states are also accessed from the NimBLE host task) - wait indefinitely
+        // as the subscriber may be destroyed after this returns so failing to unregister is not an option
+        if (xSemaphoreTake(_accessMutex, portMAX_DELAY) != pdTRUE)
+            return 0;
+        uint32_t numRemoved = 0;
+        for (BLEBusDeviceState& devState : _bleBusDeviceStates)
+        {
+            if (!devState.dataChangeCB || (devState.pCallbackInfo != pCallbackInfo))
+                continue;
+            if (matchAddress && (devState.busElemAddr != address))
+                continue;
+            devState.dataChangeCB = nullptr;
+            devState.pCallbackInfo = nullptr;
+            devState.dataCBPending = false;
+            devState.dataCBData.clear();
+            numRemoved++;
+        }
+        xSemaphoreGive(_accessMutex);
+        return numRemoved;
+    }
 
     // Device type info - common to all BLE devices
     DeviceTypeRecord _devTypeRec;

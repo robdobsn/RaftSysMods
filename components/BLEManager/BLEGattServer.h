@@ -21,6 +21,7 @@
 #include "BLEGattOutbound.h"
 #include "CommsChannelMsg.h"
 #include <vector>
+#include <atomic>
 
 #include <functional>
 #undef min
@@ -65,11 +66,10 @@ public:
     bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
     bool sendMsg(CommsChannelMsg& msg);
 
-    // Set connection handle
+    // Set connection handle (may be called on the NimBLE host task)
     void setConnState(bool isConnected, uint16_t connHandle)
     {
-        _bleIsConnected = isConnected;
-        _bleGapConnHandle = connHandle;
+        _bleGapConnHandle = isConnected ? connHandle : BLE_HS_CONN_HANDLE_NONE;
     }
 
     // Callback
@@ -135,12 +135,15 @@ private:
     // Access callback
     BLEGattServerAccessCBType _accessCallback = nullptr;
 
-    // Connection info
-    bool _bleIsConnected = false;
-    uint16_t _bleGapConnHandle = 0;
+    // Connection handle - BLE_HS_CONN_HANDLE_NONE when not connected
+    // This is written on the NimBLE host task and should be snapshotted once in any function that uses it
+    std::atomic<uint16_t> _bleGapConnHandle{BLE_HS_CONN_HANDLE_NONE};
 
-    // State of notify (send from peripheral)
-    bool _responseNotifyState = false;
+    // State of notify (send from peripheral) - written on the NimBLE host task
+    std::atomic<bool> _responseNotifyState{false};
+
+    // Build service tables (called once only from start())
+    void buildServiceTables();
 
     // Get data that has been written to characteristic (sent by central/client)
     int getDataWrittenToCharacteristic(struct os_mbuf *om, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>>& rxMsg);
@@ -171,6 +174,11 @@ private:
 
     // Custom service and characteristics
     std::vector<struct ble_gatt_chr_def> _mainServiceCharList;
+
+    // Flag indicating the service tables (above and in standard services) have been built
+    // The tables are built once only as they contain pointers into each other and the BLE stack
+    // is given pointers to them (so they must not be reallocated if the BLE stack is restarted)
+    bool _serviceTablesBuilt = false;
 
     // Standard services config
     std::vector<BLEStandardServiceConfig> _stdServicesConfig;

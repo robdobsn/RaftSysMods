@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <atomic>
 #include "RaftUtils.h"
 #include "RaftSysMod.h"
 #include "FileStreamBlock.h"
@@ -61,16 +62,24 @@ private:
     bool _otaDirectEnabled;
     static const int TIME_TO_WAIT_BEFORE_RESTART_MS = 1000;
 
-    // Restart pending
-    volatile bool _restartPending = false;
+    // Restart pending (set on the worker task - the start time is written before the flag)
+    std::atomic<bool> _restartPending{false};
     volatile int _restartPendingStartMs = 0;
 
     // Direct update vars
-    volatile bool _otaDirectInProgress = false;
+    std::atomic<bool> _otaDirectInProgress{false};
     esp_ota_handle_t _espOTAHandle = -1;
 
+    // Cancel (or end) requested - set on the main task and actioned on the worker task
+    // This ensures a cancel is not lost if it can't be queued because the worker is busy (e.g. in esp_ota_begin)
+    std::atomic<bool> _otaCancelRequested{false};
+
     // Semaphore on update status
+    // No blocking calls are made with this held so waits are short. When statistics are updated or read a
+    // limited wait is used (and the update is skipped on failure). When the OTA result is recorded or
+    // reported the wait is forever so that the result cannot be lost or mis-reported
     SemaphoreHandle_t _fwUpdateStatusSemaphore = nullptr;
+    static const uint32_t FW_UPDATE_STATS_MUTEX_MAX_WAIT_MS = 100;
 
     // Firmware update status
     struct FWUpdateStatus

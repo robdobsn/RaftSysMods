@@ -13,6 +13,7 @@
 #include "BLEConfig.h"
 #include "NamedValueProvider.h"
 #include <list>
+#include <atomic>
 
 #ifdef CONFIG_BT_ENABLED
 
@@ -46,6 +47,7 @@ private:
     };
 
     // Standard services
+    // Note that this is not copyable (as it contains an atomic) so must be constructed in-place
     struct StandardService
     {
         String serviceName;
@@ -56,7 +58,9 @@ private:
         String serviceSettings;
         uint16_t attribHandle = 0;
         ServiceDataType attribType = ServiceDataType::BYTE;
-        double attribValue;
+        // Attribute value - written on the main task and read on the NimBLE host task (so stored as
+        // an atomic byte which is the form used by all current data types)
+        std::atomic<uint8_t> attribValueByte{0};
         uint32_t updateIntervalMs = 0;
         uint32_t lastUpdateTimeMs = 0;
         std::vector<struct ble_gatt_chr_def> characteristicList;
@@ -69,12 +73,12 @@ private:
         // Check data type
         if (service.attribType == ServiceDataType::BYTE)
         {
-            uint8_t byteVal = (uint8_t)service.attribValue;
+            uint8_t byteVal = service.attribValueByte.load();
             data.push_back(byteVal);
         }
         else if (service.attribType == ServiceDataType::FLAG0_AND_BYTE)
         {
-            uint8_t byteVal = (uint8_t)service.attribValue;
+            uint8_t byteVal = service.attribValueByte.load();
             data.push_back(0);
             data.push_back(byteVal);
         }

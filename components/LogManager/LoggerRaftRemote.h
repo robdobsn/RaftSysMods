@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include "LoggerBase.h"
 #include "RaftArduino.h"
 #include "freertos/ringbuf.h"
@@ -49,8 +50,14 @@ private:
     // log() pushes items here; loop() drains and sends via TCP.
     // This avoids calling send() from arbitrary thread contexts.
     // Item format: [1 byte: esp_log_level_t][N bytes: "tag: msg\0"]
-    RingbufHandle_t _ringBuf = nullptr;
+    // The ring buffer is created when the first client connects and is then never deleted (until the
+    // logger is destroyed) because log() can be using it on any task at any time
+    std::atomic<RingbufHandle_t> _ringBuf{nullptr};
     uint32_t _ringBufSize = 16384;
+
+    // Client connected flag - gates log() so that the ring buffer is only filled when there is a client
+    // (set/cleared on the main task and read on any task)
+    std::atomic<bool> _clientConnected{false};
 
     // Max size of a single log item (level byte + message)
     static const uint32_t MAX_LOG_ITEM_SIZE = 1024;
@@ -61,8 +68,8 @@ private:
     // Avoid swamping the network
     uint32_t _logWindowStartMs = 0;
     uint32_t _logWindowCount = 0;
-    uint32_t _logWindowSizeMs = 60000;
-    uint32_t _logWindowMaxCount = 60;
+    std::atomic<uint32_t> _logWindowSizeMs{60000};
+    std::atomic<uint32_t> _logWindowMaxCount{60};
 
     // Backoff on send failure to avoid repeatedly blocking the main loop
     uint32_t _sendFailBackoffStartMs = 0;
@@ -86,7 +93,8 @@ private:
     bool checkConnection();
     void handleIncomingData();
     void sendResponse(const String& response);
-    void closeClientAndFreeRingBuf();
+    void closeClient();
+    void flushRingBuf();
     static const char* levelStr(esp_log_level_t level);
 
     // Log prefix

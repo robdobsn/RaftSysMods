@@ -144,8 +144,9 @@ void BLEGattServer::loop(NamedValueProvider* pNamedValueProvider)
     _bleOutbound.loop();
 
     // Update standard services
-    if (_bleIsConnected)
-        _stdServices.updateStdServices(_bleGapConnHandle, pNamedValueProvider);
+    uint16_t connHandle = _bleGapConnHandle.load();
+    if (connHandle != BLE_HS_CONN_HANDLE_NONE)
+        _stdServices.updateStdServices(connHandle, pNamedValueProvider);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -346,8 +347,9 @@ void BLEGattServer::registrationCallbackStatic(struct ble_gatt_register_ctxt *ct
 
 BLEGattServerSendResult BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32_t bufLen, bool useIndication)
 {
-    // Check connected
-    if (!BLEGattServer::_bleIsConnected)
+    // Check connected (snapshot the connection handle as it is written on the NimBLE host task)
+    uint16_t connHandle = _bleGapConnHandle.load();
+    if (connHandle == BLE_HS_CONN_HANDLE_NONE)
     {
         LOG_W(MODULE_PREFIX, "sendToCentral failed as not connected");
         return BLEGATT_SERVER_SEND_RESULT_FAIL;
@@ -373,11 +375,11 @@ BLEGattServerSendResult BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32
     int rc = 0;
     if (useIndication)
     {
-        rc = ble_gatts_indicate_custom(_bleGapConnHandle, _characteristicValueAttribHandle, om);
+        rc = ble_gatts_indicate_custom(connHandle, _characteristicValueAttribHandle, om);
     }
     else
     {
-        rc = ble_gatts_notify_custom(_bleGapConnHandle, _characteristicValueAttribHandle, om);
+        rc = ble_gatts_notify_custom(connHandle, _characteristicValueAttribHandle, om);
     }
 
 #ifdef WARN_ON_BLE_CHAR_WRITE_TAKING_TOO_LONG
@@ -418,6 +420,43 @@ int BLEGattServer::start()
     if (!_isEnabled)
         return -1;
 
+    // Build the service tables once only - start() is called again if the BLE stack is restarted and
+    // the tables contain pointers into each other (e.g. the main service entry points to the data in
+    // _mainServiceCharList) which would be left dangling if the tables were appended to again
+    if (!_serviceTablesBuilt)
+    {
+        buildServiceTables();
+        _serviceTablesBuilt = true;
+    }
+
+    // Initialise GAP and GATT
+    ble_svc_gap_init();
+    ble_svc_gatt_init();
+
+    // Prepare for services to be added
+    int rc = ble_gatts_count_cfg(_servicesList.data());
+    if (rc != NIMBLE_RETC_OK)
+        return rc;
+
+    // Add services
+    rc = ble_gatts_add_svcs(_servicesList.data());
+    if (rc != NIMBLE_RETC_OK)
+        return rc;
+
+#ifdef DEBUG_FOR_ESP32_MINI_BOARDS
+    gpio_pad_select_gpio(LED_OUTPUT_TEST);
+    gpio_set_direction(LED_OUTPUT_TEST, GPIO_MODE_OUTPUT);
+#endif
+
+    return NIMBLE_RETC_OK;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Build service tables (must only be called once - see start())
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void BLEGattServer::buildServiceTables()
+{
     // Command characteristic
     _mainServiceCharList.push_back({
         .uuid = &_commandUUID128.u,
@@ -478,27 +517,6 @@ int BLEGattServer::start()
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
     _servicesList.push_back({ 0 });
 #pragma GCC diagnostic pop
-
-    // Initialise GAP and GATT
-    ble_svc_gap_init();
-    ble_svc_gatt_init();
-
-    // Prepare for services to be added
-    int rc = ble_gatts_count_cfg(_servicesList.data());
-    if (rc != NIMBLE_RETC_OK)
-        return rc;
-
-    // Add services
-    rc = ble_gatts_add_svcs(_servicesList.data());
-    if (rc != NIMBLE_RETC_OK)
-        return rc;
-
-#ifdef DEBUG_FOR_ESP32_MINI_BOARDS
-    gpio_pad_select_gpio(LED_OUTPUT_TEST);
-    gpio_set_direction(LED_OUTPUT_TEST, GPIO_MODE_OUTPUT);
-#endif
-
-    return NIMBLE_RETC_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

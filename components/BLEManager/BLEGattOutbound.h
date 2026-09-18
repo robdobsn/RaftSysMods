@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <atomic>
 #include "ThreadSafeQueue.h"
 #include "ProtocolRawMsg.h"
 #include "CommsChannelMsg.h"
@@ -71,39 +72,44 @@ private:
 
     // Command queue: typically uses indication (ACK'd, reliable)
     ThreadSafeQueue<ProtocolRawMsg> _commandQueue;
-    bool _commandUseIndication = true;
+    std::atomic<bool> _commandUseIndication{true};
     uint16_t _commandMsgPos = 0;
 
     // Publish queue: typically uses notification (faster, no ACK wait)
     ThreadSafeQueue<ProtocolRawMsg> _publishQueue;
-    bool _publishUseIndication = false;
+    std::atomic<bool> _publishUseIndication{false};
     uint16_t _publishMsgPos = 0;
+
+    // Max time to wait for the mutex on the outbound queues
+    static const uint32_t OUTBOUND_QUEUE_MAX_MS_TO_WAIT = 10;
 
     // Min time between adjacent outbound notification sends
     uint32_t _lastNotifySendMs = 0;
     uint32_t _minMsBetweenNotifySends = BLEConfig::BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS;
 
     // Task that runs the outbound queue (if enabled)
+    // The task sets the handle to nullptr immediately before it exits (which is used to detect that it has exited)
     volatile TaskHandle_t _outboundMsgTaskHandle = nullptr;
+
+    // Request for the outbound task to stop (cooperatively)
+    std::atomic<bool> _outboundMsgTaskStopRequested{false};
+    static const uint32_t OUTBOUND_TASK_STOP_MAX_WAIT_MS = 500;
 
     // Semaphore to wake outbound task when messages are enqueued or indication ACKs arrive
     SemaphoreHandle_t _outboundSemaphore = nullptr;
 
     // Outbound indications in flight (only applies to whichever queue uses indication)
-    volatile uint32_t _outboundMsgsInFlight = 0;
-    uint32_t _outbountMsgInFlightLastMs = 0;
+    // This is incremented on the task which sends and decremented on the NimBLE host task
+    std::atomic<int32_t> _outboundMsgsInFlight{0};
+    std::atomic<uint32_t> _outbountMsgInFlightLastMs{0};
     uint32_t _outMsgsInFlightTimeoutMs = BLEConfig::BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS;
-
-    // Mutex for in flight variable
-    SemaphoreHandle_t _inFlightMutex = nullptr;
-    static const uint32_t WAIT_FOR_INFLIGHT_MUTEX_MAX_MS = 2;
 
     // Max packet len
     uint16_t _maxPacketLen = BLEConfig::MAX_BLE_PACKET_LEN_DEFAULT;
 
     // MTU size
     uint16_t _preferredMtuSize = BLEConfig::PREFERRED_MTU_SIZE;
-    uint16_t _actualMtuSize = BLEConfig::PREFERRED_MTU_SIZE;
+    std::atomic<uint16_t> _actualMtuSize{BLEConfig::PREFERRED_MTU_SIZE};
 
     // Reduce send packet size from MTU by this amount
     static const uint32_t MTU_SIZE_REDUCTION = 12;
@@ -119,6 +125,9 @@ private:
 
     // Check if indication is in flight (with optional timeout handling)
     bool isIndicationInFlight();
+
+    // Decrement the count of indications in flight (never goes below 0)
+    int32_t decrementMsgsInFlight();
     
 #endif // CONFIG_BT_ENABLED
 
