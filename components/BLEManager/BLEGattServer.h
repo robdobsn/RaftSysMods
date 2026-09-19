@@ -70,6 +70,7 @@ public:
     void setConnState(bool isConnected, uint16_t connHandle)
     {
         _bleGapConnHandle = isConnected ? connHandle : BLE_HS_CONN_HANDLE_NONE;
+        _bleOutbound.notifyConnStateChanged(isConnected);
     }
 
     // Callback

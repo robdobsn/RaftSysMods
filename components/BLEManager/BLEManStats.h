@@ -33,6 +33,8 @@ public:
         _txErrCount = 0;
         _rxTestFrameCount = 0;
         _rxTestFrameBytes = 0;
+        _txPublishDropCount = 0;
+        _txPublishDropOpCount = 0;
         _rxRate.clear();
         _txRate.clear();
         _txErrRate.clear();
@@ -59,6 +61,15 @@ public:
         _txRate.sample(_txTotalBytes);
         _txErrCount += rslt ? 0 : 1;
         _txErrRate.sample(_txErrCount);
+    }
+
+    // A publish was dropped because the outbound publish queue was full. operational is true if the drop
+    // occurred during normal operation (not during the post-connection burst) - i.e. the case that matters
+    void txPublishDropped(bool operational)
+    {
+        _txPublishDropCount++;
+        if (operational)
+            _txPublishDropOpCount++;
     }
 
     void rxTestFrame(uint32_t msgSize, bool seqOK, bool dataOK)
@@ -92,6 +103,17 @@ public:
                 _txErrRate.getRatePerSec());
         }
         String json = buf;
+        // Publish-queue drops during normal operation (post-connection burst drops are excluded).
+        // Only emitted when non-zero so a healthy connection produces no extra output.
+        if (_txPublishDropOpCount.load() > 0)
+        {
+            if (shortForm)
+                snprintf(buf, sizeof(buf), R"(,"pubDrpOp":%d)", (int)_txPublishDropOpCount.load());
+            else
+                snprintf(buf, sizeof(buf), R"(,"pubDrp":%d,"pubDrpOp":%d)",
+                    (int)_txPublishDropCount.load(), (int)_txPublishDropOpCount.load());
+            json += buf;
+        }
         if (_rxTestFrameCount.load() > 0)
         {
             snprintf(buf, sizeof(buf), R"("tM":%d,"tB":%d,"tBPS":%.1f,"tSeqErrs":%d,"tDatErrs":%d)",
@@ -132,6 +154,8 @@ private:
     std::atomic<uint32_t> _rxTotalBytes{0};
     std::atomic<uint32_t> _txTotalBytes{0};
     std::atomic<uint32_t> _txErrCount{0};
+    std::atomic<uint32_t> _txPublishDropCount{0};
+    std::atomic<uint32_t> _txPublishDropOpCount{0};
     #define MOVING_AVERAGE_WINDOW_SIZE 5
     MovingRate<MOVING_AVERAGE_WINDOW_SIZE> _rxRate;
     MovingRate<MOVING_AVERAGE_WINDOW_SIZE> _txRate;

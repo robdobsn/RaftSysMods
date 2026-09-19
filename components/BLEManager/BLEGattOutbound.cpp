@@ -151,17 +151,36 @@ bool BLEGattOutbound::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType
     if (msgType == MSG_TYPE_PUBLISH)
     {
         bool canSend = _publishQueue.count() < _publishQueue.maxLen();
-#ifdef WARN_ON_PUBLISH_QUEUE_FULL
         if (!canSend)
         {
-            LOG_W(MODULE_PREFIX, "isReadyToSend PUBLISH DROPPED qCount %d maxLen %d",
-                        _publishQueue.count(), _publishQueue.maxLen());
-        }
+            // A drop within PUBLISH_DROP_CONNECT_GRACE_MS of connection is the harmless startup burst
+            // (link still ramping up, backlog flushing). A later drop is operational - the publish rate
+            // is exceeding the BLE drain rate - and is the case worth flagging.
+            uint32_t connStartMs = _connStartMs.load();
+            bool operationalDrop = (connStartMs != 0) &&
+                        Raft::isTimeout(millis(), connStartMs, PUBLISH_DROP_CONNECT_GRACE_MS);
+            _bleStats.txPublishDropped(operationalDrop);
+#ifdef WARN_ON_PUBLISH_QUEUE_FULL
+            if (operationalDrop)
+            {
+                LOG_W(MODULE_PREFIX, "isReadyToSend PUBLISH DROPPED (operational) qCount %d maxLen %d",
+                            _publishQueue.count(), _publishQueue.maxLen());
+            }
 #endif
+        }
         return canSend;
     }
 
     return _commandQueue.count() < _commandQueue.maxLen();
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Notify connection state change
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void BLEGattOutbound::notifyConnStateChanged(bool isConnected)
+{
+    _connStartMs = isConnected ? millis() : 0;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

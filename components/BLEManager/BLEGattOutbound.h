@@ -41,6 +41,9 @@ public:
     // Tx complete
     void notifyTxComplete(int statusBLEHSCode, bool isIndication);
 
+    // Notify connection state change (used to time the post-connection publish burst)
+    void notifyConnStateChanged(bool isConnected);
+
     // Message sending
     bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
     bool sendMsg(CommsChannelMsg& msg);
@@ -79,6 +82,11 @@ private:
     ThreadSafeQueue<ProtocolRawMsg> _publishQueue;
     std::atomic<bool> _publishUseIndication{false};
     uint16_t _publishMsgPos = 0;
+
+    // Time the current connection was established (0 if not connected) - used to distinguish
+    // publish-queue drops during the post-connection burst from drops during normal operation
+    std::atomic<uint32_t> _connStartMs{0};
+    static const uint32_t PUBLISH_DROP_CONNECT_GRACE_MS = 5000;
 
     // Max time to wait for the mutex on the outbound queues
     static const uint32_t OUTBOUND_QUEUE_MAX_MS_TO_WAIT = 10;
