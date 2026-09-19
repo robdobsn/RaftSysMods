@@ -13,23 +13,25 @@ The key difference is the transport: Papertrail uses **UDP syslog** (single `sen
 ## Architecture
 
 ```
-ESP_LOGx() → esp_log vprintf hook → LoggerCore::log()
-    → LoggerLoki::log()          [called from ANY task/ISR context]
+LOG_x() (Raft Logger.h) → loggerLog() → LoggerCore::log()
+    → LoggerLoki::log()          [called from ANY task context - NOT from an ISR]
         → format + push to ring buffer (non-blocking, 0 ticks)
 
-Main task loop → LoggerCore::loop()
-    → LoggerLoki::loop()          [called from main task only]
-        → drain ring buffer (up to N messages)
+LokiLog worker task → LoggerLoki::workerTask()   [dedicated task - not the main task]
+        → wait on ring buffer, linger, drain (up to N messages)
         → batch into JSON payload
         → HTTP POST to Loki push endpoint
 ```
 
+Note that `ESP_LOGx()` output is NOT routed to `LoggerCore` (and hence not to this logger) - the only
+`esp_log_set_vprintf` hook writes to the console. Only messages logged with the Raft `LOG_x()` macros are sent to Loki.
+
 ### Thread Safety
 
-Identical to LoggerPapertrail:
-- `log()` only touches the FreeRTOS ring buffer via `xRingbufferSend(..., 0)` — safe from any context
-- `loop()` does all network I/O — runs exclusively on the main task
-- No mutexes needed
+- `log()` only touches the FreeRTOS ring buffer via `xRingbufferSend(..., 0)` — safe from any task context
+  but NOT from an ISR (`xRingbufferSend` is not ISR-safe)
+- The `LokiLog` worker task does all network I/O — nothing runs on the main task (`loop()` is not overridden)
+- No mutexes needed (the ring buffer is the only state shared between `log()` callers and the worker task)
 
 ---
 

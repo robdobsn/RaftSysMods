@@ -18,6 +18,7 @@
 #include "PlatformUtils.h"
 #include "BLEAdvertDecoder.h"
 #include "RaftBusSystem.h"
+#include "RaftMainTask.h"
 #include "esp_idf_version.h"
 
 #undef min
@@ -100,6 +101,7 @@ bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF, const BLEConfig& bleConfig)
     // Settings
     _bleConfig = bleConfig;
     _pCommsCoreIF = pCommsCoreIF;
+    _connIntervalPrefBLEUnits = _bleConfig.getConnIntervalPrefBLEUnits();
 
     // Check if peripheral role enabled
     if (_bleConfig.enPeripheral)
@@ -111,6 +113,10 @@ bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF, const BLEConfig& bleConfig)
     // Start NimBLE if not already started
     if (!_isInit)
     {
+        // Currently disconnected - this must be done before NimBLE is started as (once started) the
+        // NimBLE host task owns the connection state and a real connection must not be overwritten
+        setConnState(false);
+
         // Start NimBLE
         _isInit = true;
         if (!nimbleStart())
@@ -122,9 +128,6 @@ bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF, const BLEConfig& bleConfig)
 #endif
         }
     }
-
-    // Currently disconnected
-    setConnState(false);
 
 #ifdef DEBUG_BLE_SETUP
         LOG_I(MODULE_PREFIX, "setup OK %s", bleConfig.debugStr().c_str());
@@ -143,6 +146,9 @@ void BLEGapServer::teardown()
 
     // Stop advertising
     stopAdvertising();
+
+    // Host is no longer ready (NimBLE functions must not now be called from the main task)
+    _bleHostReady = false;
 
     // Stop GATTServer
     _gattServer.stop();
@@ -175,9 +181,41 @@ void BLEGapServer::loop(NamedValueProvider* pNamedValueProvider)
     if (!_isInit)
         return;
 
+    // Handle connection state changes (which are detected on the NimBLE host task) - this is done
+    // before anything which can (re)start advertising so a disconnection is always reported before
+    // a new connection can be made
+    loopConnStateChangeHandler();
+
     // Loop over restart handler
     if (loopRestartHandler())
         return;
+
+    // Get the bus used to disseminate BTHome data (if required) - done here as the bus system
+    // must not be accessed from the NimBLE host task
+    if (_bleConfig.scanBTHome && !_pBusDevicesIF.load() && (_bleConfig.busConnName.length() > 0))
+    {
+        RaftBus* pBus = raftBusSystem.getBusByName(_bleConfig.busConnName, false);
+        if (pBus)
+            _pBusDevicesIF = pBus->getBusDevicesIF();
+    }
+
+    // Start advertising if required - requests are made on the NimBLE host task (on sync, disconnect, etc)
+    // but advertising is only ever started from the main task (here and in serviceTimedAdvertisingCheck)
+    // as getting the advertising info involves access to config and other main-task-owned state
+    if (_bleHostReady && _advertisingStartRequired.exchange(false))
+    {
+        if (!startAdvertising())
+        {
+#ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
+            LOG_W(MODULE_PREFIX, "loop start advertising FAILED");
+#endif
+#ifdef USE_TIMED_ADVERTISING_CHECK
+            // Try again using the timed advertising check (timestamp must be written before the flag)
+            _advertisingCheckMs = millis();
+            _advertisingCheckRequired = true;
+#endif
+        }
+    }
 
     // Service timed advertising check
     serviceTimedAdvertisingCheck();
@@ -190,11 +228,12 @@ void BLEGapServer::loop(NamedValueProvider* pNamedValueProvider)
 
     // Check connection interval some time after connection
     if (_connIntervalCheckPending && 
-            Raft::isTimeout(millis(), _connIntervalCheckPendingStartMs, CONN_INTERVAL_CHECK_MS))
+            Raft::isTimeout(millis(), _connIntervalCheckPendingStartMs.load(), CONN_INTERVAL_CHECK_MS))
     {
-        // Request conn interval we want
-        requestConnInterval();
+        // Request conn interval we want (the flag is cleared first so that a request
+        // made on another task while this is in progress is not lost)
         _connIntervalCheckPending = false;
+        requestConnInterval();
     }
 }
 
@@ -205,9 +244,9 @@ void BLEGapServer::restart()
     // Stop advertising
     stopAdvertising();
 
-    // Set state to stop required
-    _bleRestartState = BLERestartState_RestartRequired;
+    // Set state to stop required (timestamp must be written before the state)
     _bleRestartLastMs = millis();
+    _bleRestartState = BLERestartState_RestartRequired;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -234,8 +273,9 @@ void BLEGapServer::registerChannel(CommsCoreIF& commsCoreIF)
 /// @return The RSSI value in dBm.
 double BLEGapServer::getRSSI(bool& isValid)
 {
-    isValid = _isConnected && (_rssi != 0);
-    return _rssi;
+    int8_t rssi = _rssi.load();
+    isValid = isConnected() && (rssi != 0);
+    return rssi;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -249,10 +289,14 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
     String statusStr;
 
     // NimBLE host structures are not safe to query until host is enabled and synced.
-    bool bleHostReady = _isInit && ble_hs_is_enabled() && ble_hs_synced();
+    // _bleHostReady is checked first as it is cleared before the NimBLE stack is stopped
+    bool bleHostReady = _isInit && _bleHostReady.load() && ble_hs_is_enabled() && ble_hs_synced();
+
+    // Connection state (snapshot)
+    bool isConn = isConnected();
 
     // RSSI
-    String rssiStr = _isConnected ? R"("rssi":)" + String(_rssi) : "";
+    String rssiStr = isConn ? R"("rssi":)" + String((int)_rssi.load()) : "";
 
     // Check format
     if (shortForm)
@@ -262,7 +306,7 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
         bool isAdv = bleHostReady ? ble_gap_adv_active() : false;
         bool isDisco = bleHostReady ? ble_gap_disc_active() : false;
         String connStr = String(R"("s":")") + 
-                (_isConnected ? (gapConn ? "actv" : "conn") : (isAdv ? "adv" : (isDisco ? "disco" : "none"))) + 
+                (isConn ? (gapConn ? "actv" : "conn") : (isAdv ? "adv" : (isDisco ? "disco" : "none"))) + 
                 R"(")";
 
         // Advertising name
@@ -311,7 +355,8 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Callback function triggered when the BLE stack synchronization occurs
-/// Validate the device's BLE address and start advertising (if not required)
+/// Validate the device's BLE address and request start of advertising (if required)
+/// @note This runs on the NimBLE host task so advertising is not started here (see loop())
 void BLEGapServer::onSync()
 {
 #ifdef DEBUG_BLE_ON_SYNC
@@ -328,7 +373,9 @@ void BLEGapServer::onSync()
     if (_bleConfig.enPeripheral)
     {
         // Figure out address to use while advertising (no privacy for now)
-        int rc = ble_hs_id_infer_auto(0, &_ownAddrType);
+        uint8_t ownAddrType = 0;
+        int rc = ble_hs_id_infer_auto(0, &ownAddrType);
+        _ownAddrType = ownAddrType;
         if (rc != NIMBLE_RETC_OK)
         {
 #ifdef WARN_ON_ONSYNC_ADDR_ERROR
@@ -339,19 +386,14 @@ void BLEGapServer::onSync()
 
         // Debug showing addr
         uint8_t addrVal[6] = {0};
-        rc = ble_hs_id_copy_addr(_ownAddrType, addrVal, NULL);
+        rc = ble_hs_id_copy_addr(ownAddrType, addrVal, NULL);
 #ifdef DEBUG_BLE_CONNECT
         LOG_I(MODULE_PREFIX, "onSync() Device Address: %x:%x:%x:%x:%x:%x",
                 addrVal[5], addrVal[4], addrVal[3], addrVal[2], addrVal[1], addrVal[0]);
 #endif
 
-        // Start advertising
-        if (!startAdvertising())
-        {
-#ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
-            LOG_W(MODULE_PREFIX, "onSync started advertising FAILED");
-#endif
-        }
+        // Request start of advertising (advertising is started from loop() on the main task)
+        _advertisingStartRequired = true;
     }
 
     // Check if central mode is enabled
@@ -360,6 +402,9 @@ void BLEGapServer::onSync()
         // Start scanning
         startScanning();
     }
+
+    // Host is now ready (this must be after _ownAddrType and _advertisingStartRequired are set)
+    _bleHostReady = true;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -369,7 +414,11 @@ void BLEGapServer::onSync()
 /// @return true if advertising started successfully
 bool BLEGapServer::startAdvertising()
 {
-    if (!_isInit)
+    // This must only be called from the main task as it accesses config, etc (via _getAdvertisingInfoFn)
+    // and so that calls to set advertising data and start advertising cannot be interleaved
+    RAFT_CHECK_MAIN_TASK(MODULE_PREFIX, "startAdvertising");
+
+    if (!_isInit || !_bleHostReady)
         return false;
 
     // Check if already advertising
@@ -488,7 +537,7 @@ bool BLEGapServer::startAdvertising()
     }
 
     // Start advertising
-    rc = ble_gap_adv_start(_ownAddrType, NULL, BLE_HS_FOREVER,
+    rc = ble_gap_adv_start(_ownAddrType.load(), NULL, BLE_HS_FOREVER,
                            &adv_params,
                            [](struct ble_gap_event *event, void *arg) {
                                return ((BLEGapServer*)arg)->nimbleGapEvent(event);
@@ -506,8 +555,9 @@ bool BLEGapServer::startAdvertising()
 /// @brief Stop BLE advertising
 void BLEGapServer::stopAdvertising()
 {
-    if (!_isInit)
+    if (!_isInit || !_bleHostReady)
         return;
+    _advertisingStartRequired = false;
     ble_gap_adv_stop();
 }
 
@@ -541,7 +591,8 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
         case BLE_GAP_EVENT_ADV_COMPLETE:
             statusStr = (event->adv_complete.reason == 0 ? String("new-conn") : 
                                     BLEGattServer::getHSErrorMsg(event->adv_complete.reason));
-            errorCode = startAdvertising();
+            // Request restart of advertising (advertising is started from loop() on the main task)
+            _advertisingStartRequired = true;
             break;
         case BLE_GAP_EVENT_ENC_CHANGE:
             statusStr = BLEGattServer::getHSErrorMsg(event->enc_change.status);
@@ -702,7 +753,7 @@ void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readO
 bool BLEGapServer::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn)
 {
     noConn = false;
-    if (!_isInit || !_isConnected)
+    if (!_isInit || !isConnected())
     {
         noConn = true;
         return false;
@@ -724,27 +775,62 @@ bool BLEGapServer::sendBLEMsg(CommsChannelMsg& msg)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Set the connection state of the BLE server
 /// This function updates the internal state to reflect whether a BLE connection is active and sets the connection handle.
-/// It also updates the GATT server's connection state and notifies any registered status change handlers.
+/// It also updates the GATT server's connection state. Registered status change handlers are NOT called here
+/// as this generally runs on the NimBLE host task - they are called from loop() on the main task
 /// @param isConnected True if the BLE connection is established, false otherwise.
 /// @param connHandle The connection handle associated with the current BLE connection.
 void BLEGapServer::setConnState(bool isConnected, uint16_t connHandle)
 {
-#ifdef USE_TIMED_ADVERTISING_CHECK
-    // Reset timer for advertising check
-    _advertisingCheckRequired = !isConnected;
-    _advertisingCheckMs = millis();
-#endif
+    // Connection handle is BLE_HS_CONN_HANDLE_NONE when not connected
+    if (!isConnected)
+        connHandle = BLE_HS_CONN_HANDLE_NONE;
 
-    // Connected state change
-    _isConnected = isConnected;
-    _bleGapConnHandle = connHandle;
+#ifdef USE_TIMED_ADVERTISING_CHECK
+    // Reset timer for advertising check (timestamp must be written before the flag)
+    _advertisingCheckMs = millis();
+    _advertisingCheckRequired = !isConnected;
+#endif
 
     // Set into GATT
     _gattServer.setConnState(isConnected, connHandle);
-    
-    // Inform hooks of status change
-    if (_statusChangeFn)
-        _statusChangeFn(isConnected);
+
+    // Connected state change - hooks are informed of the status change from loop() on the main task
+    // (the connect count must be incremented before the handle is set - see loopConnStateChangeHandler)
+    if (isConnected)
+        _connectCount++;
+    _bleGapConnHandle = connHandle;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Handle connection state changes (calls the status change function from the main task)
+/// Connection state is changed on the NimBLE host task (see setConnState) but the status change function
+/// must only be called from the main task as the hooks (e.g. pausing WiFi) access main-task-owned state
+void BLEGapServer::loopConnStateChangeHandler()
+{
+    // Snapshot the state and then the connect count (in that order - so the count is never older than the state)
+    bool isConn = isConnected();
+    uint32_t connectCount = _connectCount.load();
+    bool isNewConn = connectCount != _connectCountHandled;
+    _connectCountHandled = connectCount;
+
+    // Check for a state that differs from the one last reported
+    if (isConn != _connStateReported)
+    {
+        _connStateReported = isConn;
+        if (_statusChangeFn)
+            _statusChangeFn(isConn);
+    }
+    else if (isConn && isNewConn)
+    {
+        // A disconnection followed by a new connection has occurred since the last loop so report both
+        // (a connection followed by a disconnection since the last loop is not reported as the state
+        // is unchanged from that last reported)
+        if (_statusChangeFn)
+        {
+            _statusChangeFn(false);
+            _statusChangeFn(true);
+        }
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -780,6 +866,9 @@ bool BLEGapServer::nimbleStart()
 
     // onReset callback
     ble_hs_cfg.reset_cb = [](int reason) {
+        // Host is not ready until the next sync
+        if (_pThis)
+            _pThis->_bleHostReady = false;
 #ifdef WARN_BLE_ON_RESET_EVENT
         LOG_I(MODULE_PREFIX, "onReset() reason=%d", reason);
 #endif
@@ -835,6 +924,9 @@ bool BLEGapServer::nimbleStart()
 /// @brief Stop the BLE stack and deinitialize the NimBLE port
 bool BLEGapServer::nimbleStop()
 {
+    // Host is no longer ready (NimBLE functions must not now be called from the main task)
+    _bleHostReady = false;
+    _advertisingStartRequired = false;
 
     esp_err_t err = nimble_port_stop();
     if (err != ESP_OK)
@@ -977,12 +1069,13 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
                             _bleConfig.llPacketLengthPref,
                             _bleConfig.llPacketTimePref);
 #endif
-        // Conn interval check pending
-        _connIntervalCheckPending = true;
-        _connIntervalCheckPendingStartMs = millis();
-        
         // Now connected
         setConnState(true, event->connect.conn_handle);
+
+        // Conn interval check pending (the start time must be written before the flag and
+        // the connection handle must be set before either)
+        _connIntervalCheckPendingStartMs = millis();
+        _connIntervalCheckPending = true;
     }
     else
     {
@@ -995,17 +1088,8 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
         // Check if peripheral mode is enabled
         if (_bleConfig.enPeripheral)
         {
-            // Connection failed; resume advertising
-            if (!startAdvertising())
-            {
-#ifdef WARN_ON_BLE_ADVERTISING_START_FAILURE
-                LOG_W(MODULE_PREFIX, "nimbleGAPEvent conn start advertising FAILED");
-#endif
-            }
-            else
-            {
-                LOG_I(MODULE_PREFIX, "GAPEvent conn resumed advertising after connection failure");
-            }
+            // Connection failed; resume advertising (advertising is started from loop() on the main task)
+            _advertisingStartRequired = true;
         }
     }
     return rc;
@@ -1034,8 +1118,8 @@ int BLEGapServer::gapEventDisconnect(struct ble_gap_event *event, String& status
         // Note that if USE_TIMED_ADVERTISING_CHECK is defined then
         // advertising will restart due to check in loop()
 #ifndef USE_TIMED_ADVERTISING_CHECK
-        // Restart advertising
-        startAdvertising();
+        // Restart advertising (advertising is started from loop() on the main task)
+        _advertisingStartRequired = true;
 #endif
     }
     return NIMBLE_RETC_OK;
@@ -1066,7 +1150,7 @@ int BLEGapServer::gapEventConnUpdate(struct ble_gap_event *event, String& status
             desc.supervision_timeout, (int)desc.supervision_timeout * 10); 
 #endif
 
-    if ((rc == NIMBLE_RETC_OK) && _connIntervalCheckPending && (desc.conn_itvl != _bleConfig.getConnIntervalPrefBLEUnits()))
+    if ((rc == NIMBLE_RETC_OK) && _connIntervalCheckPending && (desc.conn_itvl != _connIntervalPrefBLEUnits.load()))
     {
         // Request conn interval we want
         requestConnInterval();
@@ -1117,20 +1201,8 @@ int BLEGapServer::gapEventDiscovery(struct ble_gap_event *event, String& statusS
     // Check if BTHome is enabled - in which case decode the packet
     if (_bleConfig.scanBTHome)
     {
-        // Check if bus already identified
-        if (!_pBusDevicesIF)
-        {
-            // Check if a bus is specified to disseminate data through
-            if (_bleConfig.busConnName.length() > 0)
-            {
-                // Get the bus
-                RaftBus* pBus = raftBusSystem.getBusByName(_bleConfig.busConnName, false);
-                _pBusDevicesIF = pBus ? pBus->getBusDevicesIF() : nullptr;
-            }
-        }
-
-        // Decode the packet
-        _bleAdvertDecoder.decodeAdEvent(event, fields, _pBusDevicesIF);
+        // Decode the packet (the bus to disseminate data through is identified in loop() on the main task)
+        _bleAdvertDecoder.decodeAdEvent(event, fields, _pBusDevicesIF.load());
     }
 
     // Debug
@@ -1167,35 +1239,63 @@ bool BLEGapServer::loopRestartHandler()
 
 {
     // Check if restart in progress
-    switch(_bleRestartState)
+    switch(_bleRestartState.load())
     {
         case BLERestartState_Idle:
             break;
         case BLERestartState_RestartRequired:
-            if (Raft::isTimeout(millis(), _bleRestartLastMs, BLE_RESTART_BEFORE_STOP_MS))
+            if (Raft::isTimeout(millis(), _bleRestartLastMs.load(), BLE_RESTART_BEFORE_STOP_MS))
             {
+                // Stop the outbound message task (if used) so it cannot be using the BLE stack when it is stopped
+                _gattServer.stop();
+
                 // Stop the BLE stack
-                nimbleStop();
-                _bleRestartState = BLERestartState_StartRequired;
-                _bleRestartLastMs = millis();
+                if (nimbleStop())
+                {
+                    // The stack is stopped so there is no connection (the NimBLE host task is not
+                    // running at this point so connection state is set here)
+                    setConnState(false);
+                    _bleRestartLastMs = millis();
+                    _bleRestartState = BLERestartState_StartRequired;
+                }
+                else
+                {
+                    // The stack has not been stopped so it must not be initialised again
+                    LOG_W(MODULE_PREFIX, "loopRestartHandler restart abandoned as NimBLE stop failed");
+                    _bleRestartLastMs = millis();
+                    _bleRestartState = BLERestartState_Idle;
+
+                    // Resume (advertising was stopped when restart was requested)
+                    if (_bleConfig.enPeripheral)
+                        _gattServer.setup(_bleConfig);
+                    _bleHostReady = ble_hs_is_enabled() && ble_hs_synced();
+                    _advertisingStartRequired = _bleConfig.enPeripheral;
+                }
             }
             break;
         case BLERestartState_StartRequired:
-            if (Raft::isTimeout(millis(), _bleRestartLastMs, BLE_RESTART_BEFORE_START_MS))
+            if (Raft::isTimeout(millis(), _bleRestartLastMs.load(), BLE_RESTART_BEFORE_START_MS))
             {
+                // Setup the GATT server again (restarts the outbound message task if used)
+                if (_bleConfig.enPeripheral)
+                    _gattServer.setup(_bleConfig);
+
                 // Start the BLE stack
-                nimbleStart();
-                _bleRestartState = BLERestartState_Idle;
+                if (!nimbleStart())
+                {
+                    LOG_W(MODULE_PREFIX, "loopRestartHandler failed to start NimBLE");
+                }
                 _bleRestartLastMs = millis();
+                _bleRestartState = BLERestartState_Idle;
             }
             return true;
         case BLERestartState_DisconnectRequired:
-            if (Raft::isTimeout(millis(), _bleRestartLastMs, BLE_RESTART_BEFORE_DISCONNECT_MS))
+            if (Raft::isTimeout(millis(), _bleRestartLastMs.load(), BLE_RESTART_BEFORE_DISCONNECT_MS))
             {
                 // Disconnect
                 disconnect();
-                _bleRestartState = BLERestartState_Idle;
                 _bleRestartLastMs = millis();
+                _bleRestartState = BLERestartState_Idle;
             }
             break;
     }
@@ -1210,9 +1310,9 @@ void BLEGapServer::serviceTimedAdvertisingCheck()
 {
 #ifdef USE_TIMED_ADVERTISING_CHECK
     // Handle advertising check
-    if (_bleConfig.enPeripheral && (!_isConnected) && (_advertisingCheckRequired))
+    if (_bleConfig.enPeripheral && _bleHostReady && (!isConnected()) && (_advertisingCheckRequired))
     {
-        if (Raft::isTimeout(millis(), _advertisingCheckMs, ADVERTISING_CHECK_MS))
+        if (Raft::isTimeout(millis(), _advertisingCheckMs.load(), ADVERTISING_CHECK_MS))
         {
             _advertisingCheckMs = millis();
             // Check advertising
@@ -1262,24 +1362,28 @@ void BLEGapServer::updateRSSICachedValue()
     if (Raft::isTimeout(millis(), _rssiLastMs, RSSI_CHECK_MS))
     {
         _rssiLastMs = millis();
-        _rssi = 0;
-        if (_isConnected)
+
+        // Get the RSSI into a local so that the cached value is only written once (it is read on other tasks)
+        int8_t rssi = 0;
+        uint16_t connHandle = _bleGapConnHandle.load();
+        if (_bleHostReady && (connHandle != BLE_HS_CONN_HANDLE_NONE))
         {
 #ifdef DEBUG_RSSI_GET_TIME
             uint64_t startUs = micros();
 #endif
-            int rslt = ble_gap_conn_rssi(_bleGapConnHandle, &_rssi);
+            int rslt = ble_gap_conn_rssi(connHandle, &rssi);
 #ifdef DEBUG_RSSI_GET_TIME
             uint64_t endUs = micros();
             LOG_I(MODULE_PREFIX, "loop get RSSI %d us", (int)(endUs - startUs));
 #endif
             if (rslt != NIMBLE_RETC_OK)
             {
-                _rssi = 0;
+                rssi = 0;
                 // Debug
                 // LOG_W(MODULE_PREFIX, "loop get RSSI failed");
             }
         }
+        _rssi = rssi;
     }
 }
 
@@ -1288,15 +1392,21 @@ void BLEGapServer::updateRSSICachedValue()
 /// This function sends a request to update the connection interval, latency, and supervision timeout to the preferred values.
 void BLEGapServer::requestConnInterval()
 {
+    // Snapshot the connection handle (it is written on the NimBLE host task)
+    uint16_t connHandle = _bleGapConnHandle.load();
+    if (connHandle == BLE_HS_CONN_HANDLE_NONE)
+        return;
+
     struct ble_gap_upd_params params;
     memset(&params, 0, sizeof(params));
-    params.itvl_min = _bleConfig.getConnIntervalPrefBLEUnits();
-    params.itvl_max = _bleConfig.getConnIntervalPrefBLEUnits();
+    uint16_t connIntervalPrefBLEUnits = _connIntervalPrefBLEUnits.load();
+    params.itvl_min = connIntervalPrefBLEUnits;
+    params.itvl_max = connIntervalPrefBLEUnits;
     params.latency = _bleConfig.connLatencyPref;
     params.supervision_timeout = _bleConfig.supvTimeoutPrefMs / 10;
     params.min_ce_len = 0x0001;
     params.max_ce_len = 0x0001;
-    int rc = ble_gap_update_params(_bleGapConnHandle, &params);
+    int rc = ble_gap_update_params(connHandle, &params);
     if (rc != NIMBLE_RETC_OK)
     {
         LOG_W(MODULE_PREFIX, "requestConnInterval FAILED rc = %d", rc);
@@ -1339,7 +1449,7 @@ bool BLEGapServer::startScanning()
     }
 
     // Start scanning
-    int rc = ble_gap_disc(_ownAddrType, scanForMs, &disc_params,
+    int rc = ble_gap_disc(_ownAddrType.load(), scanForMs, &disc_params,
                           [](struct ble_gap_event *event, void *arg) {
                                 return ((BLEGapServer*)arg)->nimbleGapEvent(event);
                           },

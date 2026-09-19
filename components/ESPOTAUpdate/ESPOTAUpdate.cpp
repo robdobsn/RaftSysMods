@@ -78,7 +78,7 @@ void ESPOTAUpdate::loop()
 String ESPOTAUpdate::getDebugJSON() const
 {
     // Obtain semaphore
-    if (!_fwUpdateStatusSemaphore || (xSemaphoreTake(_fwUpdateStatusSemaphore, 1) != pdTRUE))
+    if (!_fwUpdateStatusSemaphore || (xSemaphoreTake(_fwUpdateStatusSemaphore, pdMS_TO_TICKS(FW_UPDATE_STATS_MUTEX_MAX_WAIT_MS)) != pdTRUE))
         return "{}";
 
     // Copy status
@@ -138,9 +138,9 @@ RaftRetCode ESPOTAUpdate::apiFirmwareMain(const String &reqStr, String &respStr,
     LOG_I(MODULE_PREFIX, "apiESPFirmwareMain");
 #endif
 
-    // Get status
+    // Get status (wait forever - see note in header - so a busy mutex cannot result in failure being reported)
     FWUpdateStatus otaStatus;
-    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 1) == pdTRUE))
+    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, portMAX_DELAY) == pdTRUE))
     {
         // Copy status
         otaStatus = _otaStatus;
@@ -280,7 +280,17 @@ RaftRetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
 
 bool ESPOTAUpdate::fileStreamCancelEnd(bool isNormalEnd)
 {
-    // Create a cancel request
+    // Check the queue exists (it is created when an update is started)
+    if (_otaUpdateQueue == nullptr)
+        return false;
+
+    // Flag that cancel (or end) is requested - this is done before attempting to queue the request so that
+    // the request isn't lost if the queue is full because the worker is busy (the worker checks the flag
+    // whenever it completes a request). Note that the worker ignores the request if an update is not in progress
+    // (which is the case after a normal end) so the result of a completed update is not overwritten
+    _otaCancelRequested = true;
+
+    // Create a cancel request (this wakes the worker if it is idle)
     OTAUpdateFileBlock* pReqRec = new OTAUpdateFileBlock(true);
 
     // Add request to queue
@@ -294,9 +304,8 @@ bool ESPOTAUpdate::fileStreamCancelEnd(bool isNormalEnd)
     }
     else
     {
-        LOG_E(MODULE_PREFIX, "fileStreamCancelEnd xQueueSend failed");
+        // Worker is busy - it will handle the cancel using the flag when it completes the current request
         delete pReqRec;
-        return false;
     }
     return true;
 }
@@ -327,9 +336,13 @@ void ESPOTAUpdate::otaWorkerTask()
         // Handle the request
         if (pReqRec->fsb.isCancelUpdate())
         {
-            // Cancel update
-            LOG_I(MODULE_PREFIX, "otaWorkerTask cancel update");
-            completeOTAUpdate(true);
+            // Cancel update (if in progress - a cancel is also requested after a normal end and,
+            // in that case, the result of the completed update must not be overwritten)
+            if (_otaDirectInProgress)
+            {
+                LOG_I(MODULE_PREFIX, "otaWorkerTask cancel update");
+                completeOTAUpdate(true);
+            }
         }
         else
         {
@@ -384,13 +397,17 @@ void ESPOTAUpdate::otaWorkerTask()
                 // Check result
                 if (err == ESP_OK) 
                 {
-                    // Update status
-                    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 1) == pdTRUE))
+                    // Calculate CRC outside the mutex (totalCRC is only written on this task so can be read here)
+                    uint64_t writeUs = micros() - fwStart;
+                    uint16_t totalCRC = MiniHDLC::crcUpdateCCITT(_otaStatus.totalCRC, pBlock, blockLen);
+
+                    // Update status (statistics only so failure to obtain the mutex is not a failure of the update)
+                    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, pdMS_TO_TICKS(FW_UPDATE_STATS_MUTEX_MAX_WAIT_MS)) == pdTRUE))
                     {
-                        _otaStatus.totalWriteUs += micros() - fwStart;
+                        _otaStatus.totalWriteUs += writeUs;
                         _otaStatus.totalBytes += blockLen;
                         _otaStatus.lastBlockSize = blockLen;
-                        _otaStatus.totalCRC = MiniHDLC::crcUpdateCCITT(_otaStatus.totalCRC, pBlock, blockLen);
+                        _otaStatus.totalCRC = totalCRC;
                         xSemaphoreGive(_fwUpdateStatusSemaphore);
                     }
                 }
@@ -412,11 +429,12 @@ void ESPOTAUpdate::otaWorkerTask()
             // Handle failures
             if (!isOk)
             {
-                // No longer in progress
-                _otaDirectInProgress = false;
+                // No longer in progress (abort the update to release the OTA handle if it was started)
+                if (_otaDirectInProgress.exchange(false))
+                    esp_ota_abort(_espOTAHandle);
 
                 // Update status
-                if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 1) == pdTRUE))
+                if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, portMAX_DELAY) == pdTRUE))
                 {
                     _otaStatus.lastOTAUpdateOK = false;
                     _otaStatus.lastOTAUpdateResult = "Failed";
@@ -430,6 +448,13 @@ void ESPOTAUpdate::otaWorkerTask()
 
         // Delete the request
         delete pReqRec;
+
+        // Check for a cancel request that could not be queued because this task was busy with the request above
+        if (_otaCancelRequested.exchange(false) && _otaDirectInProgress)
+        {
+            LOG_I(MODULE_PREFIX, "otaWorkerTask cancel update (flagged)");
+            completeOTAUpdate(true);
+        }
     }
 }
 
@@ -437,22 +462,26 @@ void ESPOTAUpdate::otaWorkerTask()
 // Start OTA update
 bool ESPOTAUpdate::startOTAUpdate(size_t fileLen)
 {
-    // Obtain semaphore
-    if (!_fwUpdateStatusSemaphore || (xSemaphoreTake(_fwUpdateStatusSemaphore, 1) != pdTRUE))
-        return false;
+    // Abort any update already in progress (to release the OTA handle)
+    if (_otaDirectInProgress.exchange(false))
+        esp_ota_abort(_espOTAHandle);
 
-    // Timing
-    _otaStatus.startUs = micros();
-    _otaStatus.espOTABeginFnUs = 0;
-    _otaStatus.totalWriteUs = 0;
-    _otaStatus.totalBytes = 0;
-    _otaStatus.lastBlockSize = 0;
-    _otaStatus.totalCRC = MiniHDLC::crcInitCCITT();
-    _otaStatus.lastOTAUpdateOK = false;
-    _otaStatus.lastOTAUpdateResult = "InProgress";
+    // Obtain semaphore (wait forever - see note in header - the update is not failed because of the status mutex)
+    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, portMAX_DELAY) == pdTRUE))
+    {
+        // Timing
+        _otaStatus.startUs = micros();
+        _otaStatus.espOTABeginFnUs = 0;
+        _otaStatus.totalWriteUs = 0;
+        _otaStatus.totalBytes = 0;
+        _otaStatus.lastBlockSize = 0;
+        _otaStatus.totalCRC = MiniHDLC::crcInitCCITT();
+        _otaStatus.lastOTAUpdateOK = false;
+        _otaStatus.lastOTAUpdateResult = "InProgress";
 
-    // Release semaphore
-    xSemaphoreGive(_fwUpdateStatusSemaphore);
+        // Release semaphore
+        xSemaphoreGive(_fwUpdateStatusSemaphore);
+    }
 
     // Get update partition
     const esp_partition_t* update_partition = esp_ota_get_next_update_partition(NULL);
@@ -503,7 +532,7 @@ bool ESPOTAUpdate::startOTAUpdate(size_t fileLen)
     uint64_t otaBeginElapsedUs = micros() - otaBeginStartUs;
 
     // Timeing of esp_ota_begin
-    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 1) == pdTRUE))
+    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, pdMS_TO_TICKS(FW_UPDATE_STATS_MUTEX_MAX_WAIT_MS)) == pdTRUE))
     {
         _otaStatus.espOTABeginFnUs = micros() - _otaStatus.startUs;
         xSemaphoreGive(_fwUpdateStatusSemaphore);
@@ -542,13 +571,17 @@ bool ESPOTAUpdate::startOTAUpdate(size_t fileLen)
 bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
 {
     // Finish OTA
-    _otaDirectInProgress = false;
+    bool wasInProgress = _otaDirectInProgress.exchange(false);
 
     // Check if cancelled
     if (updateCancelled)
     {
         LOG_I(MODULE_PREFIX, "completeOTAUpdate cancelled");
-        if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 10) == pdTRUE))
+
+        // Abort the update to release the OTA handle
+        if (wasInProgress)
+            esp_ota_abort(_espOTAHandle);
+        if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, portMAX_DELAY) == pdTRUE))
         {
             _otaStatus.lastOTAUpdateOK = false;
             _otaStatus.lastOTAUpdateResult = "FailedCancelled";
@@ -558,7 +591,7 @@ bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
     }
 
     // Debug
-    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 10) == pdTRUE))
+    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, pdMS_TO_TICKS(FW_UPDATE_STATS_MUTEX_MAX_WAIT_MS)) == pdTRUE))
     {
         FWUpdateStatus otaStatus = _otaStatus;
         xSemaphoreGive(_fwUpdateStatusSemaphore);
@@ -571,7 +604,7 @@ bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
     if (esp_ota_end(_espOTAHandle) != ESP_OK) 
     {
         LOG_E(MODULE_PREFIX, "esp_ota_end failed!");
-        if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 10) == pdTRUE))
+        if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, portMAX_DELAY) == pdTRUE))
         {
             _otaStatus.lastOTAUpdateOK = false;
             _otaStatus.lastOTAUpdateResult = "FailedOTAEnd";
@@ -588,7 +621,7 @@ bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
     if (err != ESP_OK) 
     {
         LOG_E(MODULE_PREFIX, "esp_ota_set_boot_partition failed! err=0x%x", err);
-        if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 10) == pdTRUE))
+        if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, portMAX_DELAY) == pdTRUE))
         {
             _otaStatus.lastOTAUpdateOK = false;
             _otaStatus.lastOTAUpdateResult = "FailedSetBootPartition";
@@ -605,7 +638,7 @@ bool ESPOTAUpdate::completeOTAUpdate(bool updateCancelled)
     // Schedule restart
     _restartPendingStartMs = millis();
     _restartPending = true;
-    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, 10) == pdTRUE))
+    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, portMAX_DELAY) == pdTRUE))
         {
             _otaStatus.lastOTAUpdateOK = true;
             _otaStatus.lastOTAUpdateResult = "OK";

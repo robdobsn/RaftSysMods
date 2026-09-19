@@ -90,9 +90,10 @@ void BLEStdServices::updateStdServices(uint16_t gapConnHandle, NamedValueProvide
 
                 // Get attribute value
                 bool isValid = false;
-                stdService.attribValue = pNamedValueProvider->getNamedValue(sysModName.c_str(), namedValueName.c_str(), isValid);
+                double attribValue = pNamedValueProvider->getNamedValue(sysModName.c_str(), namedValueName.c_str(), isValid);
                 if (!isValid)
                     continue;
+                stdService.attribValueByte = (uint8_t)attribValue;
 
                 // Check if service is notify or indicate
                 if (stdService.notify || stdService.indicate)
@@ -120,7 +121,7 @@ void BLEStdServices::updateStdServices(uint16_t gapConnHandle, NamedValueProvide
                     // Debug
 #ifdef DEBUG_BLE_STD_SERVICES
                     LOG_I(MODULE_PREFIX, "updateStdServices service %s notify %d indicate %d read %d value %.2f",
-                        stdService.serviceName.c_str(), stdService.notify, stdService.indicate, stdService.read, stdService.attribValue);
+                        stdService.serviceName.c_str(), stdService.notify, stdService.indicate, stdService.read, attribValue);
 #endif
                 }
             }
@@ -173,8 +174,9 @@ void BLEStdServices::setupService(const BLEStandardServiceConfig& serviceConfig,
         return;
     }
 
-    // Service information
-    StandardService service;
+    // Service information (constructed in-place as StandardService is not copyable)
+    _standardServices.emplace_back();
+    StandardService& service = _standardServices.back();
     service.serviceName = serviceConfig.name;
     service.enable = serviceConfig.enable;
     service.notify = serviceConfig.notify;
@@ -183,7 +185,6 @@ void BLEStdServices::setupService(const BLEStandardServiceConfig& serviceConfig,
     service.attribType = attribDataType;
     service.serviceSettings = serviceConfig.serviceSettings;
     service.updateIntervalMs = serviceConfig.updateIntervalMs;
-    _standardServices.push_back(service);
 
     // Service characteristics
     // Determine flags based on service config
@@ -242,11 +243,11 @@ void BLEStdServices::setupService(const BLEStandardServiceConfig& serviceConfig,
 /// @param servicesList list of services to add to
 void BLEStdServices::setupDeviceInfoService(const BLEStandardServiceConfig& serviceConfig, std::vector<struct ble_gatt_svc_def>& servicesList) 
 {
-    StandardService service;
+    _standardServices.emplace_back();
+    StandardService& service = _standardServices.back();
     service.serviceName = serviceConfig.name;
     service.enable = serviceConfig.enable;
     service.read = true;
-    _standardServices.push_back(service);
 
     // Device Info characteristics
 #pragma GCC diagnostic push

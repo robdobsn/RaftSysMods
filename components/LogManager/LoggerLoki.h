@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <atomic>
 #include "LoggerBase.h"
 #include "RaftArduino.h"
 #include "DNSResolver.h"
@@ -55,8 +56,10 @@ private:
 
     // Worker task - performs all network I/O (blocking HTTP POSTs)
     TaskHandle_t _workerTaskHandle = nullptr;
-    volatile bool _shutdownRequested = false;
-    volatile bool _workerRunning = false;
+    // _workerRunning is set when the task is created (not by the task itself) so that the destructor
+    // waits for the worker to exit even if the worker has not yet been scheduled
+    std::atomic<bool> _shutdownRequested{false};
+    std::atomic<bool> _workerRunning{false};
     static const uint32_t WORKER_TASK_STACK_BYTES = 6144;
     static const UBaseType_t WORKER_TASK_PRIORITY = 1;
     static const uint32_t WORKER_IDLE_DELAY_MS = 500;

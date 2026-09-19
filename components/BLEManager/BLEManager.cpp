@@ -325,6 +325,8 @@ bool BLEManager::setNamedValue(const char* valueName, double value)
 /// @param advName
 /// @param manufacturerData
 /// @param serialNo
+/// @note This accesses config and SysManager so must only be called on the main task (BLEGapServer only
+///       calls it from setup() and loop() and not from NimBLE host task callbacks)
 void BLEManager::getAdvertisingInfo(String& advName, uint16_t& manufacturerID, String& serialNo)
 {
     // Advertising name

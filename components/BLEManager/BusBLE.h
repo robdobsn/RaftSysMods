@@ -43,6 +43,13 @@ public:
     virtual bool setup(BusNumType busNum, const RaftJsonIF& config) override final;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief loop (called frequently from the main task to service the bus)
+    virtual void loop() override final
+    {
+        _bleBusDeviceManager.loop();
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Get bus devices interface
     virtual RaftBusDevicesIF* getBusDevicesIF() override final
     {
