@@ -324,7 +324,7 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
         // Advertising
         bool advertisingActive = bleHostReady ? ble_gap_adv_active() : false;
         String isAdvStr = R"("isAdv":)" + String(advertisingActive ? 1 : 0);
-        String advNameStr = (bleHostReady && advertisingActive) ? R"("advName":")" + String(ble_svc_gap_device_name()) : "";
+        String advNameStr = (bleHostReady && advertisingActive) ? R"("advName":")" + String(ble_svc_gap_device_name()) + R"(")" : "";
 
         // Discovery active
         String isDiscoveryStr = R"("isDisc":)" + String((bleHostReady && ble_gap_disc_active()) ? 1 : 0);
