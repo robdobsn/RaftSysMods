@@ -14,8 +14,11 @@
 #define PLACE_IN_FLASH_STORE
 #ifdef PLACE_IN_FLASH_STORE
 #include "esp_attr.h"
+// IDF >= 6.1 esp_attr.h defines PLACE_IN_SECTION with a __COUNTER__ suffix (creates an unplaceable orphan section) - use the plain form
+#undef PLACE_IN_SECTION
 #define PLACE_IN_SECTION(x) __attribute__((section(x)))
 #else
+#undef PLACE_IN_SECTION
 #define PLACE_IN_SECTION(x)
 #endif
 
