@@ -58,6 +58,11 @@ public:
     static const int DEFAULT_TASK_PRIORITY = 1;
     static const int DEFAULT_TASK_SIZE_BYTES = 4000;
     static const int DEFAULT_OUTBOUND_MSG_QUEUE_SIZE = 30;
+    // Inbound messages are queued on the NimBLE host task and processed on the main task. There is no way to
+    // apply back-pressure to a BLE central which is writing without response so the queue has to hold what can
+    // arrive while the main task is busy (e.g. writing to flash). A file upload sends a batch of blocks
+    // (40 by default - see FileUploadOKTOProtocol) before it waits for an acknowledgement.
+    static const int DEFAULT_INBOUND_MSG_QUEUE_SIZE = 100;
     static const uint32_t BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS = 5;
     static const uint32_t MAX_BLE_PACKET_LEN_DEFAULT = 500;
     static const uint32_t PREFERRED_MTU_SIZE = 512;
@@ -126,6 +131,9 @@ public:
         uuidFilterService = config.getString("uuidFilterService", "");
         uuidFilterMaskChars = config.getLong("uuidFilterMaskChars", 16);
 
+        // Inbound message settings
+        inboundQueueSize = config.getLong("inQSize", DEFAULT_INBOUND_MSG_QUEUE_SIZE);
+
         // Outbound message settings
         minMsBetweenSends = config.getLong("minMsBetweenSends", BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS);
         outboundQueueSize = config.getLong("outQSize", DEFAULT_OUTBOUND_MSG_QUEUE_SIZE);
@@ -182,6 +190,7 @@ public:
                     " uuidCmdRspCmd:" + uuidCmdRespCommand +
                     " uuidCmdRspResp:" + uuidCmdRespResponse +
                     " uuidFilterService " + uuidFilterService +
+                    " inQSz:" + String(inboundQueueSize) +
                     " outQSz:" + String(outboundQueueSize) +
                     " minSndMs:" + String(minMsBetweenSends) + 
                     " inFlghtMax:" + String(outMsgsInFlightMax) +
@@ -259,6 +268,9 @@ public:
 
     // UUID filter mask characters
     uint16_t uuidFilterMaskChars = 16;
+
+    // Inbound message settings
+    uint16_t inboundQueueSize = DEFAULT_INBOUND_MSG_QUEUE_SIZE;
 
     // Outbound message settings
     uint16_t minMsBetweenSends = BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS;

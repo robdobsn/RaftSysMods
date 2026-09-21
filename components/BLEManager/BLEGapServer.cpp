@@ -256,7 +256,8 @@ void BLEGapServer::registerChannel(CommsCoreIF& commsCoreIF)
 {
     // Comms channel
     uint32_t maxPktLen = _gattServer.getMaxPacketLen();
-    const CommsChannelSettings commsChannelSettings(maxPktLen, maxPktLen, 0, 0, maxPktLen, 0);
+    // The inbound queue length is set explicitly as BLE has no back-pressure (see BLEConfig.h)
+    const CommsChannelSettings commsChannelSettings(maxPktLen, maxPktLen, _bleConfig.inboundQueueSize, 0, maxPktLen, 0);
 
     // Register as a message channel
     _commsChannelID = commsCoreIF.registerChannel("RICSerial", 

@@ -138,6 +138,24 @@ RaftRetCode ESPOTAUpdate::apiFirmwareMain(const String &reqStr, String &respStr,
     LOG_I(MODULE_PREFIX, "apiESPFirmwareMain");
 #endif
 
+    // This is called (on the main task) when the whole of the firmware image has been received - which means
+    // the final block has been passed to the worker task but NOT that the worker has finished with it. The worker
+    // still has to write that block and complete the update (esp_ota_end verifies the whole image which takes
+    // some time) and until it has done so the status is "InProgress" which would be reported as a failure of
+    // an update which then succeeds. The worker leaves each item in the queue until it has finished handling
+    // it so the queue being empty means the result is final. The wait is bounded and the restart which follows
+    // a successful update is performed in loop() (on this task) so it can't occur before the response is sent.
+    uint32_t waitStartMs = millis();
+    while (_otaUpdateQueue && (uxQueueMessagesWaiting(_otaUpdateQueue) > 0))
+    {
+        if (Raft::isTimeout(millis(), waitStartMs, OTA_COMPLETION_WAIT_MAX_MS))
+        {
+            LOG_W(MODULE_PREFIX, "apiFirmwareMain timed-out waiting for OTA update to complete");
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
     // Get status (wait forever - see note in header - so a busy mutex cannot result in failure being reported)
     FWUpdateStatus otaStatus;
     if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, portMAX_DELAY) == pdTRUE))

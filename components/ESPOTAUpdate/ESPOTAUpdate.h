@@ -62,6 +62,9 @@ private:
     bool _otaDirectEnabled;
     static const int TIME_TO_WAIT_BEFORE_RESTART_MS = 1000;
 
+    // Max time apiFirmwareMain waits for the worker task to finish the update so that it can report the result
+    static const uint32_t OTA_COMPLETION_WAIT_MAX_MS = 15000;
+
     // Restart pending (set on the worker task - the start time is written before the flag)
     std::atomic<bool> _restartPending{false};
     volatile int _restartPendingStartMs = 0;
