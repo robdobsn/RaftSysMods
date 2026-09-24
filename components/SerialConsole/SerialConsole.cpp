@@ -176,24 +176,31 @@ void SerialConsole::setup()
         int len = vsnprintf(buf, sizeof(buf), fmt, args);
         if (len > 0)
         {
-            // Translate LF -> CRLF without an extra buffer: write text
-            // segments up to each '\n', then emit "\r\n". This mirrors the
-            // VFS stdio behavior we bypassed.
+            // Translate LF -> CRLF into a buffer and write once. Each
+            // usb_serial_jtag_write_bytes can block for the whole timeout when
+            // nothing is reading the USB console, so writing text and line
+            // endings separately multiplied the delay for the calling task.
+            // A write that doesn't complete means the host isn't draining, so
+            // the rest of the message is dropped rather than waiting again.
             const TickType_t toTicks = pdMS_TO_TICKS(RAFT_LOGGER_USB_JTAG_WRITE_TIMEOUT_MS);
-            int segStart = 0;
-            int clamped = len < (int)sizeof(buf) ? len : (int)sizeof(buf);
-            for (int i = 0; i < clamped; i++)
+            const int clamped = len < (int)sizeof(buf) ? len : (int)sizeof(buf);
+            char outBuf[256];
+            uint32_t outLen = 0;
+            bool writeOk = true;
+            for (int i = 0; (i < clamped) && writeOk; i++)
             {
-                if (buf[i] == '\n')
+                // Keep room for a CRLF pair
+                if (outLen + 2 > sizeof(outBuf))
                 {
-                    if (i > segStart)
-                        usb_serial_jtag_write_bytes(buf + segStart, (size_t)(i - segStart), toTicks);
-                    usb_serial_jtag_write_bytes("\r\n", 2, toTicks);
-                    segStart = i + 1;
+                    writeOk = usb_serial_jtag_write_bytes(outBuf, outLen, toTicks) == (int)outLen;
+                    outLen = 0;
                 }
+                if (buf[i] == '\n')
+                    outBuf[outLen++] = '\r';
+                outBuf[outLen++] = buf[i];
             }
-            if (clamped > segStart)
-                usb_serial_jtag_write_bytes(buf + segStart, (size_t)(clamped - segStart), toTicks);
+            if (writeOk && (outLen > 0))
+                usb_serial_jtag_write_bytes(outBuf, outLen, toTicks);
         }
         return len;
     });
