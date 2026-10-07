@@ -204,16 +204,14 @@ std::vector<uint8_t> BLEBusDeviceManager::getQueuedDeviceDataBinary(uint32_t bus
         // Get poll response JSON
         if (devState.lastDataReceived.size() > 0)
         {
-            // Build length-prefixed sample payload
+            // Build length-prefixed sample payload (long-sample escape for samples over 255 bytes)
             std::vector<uint8_t> payload;
-            uint16_t dataLen = devState.lastDataReceived.size();
-            if (dataLen > 255) dataLen = 255;
-            payload.push_back(static_cast<uint8_t>(dataLen));
-            payload.insert(payload.end(), devState.lastDataReceived.begin(), 
-                           devState.lastDataReceived.begin() + dataLen);
-
-            // Generate binary device record with pre-formatted length-prefixed payload
-            RaftDevice::genBinaryDeviceRecord(binaryData, busNumber, devState.busElemAddr, _deviceTypeIndex, DeviceOnlineState::ONLINE, 0, payload);
+            if (RaftDevice::appendLengthPrefixedSample(payload, devState.lastDataReceived.data(),
+                                                       devState.lastDataReceived.size()))
+            {
+                // Generate binary device record with pre-formatted length-prefixed payload
+                RaftDevice::genBinaryDeviceRecord(binaryData, busNumber, devState.busElemAddr, _deviceTypeIndex, DeviceOnlineState::ONLINE, 0, payload);
+            }
 
             // Clear data
             devState.lastDataReceived.clear();
