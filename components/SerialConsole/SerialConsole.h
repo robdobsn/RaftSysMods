@@ -86,6 +86,11 @@ private:
     bool _isInitialised = false;
     bool _uartDriverInstalled = false;
 
+    // Port released to another owner (receiveCmdJSON "releasePort") - nothing is
+    // read from or written to it until "reclaimPort".  Used when the port carries
+    // something else for a while, e.g. a binary link on USB-Serial-JTAG.
+    bool _portReleased = false;
+
     // CRLF string on tx line end
     bool _crlfOnTx = DEFAULT_CRLF_ON_TX;
 

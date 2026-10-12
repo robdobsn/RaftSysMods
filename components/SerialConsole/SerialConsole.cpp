@@ -357,7 +357,7 @@ void SerialConsole::addCommsChannels(CommsCoreIF& commsCore)
 
 int SerialConsole::getChar()
 {
-    if (_isEnabled)
+    if (_isEnabled && !_portReleased)
     {
 #ifdef __linux__
         // Linux: read from stdin
@@ -449,7 +449,7 @@ int SerialConsole::getChar()
 
 void SerialConsole::putStr(const char* pStr)
 {
-    if (_isEnabled && pStr)
+    if (_isEnabled && pStr && !_portReleased)
     {
 #ifdef __linux__
         // Linux: write to stdout
@@ -467,7 +467,7 @@ void SerialConsole::putStr(const char* pStr)
 
 void SerialConsole::putStr(const String& str)
 {
-    if (_isEnabled)
+    if (_isEnabled && !_portReleased)
     {
 #ifdef __linux__
         // Linux: write to stdout
@@ -659,8 +659,8 @@ bool SerialConsole::sendMsg(CommsChannelMsg& msg)
     // LOG_I(MODULE_PREFIX, "sendMsg channelID %d, msgType %s msgNum %d, len %d",
     //         msg.getChannelID(), msg.getMsgTypeAsString(msg.getMsgTypeCode()), msg.getMsgNumber(), msg.getBufLen());
 
-    // Check valid
-    if (!_isInitialised)
+    // Check valid (and that the port has not been released to another owner)
+    if (!_isInitialised || _portReleased)
         return false;
 
     // Encode
@@ -692,10 +692,24 @@ bool SerialConsole::sendMsg(CommsChannelMsg& msg)
 
 RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON, String* pResponseJSON)
 {
-#if !defined(__linux__) && !defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
     // Extract command from JSON
     RaftJson jsonInfo(cmdJSON);
     String cmd = jsonInfo.getString("cmd", "");
+
+    // Hand the port to another owner, or take it back: while released nothing
+    // is read from or written to it (the owner silences other console output
+    // with RaftConsolePort)
+    if (cmd.equalsIgnoreCase("releasePort") || cmd.equalsIgnoreCase("reclaimPort"))
+    {
+        _portReleased = cmd.equalsIgnoreCase("releasePort");
+        _curLine.clear();
+        _prevChar = -1;
+        if (pResponseJSON)
+            *pResponseJSON = _portReleased ? R"({"rslt":"ok","port":"released"})" : R"({"rslt":"ok","port":"reclaimed"})";
+        return RAFT_OK;
+    }
+
+#if !defined(__linux__) && !defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
     int baudRate = jsonInfo.getLong("baudRate", -1);
     int txBufSize = jsonInfo.getLong("txBuf", -1);
     int rxBufSize = jsonInfo.getLong("rxBuf", -1);
