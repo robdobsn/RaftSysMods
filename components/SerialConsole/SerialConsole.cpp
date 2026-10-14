@@ -8,6 +8,7 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "Logger.h"
+#include "LoggerCore.h"
 #include "SerialConsole.h"
 #include "RestAPIEndpointManager.h"
 #include "CommsChannelSettings.h"
@@ -163,45 +164,15 @@ void SerialConsole::setup()
     // ceiling). usb_serial_jtag_write_bytes coalesces data and reaches the
     // ~200 KB/s USB FS ceiling. Only install the hook when USB JTAG is the
     // PRIMARY console (not secondary) so UART output is preserved when UART
-    // is primary.
-    // Timeout trade-off: small value drops on congestion (no back-pressure);
-    // large value blocks the caller. Override with compile-time define
-    // RAFT_LOGGER_USB_JTAG_WRITE_TIMEOUT_MS.
+    // is primary. The output is written by LoggerCore (as for Raft log output)
+    // which handles LF -> CRLF translation and doesn't stall the calling task
+    // repeatedly when the host isn't reading the console.
 #if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
-#ifndef RAFT_LOGGER_USB_JTAG_WRITE_TIMEOUT_MS
-#define RAFT_LOGGER_USB_JTAG_WRITE_TIMEOUT_MS 10
-#endif
     esp_log_set_vprintf([](const char* fmt, va_list args) -> int {
         char buf[512];
         int len = vsnprintf(buf, sizeof(buf), fmt, args);
         if (len > 0)
-        {
-            // Translate LF -> CRLF into a buffer and write once. Each
-            // usb_serial_jtag_write_bytes can block for the whole timeout when
-            // nothing is reading the USB console, so writing text and line
-            // endings separately multiplied the delay for the calling task.
-            // A write that doesn't complete means the host isn't draining, so
-            // the rest of the message is dropped rather than waiting again.
-            const TickType_t toTicks = pdMS_TO_TICKS(RAFT_LOGGER_USB_JTAG_WRITE_TIMEOUT_MS);
-            const int clamped = len < (int)sizeof(buf) ? len : (int)sizeof(buf);
-            char outBuf[256];
-            uint32_t outLen = 0;
-            bool writeOk = true;
-            for (int i = 0; (i < clamped) && writeOk; i++)
-            {
-                // Keep room for a CRLF pair
-                if (outLen + 2 > sizeof(outBuf))
-                {
-                    writeOk = usb_serial_jtag_write_bytes(outBuf, outLen, toTicks) == (int)outLen;
-                    outLen = 0;
-                }
-                if (buf[i] == '\n')
-                    outBuf[outLen++] = '\r';
-                outBuf[outLen++] = buf[i];
-            }
-            if (writeOk && (outLen > 0))
-                usb_serial_jtag_write_bytes(outBuf, outLen, toTicks);
-        }
+            LoggerCore::writeToConsole(buf);
         return len;
     });
 #endif
