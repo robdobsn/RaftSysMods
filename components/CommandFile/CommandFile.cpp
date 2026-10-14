@@ -249,11 +249,12 @@ bool CommandFile::processAPILine()
 bool CommandFile::exec() {
     _repsLeft -= 1;
 
-    // Send API request
+    // Send API request (the response is not used so the endpoint may defer it)
     String s = "";
     if (_pRestAPIEndpointManager)
-        _pRestAPIEndpointManager->handleApiRequest(_curCommand.c_str(), s, 
-                        APISourceInfo(RestAPIEndpointManager::CHANNEL_ID_COMMAND_FILE));
+        _pRestAPIEndpointManager->handleApiRequestDeferrable(_curCommand.c_str(), s, 
+                        APISourceInfo(RestAPIEndpointManager::CHANNEL_ID_COMMAND_FILE),
+                        [](const String& /*deferredRespStr*/) {});
 
     // Change API State
     if (_curPosition == _APICode.length() && _repsLeft == 0) {

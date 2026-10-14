@@ -566,13 +566,23 @@ void SerialConsole::loop()
 #ifdef DEBUG_SERIAL_CONSOLE
             LOG_I(MODULE_PREFIX, "CommsSerial: ->cmdInterp cmdStr %s", _curLine.c_str());
 #endif
+            // The response may be deferred by the endpoint (e.g. a bus read) in which case it is displayed
+            // when it is available (the response includes the request so it can be matched)
             String retStr;
+            RaftRetCode retc = RAFT_OK;
             if (getRestAPIEndpointManager())
-                getRestAPIEndpointManager()->handleApiRequest(_curLine.c_str(), retStr, 
-                                APISourceInfo(RestAPIEndpointManager::CHANNEL_ID_SERIAL_CONSOLE));
+                retc = getRestAPIEndpointManager()->handleApiRequestDeferrable(_curLine.c_str(), retStr, 
+                                APISourceInfo(RestAPIEndpointManager::CHANNEL_ID_SERIAL_CONSOLE),
+                                [this](const String& deferredRespStr) {
+                                    putStr(deferredRespStr);
+                                    putStr(_crlfOnTx ? "\r\n" : "\n");
+                                });
             // Display response
-            putStr(retStr);
-            putStr(_crlfOnTx ? "\r\n" : "\n");
+            if (retc != RAFT_RESP_DEFERRED)
+            {
+                putStr(retStr);
+                putStr(_crlfOnTx ? "\r\n" : "\n");
+            }
 
             // Reset line
             _curLine = "";
