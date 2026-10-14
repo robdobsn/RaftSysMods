@@ -168,6 +168,33 @@ void NetworkManager::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager
     endpointManager.addEndpoint("wifiscan", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
                           std::bind(&NetworkManager::apiWifiScan, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
                           "Scan WiFi networks - wifiscan/start - wifiscan/results");
+    endpointManager.addEndpoint("wifidiag", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
+                          std::bind(&NetworkManager::apiWifiDiag, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                          "WiFi link diagnostics - wifidiag returns diagnostics, wifidiag?ps=none|min|max&txPwr=dBm&proto=bgn|bg|b&bw=20|40"
+                          "&pingMs=N&pingRecover=N&logS=N&reconnect=1 sets link options");
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// WiFi diagnostics
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+RaftRetCode NetworkManager::apiWifiDiag(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+{
+    // Set any options given
+    std::vector<String> params;
+    std::vector<RaftJson::NameValuePair> nameValues;
+    RestAPIEndpointManager::getParamsAndNameValues(reqStr.c_str(), params, nameValues);
+    if (nameValues.size() > 0)
+    {
+        RaftJson options = RaftJson::getJSONFromNVPairs(nameValues, true);
+        String errStr;
+        if (!networkSystem.getWiFiDiagnostics().setOptions(options, errStr))
+            return Raft::setJsonErrorResult(reqStr.c_str(), respStr, errStr.c_str());
+    }
+
+    // Return diagnostics
+    String diagJSON = "\"diag\":" + networkSystem.getWiFiDiagnostics().getJSON();
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true, diagJSON.c_str());
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
