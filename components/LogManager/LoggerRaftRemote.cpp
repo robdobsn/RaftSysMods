@@ -319,6 +319,7 @@ bool LoggerRaftRemote::checkConnection()
     // Flush any stale contents from a previous connection and then allow log() to fill the ring buffer
     flushRingBuf();
     _clientConnected = true;
+    _clientConnCount++;
 
 #ifdef DEBUG_LOGGER_RAFTREMOTE_SOCKET
     ESP_LOGI(MODULE_PREFIX, "checkConnection OK handle %d", _clientSocketFd);
@@ -358,16 +359,24 @@ void LoggerRaftRemote::handleIncomingData()
         String curLine = buf;
         curLine.trim();
 
-        // Handle the command
+        // Handle the command - the response may be deferred by the endpoint (e.g. a bus read) in which case
+        // it is sent when available if the same client is still connected
         String retStr;
+        RaftRetCode retc = RAFT_OK;
         if (_pRestAPIEndpointManager)
         {
-            _pRestAPIEndpointManager->handleApiRequest(curLine.c_str(), retStr, 
-                    APISourceInfo(RestAPIEndpointManager::CHANNEL_ID_REMOTE_CONTROL));
+            uint32_t connCount = _clientConnCount;
+            retc = _pRestAPIEndpointManager->handleApiRequestDeferrable(curLine.c_str(), retStr, 
+                    APISourceInfo(RestAPIEndpointManager::CHANNEL_ID_REMOTE_CONTROL),
+                    [this, connCount](const String& deferredRespStr) {
+                        if ((_clientSocketFd >= 0) && (_clientConnCount == connCount))
+                            sendResponse(deferredRespStr + "\n");
+                    });
         }
 
         // Send response
-        sendResponse(retStr + "\n");
+        if (retc != RAFT_RESP_DEFERRED)
+            sendResponse(retStr + "\n");
     }
     else if (bytesRead < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
     {

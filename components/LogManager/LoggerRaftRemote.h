@@ -43,6 +43,9 @@ private:
     int _serverSocketFd = -1;
     int _clientSocketFd = -1;
 
+    // Client connection count (used to ensure a deferred response is only sent to the client which made the request)
+    uint32_t _clientConnCount = 0;
+
     // Rest API endpoint manager
     RestAPIEndpointManager* _pRestAPIEndpointManager = nullptr;
 
