@@ -63,6 +63,10 @@ void FileManager::applySetup()
     // way it runs on a background task and never stalls the main loop.
     bool sdScanUsedAtBoot = configGetBool("SDScanUsedAtBoot", false);
 
+    // Write pacing - the maximum percentage of time spent in slow writes (flash erases, which stall the whole system)
+    // during an upload, 0 for no pacing
+    fileSystem.setWritePacing(configGetLong("WritePacingPct", FileSystem::WRITE_PACING_MAX_STALL_PCT_DEFAULT));
+
     // SD pins
     String pinName = configGetString("SDMOSI", "");
     int sdMOSIPin = ConfigPinMap::getPinFromName(pinName.c_str());
@@ -129,7 +133,10 @@ void FileManager::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager)
                     nullptr, 
                     nullptr,
                     std::bind(&FileManager::apiUploadFileBlock, this, 
-                            std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                            std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                    // Not ready for more data while the file system is pacing writes (the web server then stops
+                    // reading the request so the client is slowed by TCP flow control)
+                    [](const APISourceInfo& sourceInfo) { return !fileSystem.isWriteHoldoffActive(); });
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
