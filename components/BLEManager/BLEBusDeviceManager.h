@@ -275,9 +275,11 @@ private:
         return numRemoved;
     }
 
-    // Device type info - common to all BLE devices
-    DeviceTypeRecord _devTypeRec;
-    DeviceTypeIndexType _deviceTypeIndex = 0;
+    // Device type of all devices on this bus: the record (named by the bus config's "deviceTypeKey") that
+    // decodes the records BLEAdvertDecoder produces. Invalid until setup() finds the record
+    static constexpr const char* DEVICE_TYPE_KEY_DEFAULT = "BLEBTHome";
+    String _deviceTypeKey;
+    DeviceTypeIndexType _deviceTypeIndex = DEVICE_TYPE_INDEX_INVALID;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Format device status to JSON
