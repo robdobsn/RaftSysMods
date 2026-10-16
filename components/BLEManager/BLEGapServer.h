@@ -249,6 +249,10 @@ private:
     // (the start time must be written before the pending flag)
     std::atomic<bool> _connIntervalCheckPending{false};
     std::atomic<uint32_t> _connIntervalCheckPendingStartMs{0};
+
+    // Time the current connection was established (for logging connection duration)
+    std::atomic<uint32_t> _connStartMs{0};
+
     static const uint32_t CONN_INTERVAL_CHECK_MS = 200;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -321,6 +325,12 @@ private:
     /// @param eventType integer value representing the GAP event type
     /// @return string containing the name of the GAP event
     static String getGapEventName(int eventType);
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Get a name for a connect status or disconnect reason
+    /// @param reason connect status or disconnect reason from the GAP event
+    /// @return name of the reason
+    static const char* getDisconnReasonStr(int reason);
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Handle a GAP connection event

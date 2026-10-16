@@ -1019,6 +1019,33 @@ String BLEGapServer::getGapEventName(int eventType)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Get a name for a connect status or disconnect reason
+/// NimBLE reports HCI reason codes offset by BLE_HS_ERR_HCI_BASE, so the common HCI codes are named here
+/// @param reason connect status or disconnect reason from the GAP event
+/// @return name of the reason
+const char* BLEGapServer::getDisconnReasonStr(int reason)
+{
+    switch (reason)
+    {
+        case 0: return "OK";
+        case BLE_HS_ERR_HCI_BASE + BLE_ERR_CONN_SPVN_TMO: return "SupervisionTimeout";
+        case BLE_HS_ERR_HCI_BASE + BLE_ERR_REM_USER_CONN_TERM: return "RemoteUserTerminated";
+        case BLE_HS_ERR_HCI_BASE + BLE_ERR_RD_CONN_TERM_RESRCS: return "RemoteLowResources";
+        case BLE_HS_ERR_HCI_BASE + BLE_ERR_RD_CONN_TERM_PWROFF: return "RemotePowerOff";
+        case BLE_HS_ERR_HCI_BASE + BLE_ERR_CONN_TERM_LOCAL: return "LocalHostTerminated";
+        case BLE_HS_ERR_HCI_BASE + BLE_ERR_LMP_LL_RSP_TMO: return "LLResponseTimeout";
+        case BLE_HS_ERR_HCI_BASE + BLE_ERR_CONN_TERM_MIC: return "MICFailure";
+        case BLE_HS_ERR_HCI_BASE + BLE_ERR_CONN_ESTABLISHMENT: return "FailedToEstablish";
+        case BLE_HS_ERR_HCI_BASE + BLE_ERR_UNK_CONN_ID: return "UnknownConnID";
+        case BLE_HS_ERR_HCI_BASE + BLE_ERR_INSTANT_PASSED: return "InstantPassed";
+        case BLE_HS_ERR_HCI_BASE + BLE_ERR_DIFF_TRANS_COLL: return "TransactionCollision";
+        case BLE_HS_ERR_HCI_BASE + BLE_ERR_CONN_PARMS: return "UnacceptableConnParams";
+        case BLE_HS_ETIMEOUT_HCI: return "HCITimeout";
+        default: return "Other";
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Handle a GAP connection event when a new BLE connection is established or a connection attempt fails
 /// This function processes the connection event, updates the connection handle, and sets the connection state.
 /// If the connection is successful, it sets the preferred MTU size and connection parameters. If the connection fails,
@@ -1071,6 +1098,7 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
                             _bleConfig.llPacketTimePref);
 #endif
         // Now connected
+        _connStartMs = millis();
         setConnState(true, event->connect.conn_handle);
 
         // Conn interval check pending (the start time must be written before the flag and
@@ -1082,6 +1110,10 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
     {
         // Return values
         statusStr = "conn-fail";
+
+        // Always log failed connects (rare, and useful for diagnosing link problems)
+        LOG_W(MODULE_PREFIX, "connect failed status %s (0x%x)",
+                getDisconnReasonStr(event->connect.status), event->connect.status);
 
         // Not connected
         setConnState(false);
@@ -1109,6 +1141,11 @@ int BLEGapServer::gapEventDisconnect(struct ble_gap_event *event, String& status
     // Return values
     statusStr = "disconn reason " + BLEGattServer::getHSErrorMsg(event->disconnect.reason);
     connHandle = event->disconnect.conn.conn_handle;
+
+    // Always log the disconnect reason (one line per disconnect, useful for diagnosing link problems)
+    LOG_I(MODULE_PREFIX, "disconnected reason %s (0x%x) after %.1fs",
+            getDisconnReasonStr(event->disconnect.reason), event->disconnect.reason,
+            Raft::timeElapsed(millis(), _connStartMs.load()) / 1000.0);
 
     // Connection terminated
     setConnState(false);
