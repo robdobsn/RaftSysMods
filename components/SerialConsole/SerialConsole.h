@@ -133,6 +133,19 @@ private:
     static const uint32_t PROTOCOL_OVER_ASCII_MSG_MAX_LEN = 1000;
     ProtocolOverAscii _protocolOverAscii;
 
+    // Text for the USB-Serial-JTAG port that hasn't fitted in the driver's transmit buffer yet (e.g. a reply larger
+    // than it): written from loop() as the host reads, without waiting. The driver takes a write whole or not at all,
+    // so text is written in pieces of at most TX_PIECE_MAX_BYTES (which fit a buffer that has room), and later text
+    // queues behind any already pending so the order is kept
+    SpiramAwareUint8Vector _txPending;
+    uint32_t _txPendingPos = 0;
+    uint32_t _txPendingDropped = 0;
+    static const uint32_t TX_PIECE_MAX_BYTES = 1024;
+    static const uint32_t TX_PENDING_MAX_BYTES = 65536;
+    void consoleWrite(const char* pText, uint32_t len);
+    bool writePiecesNow(const char*& pText, uint32_t& len);
+    void serviceTxPending();
+
     // Helpers
     void showEndpoints();
     bool sendMsg(CommsChannelMsg& msg);
