@@ -426,38 +426,103 @@ int SerialConsole::getChar()
 
 void SerialConsole::putStr(const char* pStr)
 {
-    if (_isEnabled && pStr && !_portReleased)
-    {
-#ifdef __linux__
-        // Linux: write to stdout
-        write(STDOUT_FILENO, pStr, strlen(pStr));
-#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
-    usb_serial_jtag_write_bytes((const char*)pStr, strnlen(pStr, _txBufferSize/2+1), 1);
-#elif defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
-    uart_write_bytes((uart_port_t)_uartNum, pStr, strnlen(pStr, _txBufferSize/2+1));
-    usb_serial_jtag_write_bytes((const char*)pStr, strnlen(pStr, _txBufferSize/2+1), 1);
-#else
-        uart_write_bytes((uart_port_t)_uartNum, pStr, strnlen(pStr, _txBufferSize/2+1));
-#endif
-    }
+    if (pStr)
+        consoleWrite(pStr, strlen(pStr));
 }
 
 void SerialConsole::putStr(const String& str)
 {
-    if (_isEnabled && !_portReleased)
-    {
+    consoleWrite(str.c_str(), str.length());
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Write text to the console
+/// @note On USB-Serial-JTAG this never waits: text that doesn't fit in the driver's transmit buffer now is kept
+///       and written from loop()
+void SerialConsole::consoleWrite(const char* pText, uint32_t len)
+{
+    if (!_isEnabled || _portReleased || !pText || (len == 0))
+        return;
 #ifdef __linux__
-        // Linux: write to stdout
-        write(STDOUT_FILENO, str.c_str(), str.length());
-#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
-    usb_serial_jtag_write_bytes(str.c_str(), str.length(), 1);
-#elif defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
-    uart_write_bytes((uart_port_t)_uartNum, str.c_str(), str.length());
-    usb_serial_jtag_write_bytes(str.c_str(), str.length(), 1);
-#else
-        uart_write_bytes((uart_port_t)_uartNum, str.c_str(), str.length());
+    // Linux: write to stdout
+    write(STDOUT_FILENO, pText, len);
+#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) || defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
+#if defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
+    uart_write_bytes((uart_port_t)_uartNum, pText, len);
 #endif
+    // Write what fits now (unless text is already waiting, which must go first), and keep the rest
+    if ((_txPendingPos >= _txPending.size()) && writePiecesNow(pText, len))
+        return;
+    uint32_t pendingBytes = _txPending.size() - _txPendingPos;
+    if (pendingBytes + len > TX_PENDING_MAX_BYTES)
+    {
+        // The host isn't reading: drop the text rather than holding more
+        _txPendingDropped += len;
+        return;
     }
+    if (_txPendingPos > 0)
+    {
+        _txPending.erase(_txPending.begin(), _txPending.begin() + _txPendingPos);
+        _txPendingPos = 0;
+    }
+    _txPending.insert(_txPending.end(), (const uint8_t*)pText, (const uint8_t*)pText + len);
+#else
+    uart_write_bytes((uart_port_t)_uartNum, pText, len);
+#endif
+}
+
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) || defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Write text to the USB-Serial-JTAG driver a piece at a time, without waiting, while it fits
+/// @param pText (in/out) text, advanced past what was written
+/// @param len (in/out) length, reduced by what was written
+/// @return true if it was all written
+bool SerialConsole::writePiecesNow(const char*& pText, uint32_t& len)
+{
+    while (len > 0)
+    {
+        uint32_t pieceLen = len < TX_PIECE_MAX_BYTES ? len : TX_PIECE_MAX_BYTES;
+        if (usb_serial_jtag_write_bytes(pText, pieceLen, 0) != (int)pieceLen)
+            return false;
+        pText += pieceLen;
+        len -= pieceLen;
+    }
+    return true;
+}
+#endif
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Write pending text as the host reads it (from loop(), without waiting)
+void SerialConsole::serviceTxPending()
+{
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) || defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
+    if (_txPendingPos < _txPending.size())
+    {
+        if (_portReleased)
+        {
+            _txPendingPos = _txPending.size();
+        }
+        else
+        {
+            const char* pText = (const char*)_txPending.data() + _txPendingPos;
+            uint32_t len = _txPending.size() - _txPendingPos;
+            writePiecesNow(pText, len);
+            _txPendingPos = _txPending.size() - len;
+        }
+        if (_txPendingPos >= _txPending.size())
+        {
+            // Done - release the memory (a large reply is rare)
+            SpiramAwareUint8Vector().swap(_txPending);
+            _txPendingPos = 0;
+        }
+    }
+    if (_txPendingDropped > 0)
+    {
+        uint32_t dropped = _txPendingDropped;
+        _txPendingDropped = 0;
+        LOG_W(MODULE_PREFIX, "console output dropped %u bytes (the host isn't reading)", (unsigned)dropped);
+    }
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -491,6 +556,9 @@ SerialConsole::CommandRxState SerialConsole::getXonXoff()
 
 void SerialConsole::loop()
 {
+    // Text waiting for the host to read
+    serviceTxPending();
+
     // Process received data
     std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> inboundMessage;
     for (uint32_t chIdx = 0; chIdx < MAX_BYTES_TO_PROCESS_IN_LOOP; chIdx++)

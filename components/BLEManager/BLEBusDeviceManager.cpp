@@ -28,9 +28,6 @@ BLEBusDeviceManager::BLEBusDeviceManager(RaftBus& raftBus) :
 {
     // Access semaphore
     _accessMutex = xSemaphoreCreateMutex();
-
-    // Get device type info
-    deviceTypeRecords.getDeviceInfo("BLEBTHome", _devTypeRec, _deviceTypeIndex);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -38,8 +35,19 @@ BLEBusDeviceManager::BLEBusDeviceManager(RaftBus& raftBus) :
 /// @param config configuration
 void BLEBusDeviceManager::setup(const RaftJsonIF& config)
 {
+    // Device type of the devices on this bus - the record that decodes what BLEAdvertDecoder produces
+    _deviceTypeKey = config.getString("deviceTypeKey", DEVICE_TYPE_KEY_DEFAULT);
+    DeviceTypeRecord devTypeRec;
+    DeviceTypeIndexType deviceTypeIndex = DEVICE_TYPE_INDEX_INVALID;
+    if (deviceTypeRecords.getDeviceInfo(_deviceTypeKey, devTypeRec, deviceTypeIndex))
+        _deviceTypeIndex = deviceTypeIndex;
+    else
+        LOG_W(MODULE_PREFIX, "setup device type key %s not found - BLE devices will not be reported",
+                    _deviceTypeKey.c_str());
+
     // Debug
-    LOG_I(MODULE_PREFIX, "BLEBusDeviceManager setup");
+    LOG_I(MODULE_PREFIX, "BLEBusDeviceManager setup deviceTypeKey %s deviceTypeIndex %d",
+                _deviceTypeKey.c_str(), (int)_deviceTypeIndex);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -259,6 +267,10 @@ uint32_t BLEBusDeviceManager::getDeviceInfoTimestampMs(bool includeElemOnlineSta
 bool BLEBusDeviceManager::handlePollResult(uint64_t timeNowUs, BusElemAddrType address, 
                         const std::vector<uint8_t>& pollResultData, const DevicePollingInfo* pPollInfo)
 {
+    // Without a device type the data can't be decoded, so it isn't stored
+    if (_deviceTypeIndex == DEVICE_TYPE_INDEX_INVALID)
+        return false;
+
     // Ms time
     uint32_t timeNowMs = timeNowUs / 1000;
 

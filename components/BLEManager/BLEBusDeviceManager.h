@@ -54,26 +54,26 @@ public:
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    /// @brief Get device type information by device type name
-    /// @param deviceType device type name
+    /// @brief Get device type information by device type key
+    /// @param deviceTypeKey device type key
     /// @param includePlugAndPlayInfo true to include plug and play information
     /// @param deviceTypeIndex (out) device type index
     /// @return JSON string
-    virtual String getDevTypeInfoJsonByTypeName(const String& deviceType, bool includePlugAndPlayInfo, DeviceTypeIndexType& deviceTypeIndex) const override final
+    virtual String getDevTypeInfoJsonByTypeName(const String& deviceTypeKey, bool includePlugAndPlayInfo, DeviceTypeIndexType& deviceTypeIndex) const override final
     {
         // Get device type info
-        return deviceTypeRecords.getDevTypeInfoJsonByTypeName(deviceType, includePlugAndPlayInfo, deviceTypeIndex);
+        return deviceTypeRecords.getDevTypeInfoJsonByTypeName(deviceTypeKey, includePlugAndPlayInfo, deviceTypeIndex);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Get device type info JSON by device type index
-    /// @param deviceTypeIdx device type index
+    /// @param deviceTypeIndex device type index
     /// @param includePlugAndPlayInfo include plug and play info
     /// @return JSON string
-    virtual String getDevTypeInfoJsonByTypeIdx(DeviceTypeIndexType deviceTypeIdx, bool includePlugAndPlayInfo) const override final
+    virtual String getDevTypeInfoJsonByTypeIdx(DeviceTypeIndexType deviceTypeIndex, bool includePlugAndPlayInfo) const override final
     {
         // Get device type info
-        return deviceTypeRecords.getDevTypeInfoJsonByTypeIdx(deviceTypeIdx, includePlugAndPlayInfo);
+        return deviceTypeRecords.getDevTypeInfoJsonByTypeIdx(deviceTypeIndex, includePlugAndPlayInfo);
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -275,9 +275,11 @@ private:
         return numRemoved;
     }
 
-    // Device type info - common to all BLE devices
-    DeviceTypeRecord _devTypeRec;
-    DeviceTypeIndexType _deviceTypeIndex = 0;
+    // Device type of all devices on this bus: the record (named by the bus config's "deviceTypeKey") that
+    // decodes the records BLEAdvertDecoder produces. Invalid until setup() finds the record
+    static constexpr const char* DEVICE_TYPE_KEY_DEFAULT = "BLEBTHome";
+    String _deviceTypeKey;
+    DeviceTypeIndexType _deviceTypeIndex = DEVICE_TYPE_INDEX_INVALID;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Format device status to JSON
