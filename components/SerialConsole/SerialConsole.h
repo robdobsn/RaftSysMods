@@ -32,6 +32,7 @@ public:
     
     // Get
     int getChar();
+    uint32_t readBytes(uint8_t* pBuf, uint32_t maxLen);
 
     // Put
     void putStr(const char* pStr);
@@ -50,6 +51,9 @@ public:
     static const int DEFAULT_UART_NUM = 0;
     static const int DEFAULT_BAUD_RATE = 115200;
     static const int DEFAULT_RX_BUFFER_SIZE = 1024;
+    // USB Serial/JTAG drops what arrives when its buffer is full, and the host sends as fast as USB allows, so a
+    // host's protocol frames (e.g. a file upload's blocks) need room while the main loop is busy elsewhere
+    static const int DEFAULT_USB_RX_BUFFER_SIZE = 4096;
     static const int DEFAULT_TX_BUFFER_SIZE = 4096;
     static const bool DEFAULT_CRLF_ON_TX = true;
 
@@ -107,8 +111,13 @@ private:
     uint32_t _rxBufferSize = DEFAULT_RX_BUFFER_SIZE;
     uint32_t _txBufferSize = DEFAULT_TX_BUFFER_SIZE;
 
-    // Bytes to process in loop call
-    static const uint32_t MAX_BYTES_TO_PROCESS_IN_LOOP = 100;
+    // Bytes to read in a loop call (read at once, and passed on as one message when they are protocol frames: a
+    // byte or a USB packet at a time would make many small messages, which can fill the comms channel's queue)
+    static const uint32_t MAX_BYTES_TO_PROCESS_IN_LOOP = 1024;
+
+    // Bytes read but not yet processed (processing stops after a command line, to run it)
+    std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> _rxChunk;
+    uint32_t _rxChunkPos = 0;
 
     // Procotol
     String _protocol;
