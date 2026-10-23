@@ -207,11 +207,9 @@ RaftRetCode FileManager::apiFileRead(const String &reqStr, String& respStr, cons
         fileNameStr += "/" + extraPath;
     fileNameStr.replace("~", "/");
     char* pFileContents = (char*)fileSystem.getFileContents(fileSystemStr, fileNameStr);
+    // An error must have a response (an empty response is never sent over RICREST so the client would time out)
     if (!pFileContents)
-    {
-        respStr = "";
-        return RaftRetCode::RAFT_CANNOT_START;
-    }
+        return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "nofile", nullptr, RaftRetCode::RAFT_CANNOT_START);
     respStr = pFileContents;
     free(pFileContents);
     return RaftRetCode::RAFT_OK;

@@ -609,7 +609,6 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
             break;
         case BLE_GAP_EVENT_MTU:
             statusStr = "mtu:" + String(event->mtu.value) + ",chanID:" + String(event->mtu.channel_id);
-            _gattServer.getOutbound().onMTUSizeInfo(event->mtu.value);
             break;
         case BLE_GAP_EVENT_REPEAT_PAIRING:
             errorCode = gapEventRepeatPairing(event);

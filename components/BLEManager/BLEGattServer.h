@@ -70,6 +70,8 @@ public:
     void setConnState(bool isConnected, uint16_t connHandle)
     {
         _bleGapConnHandle = isConnected ? connHandle : BLE_HS_CONN_HANDLE_NONE;
+        // A new connection starts unsubscribed (don't rely on the unsubscribe event at disconnect)
+        _responseNotifyState = false;
         _bleOutbound.notifyConnStateChanged(isConnected);
     }
 
@@ -81,6 +83,9 @@ public:
 
     // Send to central (using notification or indication)
     BLEGattServerSendResult sendToCentral(const uint8_t* pBuf, uint32_t bufLen, bool useIndication);
+
+    // Get the ATT MTU of the current connection (0 if not connected)
+    uint16_t getConnMTU();
 
     // Check if notification is enabled
     bool isNotificationEnabled()

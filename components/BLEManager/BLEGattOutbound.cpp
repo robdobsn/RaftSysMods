@@ -46,7 +46,6 @@ bool BLEGattOutbound::setup(const BLEConfig& bleConfig)
     // Max len
     _maxPacketLen = bleConfig.maxPacketLen;
     _preferredMtuSize = bleConfig.preferredMTUSize;
-    _actualMtuSize = bleConfig.preferredMTUSize;
 
     // Send params - command queue uses the global sendUseInd setting, publish queue uses publishUseIndication
     _commandUseIndication = bleConfig.sendUsingIndication;
@@ -236,9 +235,10 @@ bool BLEGattOutbound::sendMsg(CommsChannelMsg& msg)
 
 uint32_t BLEGattOutbound::getMaxSendLen() const
 {
-    uint16_t actualMtuSize = _actualMtuSize.load();
-    return ((actualMtuSize != 0) && (actualMtuSize > MTU_SIZE_REDUCTION+1))
-            ? actualMtuSize - MTU_SIZE_REDUCTION : _maxPacketLen;
+    // The MTU of the current connection is read from NimBLE each time - an MTU tracked from GAP events could be
+    // stale (from a previous connection) or missed, and NimBLE silently truncates packets larger than the MTU
+    uint16_t connMtu = _gattServer.getConnMTU();
+    return (connMtu > MTU_SIZE_REDUCTION+1) ? connMtu - MTU_SIZE_REDUCTION : _maxPacketLen;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -530,6 +530,18 @@ void BLEGattServer::stop()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Get the ATT MTU of the current connection (0 if not connected)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+uint16_t BLEGattServer::getConnMTU()
+{
+    uint16_t connHandle = _bleGapConnHandle.load();
+    if (connHandle == BLE_HS_CONN_HANDLE_NONE)
+        return 0;
+    return ble_att_mtu(connHandle);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Handle subscription
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -538,12 +550,11 @@ void BLEGattServer::handleSubscription(struct ble_gap_event * pEvent, String& st
     // Check enabled
     if (!_isEnabled)
         return;
+    // Only the response characteristic matters (a central may also subscribe to others, e.g. Service Changed).
+    // A central may enable notifications, indications or both - any of them counts as subscribed (some
+    // centrals, e.g. Windows via btleplug, enable only indications when both are supported)
     if (pEvent->subscribe.attr_handle == _characteristicValueAttribHandle) {
-        _responseNotifyState = pEvent->subscribe.cur_notify != 0;
-        // debug_test_nofify_reset();
-    } else if (pEvent->subscribe.attr_handle != _characteristicValueAttribHandle) {
-        _responseNotifyState = pEvent->subscribe.cur_notify != 0;
-        // debug_test_notify_stop();
+        _responseNotifyState = (pEvent->subscribe.cur_notify != 0) || (pEvent->subscribe.cur_indicate != 0);
     }
     statusStr = "subscribe attr_handle=" + String(pEvent->subscribe.attr_handle) + 
                 " reason=" + getHSErrorMsg(pEvent->subscribe.reason) +

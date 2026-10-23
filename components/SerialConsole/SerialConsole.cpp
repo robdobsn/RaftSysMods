@@ -718,9 +718,18 @@ bool SerialConsole::sendMsg(CommsChannelMsg& msg)
     if (!_isInitialised || _portReleased)
         return false;
 
-    // Encode
-    uint32_t encodedFrameMax = msg.getBufLen() * 2 > PROTOCOL_OVER_ASCII_MSG_MAX_LEN ? msg.getBufLen() * 2 : PROTOCOL_OVER_ASCII_MSG_MAX_LEN;
-    uint8_t encodedFrame[encodedFrameMax];
+    // Encode (at most 2 bytes per byte) - small frames on the stack, larger ones (e.g. a big filesection
+    // response) on the heap so they can't overflow the stack
+    uint8_t stackFrame[PROTOCOL_OVER_ASCII_MSG_MAX_LEN];
+    std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> heapFrame;
+    uint8_t* encodedFrame = stackFrame;
+    uint32_t encodedFrameMax = sizeof(stackFrame);
+    if (msg.getBufLen() * 2 > encodedFrameMax)
+    {
+        encodedFrameMax = msg.getBufLen() * 2;
+        heapFrame.resize(encodedFrameMax);
+        encodedFrame = heapFrame.data();
+    }
     uint32_t encodedFrameLen = _protocolOverAscii.encodeFrame(msg.getBuf(), msg.getBufLen(), encodedFrame, encodedFrameMax);
 
     // Send the message

@@ -48,12 +48,6 @@ public:
     bool isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
     bool sendMsg(CommsChannelMsg& msg);
 
-    // Inform of MTU size
-    void onMTUSizeInfo(uint32_t mtuSize)
-    {
-        _actualMtuSize = mtuSize;
-    }
-
     // Get preferred MTU size
     uint32_t getPreferredMTUSize()
     {
@@ -117,7 +111,6 @@ private:
 
     // MTU size
     uint16_t _preferredMtuSize = BLEConfig::PREFERRED_MTU_SIZE;
-    std::atomic<uint16_t> _actualMtuSize{BLEConfig::PREFERRED_MTU_SIZE};
 
     // Reduce send packet size from MTU by this amount
     static const uint32_t MTU_SIZE_REDUCTION = 12;
