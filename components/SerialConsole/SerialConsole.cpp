@@ -80,7 +80,11 @@ void SerialConsole::setup()
     _crlfOnTx = configGetLong("crlfOnTx", DEFAULT_CRLF_ON_TX);
     _uartNum = configGetLong("uartNum", DEFAULT_UART_NUM);
     _baudRate = configGetLong("baudRate", 0);
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) || defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
+    _rxBufferSize = configGetLong("rxBuf", DEFAULT_USB_RX_BUFFER_SIZE);
+#else
     _rxBufferSize = configGetLong("rxBuf", DEFAULT_RX_BUFFER_SIZE);
+#endif
     _txBufferSize = configGetLong("txBuf", DEFAULT_TX_BUFFER_SIZE);
 
     // Protocol
@@ -329,6 +333,36 @@ void SerialConsole::addCommsChannels(CommsCoreIF& commsCore)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Read what has been received, up to maxLen bytes, without waiting
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+uint32_t SerialConsole::readBytes(uint8_t* pBuf, uint32_t maxLen)
+{
+    if (!_isEnabled || _portReleased || (maxLen == 0))
+        return 0;
+#ifdef __linux__
+    // Linux: read from stdin
+    ssize_t n = read(STDIN_FILENO, pBuf, maxLen);
+    return n > 0 ? (uint32_t)n : 0;
+#else
+    int numRead = 0;
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) || defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
+    numRead = usb_serial_jtag_read_bytes(pBuf, maxLen, 0);
+#endif
+#if !defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
+    // UART (the console, or the secondary console when USB has nothing)
+    if ((numRead <= 0) && _uartDriverInstalled)
+    {
+        size_t numAvailable = 0;
+        if ((uart_get_buffered_data_len((uart_port_t)_uartNum, &numAvailable) == ESP_OK) && (numAvailable > 0))
+            numRead = uart_read_bytes((uart_port_t)_uartNum, pBuf, numAvailable < maxLen ? numAvailable : maxLen, 0);
+    }
+#endif
+    return numRead > 0 ? (uint32_t)numRead : 0;
+#endif
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Get from terminal
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -559,14 +593,19 @@ void SerialConsole::loop()
     // Text waiting for the host to read
     serviceTxPending();
 
-    // Process received data
-    std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> inboundMessage;
-    for (uint32_t chIdx = 0; chIdx < MAX_BYTES_TO_PROCESS_IN_LOOP; chIdx++)
+    // Read what has arrived (unless bytes from the last read are still to be processed)
+    if (_rxChunkPos >= _rxChunk.size())
     {
-        // Check for char
-        int ch = getChar();
-        if (ch == -1)
-            break;
+        _rxChunk.resize(MAX_BYTES_TO_PROCESS_IN_LOOP);
+        _rxChunk.resize(readBytes(_rxChunk.data(), MAX_BYTES_TO_PROCESS_IN_LOOP));
+        _rxChunkPos = 0;
+    }
+
+    // Process received data: protocol frame bytes are collected into one message, text goes to the command line
+    std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> inboundMessage;
+    while (_rxChunkPos < _rxChunk.size())
+    {
+        int ch = _rxChunk[_rxChunkPos++];
 
         // Check for MSB set
         if (ch >= 128)
@@ -768,6 +807,8 @@ RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON, String* pResponse
         _portReleased = cmd.equalsIgnoreCase("releasePort");
         _curLine.clear();
         _prevChar = -1;
+        _rxChunk.clear();
+        _rxChunkPos = 0;
         if (pResponseJSON)
             *pResponseJSON = _portReleased ? R"({"rslt":"ok","port":"released"})" : R"({"rslt":"ok","port":"reclaimed"})";
         return RAFT_OK;
