@@ -14,6 +14,7 @@
 #include "SysManager.h"
 #include "cencode.h"
 #include "MiniHDLC.h"
+#include "FileSystemWorker.h"
 
 // #define DEBUG_FILE_MANAGER_FILE_LIST
 // #define DEBUG_FILE_MANAGER_FILE_LIST_DETAIL
@@ -95,6 +96,44 @@ void FileManager::loop()
 {
     // Service the file system
     fileSystem.loop();
+
+    // Reply to requests whose work is finished
+    serviceDeferredFileJobs();
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Deferred replies: a file hash computed on the file system worker, or the end of an HTTP upload once written
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void FileManager::serviceDeferredFileJobs()
+{
+    RestAPIEndpointManager* pRestAPIEndpointManager = getRestAPIEndpointManager();
+    for (auto it = _deferredFileJobs.begin(); it != _deferredFileJobs.end(); )
+    {
+        std::shared_ptr<DeferredFileJob> pJob = *it;
+        if (pJob->isUploadEnd)
+        {
+            RaftRetCode writeStatus = _pProtocolExchange ? _pProtocolExchange->getFileUploadWriteStatus(pJob->channelID) :
+                        RAFT_OK;
+            if (writeStatus == RAFT_BUSY)
+            {
+                ++it;
+                continue;
+            }
+            if (writeStatus == RAFT_OK)
+                Raft::setJsonBoolResult(pJob->reqStr.c_str(), pJob->respStr, true);
+            else
+                Raft::setJsonErrorResult(pJob->reqStr.c_str(), pJob->respStr, "FileWriteFailed");
+        }
+        else if (!pJob->done.load())
+        {
+            ++it;
+            continue;
+        }
+        if (pRestAPIEndpointManager)
+            pRestAPIEndpointManager->completeDeferred(pJob->deferToken, pJob->respStr);
+        it = _deferredFileJobs.erase(it);
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -134,9 +173,13 @@ void FileManager::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager)
                     nullptr,
                     std::bind(&FileManager::apiUploadFileBlock, this, 
                             std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
-                    // Not ready for more data while the file system is pacing writes (the web server then stops
-                    // reading the request so the client is slowed by TCP flow control)
-                    [](const APISourceInfo& sourceInfo) { return !fileSystem.isWriteHoldoffActive(); });
+                    // Not ready for more data while the upload's data waiting to be written (it is written in the
+                    // background) is at its limit, or while the file system is pacing writes (the web server then
+                    // stops reading the request so the client is slowed by TCP flow control)
+                    [this](const APISourceInfo& sourceInfo) {
+                        return !fileSystem.isWriteHoldoffActive() &&
+                                (!_pProtocolExchange || _pProtocolExchange->fileUploadCanAccept(sourceInfo.channelID));
+                    });
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -290,27 +333,71 @@ RaftRetCode FileManager::apiFileHash(const String &reqStr, String& respStr, cons
     if (!fileSystem.getFileInfo(fileSystemStr, fileNameStr, fileLength))
         return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "nofile");
 
-    // Compute CRC16-CCITT over the whole file, reading in bounded chunks
-    static const uint32_t HASH_CHUNK_LEN = 2048;
+    // Read the file on the file system worker (reading a large file takes a while) and reply when done
+    RestAPIEndpointManager* pRestAPIEndpointManager = getRestAPIEndpointManager();
+    if (sourceInfo.canDefer && pRestAPIEndpointManager &&
+            (pRestAPIEndpointManager->deferResponse(reqStr.c_str(), sourceInfo, FILE_HASH_TIMEOUT_MS) == RAFT_RESP_DEFERRED))
+    {
+        std::shared_ptr<DeferredFileJob> pJob = std::make_shared<DeferredFileJob>();
+        pJob->deferToken = sourceInfo.deferToken;
+        pJob->reqStr = reqStr;
+        if (!fileSystemWorker.submit([pJob, fileSystemStr, fileNameStr, fileLength]() {
+                    pJob->respStr = fileHashResp(pJob->reqStr, fileSystemStr, fileNameStr, fileLength);
+                    pJob->done = true;
+                }))
+        {
+            // The worker can't take it - hash it here
+            pJob->respStr = fileHashResp(reqStr, fileSystemStr, fileNameStr, fileLength);
+            pJob->done = true;
+        }
+        _deferredFileJobs.push_back(pJob);
+        return RAFT_RESP_DEFERRED;
+    }
+
+    // The reply can't be deferred - hash it here
+    respStr = fileHashResp(reqStr, fileSystemStr, fileNameStr, fileLength);
+    return RaftRetCode::RAFT_OK;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// File hash (CRC16-CCITT over the whole file, read in bounded chunks with the file kept open) and its reply
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+String FileManager::fileHashResp(const String& reqStr, const String& fileSystemStr, const String& fileNameStr,
+            uint32_t fileLength)
+{
+    static const uint32_t HASH_CHUNK_LEN = 4096;
     uint16_t crc = MiniHDLC::crcInitCCITT();
     uint32_t filePos = 0;
-    while (filePos < fileLength)
+    FILE* pFile = fileSystem.fileOpen(fileSystemStr, fileNameStr, false, 0);
+    if (pFile)
     {
-        uint32_t readLen = (fileLength - filePos < HASH_CHUNK_LEN) ? (fileLength - filePos) : HASH_CHUNK_LEN;
-        SpiramAwareUint8Vector chunk = fileSystem.getFileSection(fileSystemStr, fileNameStr, filePos, readLen);
-        if (chunk.size() == 0)
-            break;
-        crc = MiniHDLC::crcUpdateCCITT(crc, chunk);
-        filePos += chunk.size();
+        SpiramAwareUint8Vector chunk;
+        chunk.resize(HASH_CHUNK_LEN);
+        while (filePos < fileLength)
+        {
+            uint32_t readLen = (fileLength - filePos < HASH_CHUNK_LEN) ? (fileLength - filePos) : HASH_CHUNK_LEN;
+            uint32_t bytesRead = fileSystem.fileRead(pFile, chunk.data(), readLen);
+            if (bytesRead == 0)
+                break;
+            crc = MiniHDLC::crcUpdateCCITT(crc, chunk.data(), bytesRead);
+            filePos += bytesRead;
+        }
+        fileSystem.fileClose(pFile, fileSystemStr, fileNameStr, false);
+    }
+    if (filePos != fileLength)
+    {
+        String respStr;
+        Raft::setJsonErrorResult(reqStr.c_str(), respStr, "readFailed");
+        return respStr;
     }
 
     // Form JSON response
     char crcHex[8];
     snprintf(crcHex, sizeof(crcHex), "%04x", (unsigned)crc);
-    respStr = R"({"req":")" + reqStr + R"(","rslt":"ok","fs":")" + fileSystemStr +
+    return R"({"req":")" + reqStr + R"(","rslt":"ok","fs":")" + fileSystemStr +
                 R"(","fname":")" + fileNameStr + R"(","size":)" + String(fileLength) +
                 R"(,"crc16":")" + crcHex + R"("})";
-    return RaftRetCode::RAFT_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -347,6 +434,23 @@ RaftRetCode FileManager::apiUploadFileComplete(const String &reqStr, String &res
 #ifdef DEBUG_FILE_MANAGER_UPLOAD
     LOG_I(MODULE_PREFIX, "uploadFileComplete %s", reqStr.c_str());
 #endif
+    // The upload is written in the background: reply once it is written (and say if writing it failed)
+    RaftRetCode writeStatus = _pProtocolExchange ? _pProtocolExchange->getFileUploadWriteStatus(sourceInfo.channelID) :
+                RAFT_OK;
+    RestAPIEndpointManager* pRestAPIEndpointManager = getRestAPIEndpointManager();
+    if ((writeStatus == RAFT_BUSY) && sourceInfo.canDefer && pRestAPIEndpointManager &&
+            (pRestAPIEndpointManager->deferResponse(reqStr.c_str(), sourceInfo, UPLOAD_END_TIMEOUT_MS) == RAFT_RESP_DEFERRED))
+    {
+        std::shared_ptr<DeferredFileJob> pJob = std::make_shared<DeferredFileJob>();
+        pJob->isUploadEnd = true;
+        pJob->deferToken = sourceInfo.deferToken;
+        pJob->channelID = sourceInfo.channelID;
+        pJob->reqStr = reqStr;
+        _deferredFileJobs.push_back(pJob);
+        return RAFT_RESP_DEFERRED;
+    }
+    if ((writeStatus != RAFT_OK) && (writeStatus != RAFT_BUSY))
+        return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "FileWriteFailed");
     return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
 }
 

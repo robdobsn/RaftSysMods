@@ -14,6 +14,9 @@
 #include "RaftUtils.h"
 #include "FileStreamBlock.h"
 #include "ProtocolExchange.h"
+#include <list>
+#include <memory>
+#include <atomic>
 
 class RestAPIEndpointManager;
 class APISourceInfo;
@@ -45,6 +48,26 @@ private:
 
     // Protocol exchange
     ProtocolExchange* _pProtocolExchange;
+
+    // Requests answered once work on the file system worker is finished (the reply is deferred): a file hash, or
+    // the end of an HTTP upload (replied once the upload is written)
+    struct DeferredFileJob
+    {
+        bool isUploadEnd = false;
+        uint32_t deferToken = 0;
+        uint32_t channelID = 0;
+        String reqStr;
+        String respStr;
+        std::atomic<bool> done{false};
+    };
+    std::list<std::shared_ptr<DeferredFileJob>> _deferredFileJobs;
+    static const uint32_t FILE_HASH_TIMEOUT_MS = 60000;
+    static const uint32_t UPLOAD_END_TIMEOUT_MS = 60000;
+    void serviceDeferredFileJobs();
+
+    // File hash (CRC16-CCITT) reply
+    static String fileHashResp(const String& reqStr, const String& fileSystemStr, const String& fileNameStr,
+                uint32_t fileLength);
 
     // Helpers
     void applySetup();
