@@ -137,6 +137,37 @@ void FileManager::serviceDeferredFileJobs()
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Do a request's file system work on the file system worker and reply when it's done (a deferred reply) - so that
+// reading, listing or deleting files doesn't hold up the main loop. If the reply can't be deferred, or the worker
+// can't take the job, the work is done here
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+RaftRetCode FileManager::replyFromWorker(const String& reqStr, String& respStr, const APISourceInfo& sourceInfo,
+            std::function<String()> work)
+{
+    RestAPIEndpointManager* pRestAPIEndpointManager = getRestAPIEndpointManager();
+    if (sourceInfo.canDefer && pRestAPIEndpointManager &&
+            (pRestAPIEndpointManager->deferResponse(reqStr.c_str(), sourceInfo, FILE_JOB_TIMEOUT_MS) == RAFT_RESP_DEFERRED))
+    {
+        std::shared_ptr<DeferredFileJob> pJob = std::make_shared<DeferredFileJob>();
+        pJob->deferToken = sourceInfo.deferToken;
+        pJob->reqStr = reqStr;
+        if (!fileSystemWorker.submit([pJob, work]() {
+                    pJob->respStr = work();
+                    pJob->done = true;
+                }))
+        {
+            pJob->respStr = work();
+            pJob->done = true;
+        }
+        _deferredFileJobs.push_back(pJob);
+        return RAFT_RESP_DEFERRED;
+    }
+    respStr = work();
+    return RAFT_OK;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // REST API Endpoints
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -225,12 +256,16 @@ RaftRetCode FileManager::apiFileList(const String &reqStr, String& respStr, cons
     folderStr.replace("~", "/");
     if (folderStr.length() == 0)
         folderStr = "/";
-    fileSystem.getFilesJSON(reqStr.c_str(), fileSystemStr, folderStr, respStr);
 
+    // List the folder on the file system worker (a folder not in the cache is read from the file system)
+    return replyFromWorker(reqStr, respStr, sourceInfo, [reqStr, fileSystemStr, folderStr]() {
+        String listResp;
+        fileSystem.getFilesJSON(reqStr.c_str(), fileSystemStr, folderStr, listResp);
 #ifdef DEBUG_FILE_MANAGER_FILE_LIST_DETAIL
-    LOG_W(MODULE_PREFIX, "apiFileList respStr %s", respStr.c_str());
+        LOG_W(MODULE_PREFIX, "apiFileList respStr %s", listResp.c_str());
 #endif
-    return RaftRetCode::RAFT_OK;
+        return listResp;
+    });
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -249,13 +284,21 @@ RaftRetCode FileManager::apiFileRead(const String &reqStr, String& respStr, cons
     if (extraPath.length() > 0)
         fileNameStr += "/" + extraPath;
     fileNameStr.replace("~", "/");
-    char* pFileContents = (char*)fileSystem.getFileContents(fileSystemStr, fileNameStr);
-    // An error must have a response (an empty response is never sent over RICREST so the client would time out)
-    if (!pFileContents)
-        return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "nofile", nullptr, RaftRetCode::RAFT_CANNOT_START);
-    respStr = pFileContents;
-    free(pFileContents);
-    return RaftRetCode::RAFT_OK;
+
+    // Read the file on the file system worker
+    return replyFromWorker(reqStr, respStr, sourceInfo, [reqStr, fileSystemStr, fileNameStr]() {
+        String readResp;
+        char* pFileContents = (char*)fileSystem.getFileContents(fileSystemStr, fileNameStr);
+        // An error must have a response (an empty response is never sent over RICREST so the client would time out)
+        if (!pFileContents)
+        {
+            Raft::setJsonErrorResult(reqStr.c_str(), readResp, "nofile");
+            return readResp;
+        }
+        readResp = pFileContents;
+        free(pFileContents);
+        return readResp;
+    });
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -273,10 +316,28 @@ RaftRetCode FileManager::apiFileSection(const String &reqStr, String& respStr, c
     String lenArg = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 4);
     fileNameStr.replace("~", "/");
 
+    // Read the section on the file system worker
+    return replyFromWorker(reqStr, respStr, sourceInfo, [reqStr, fileSystemStr, fileNameStr, sectionStart, lenArg]() {
+        return fileSectionResp(reqStr, fileSystemStr, fileNameStr, sectionStart, lenArg);
+    });
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// File section reply (base64 data)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+String FileManager::fileSectionResp(const String& reqStr, const String& fileSystemStr, const String& fileNameStr,
+            uint32_t sectionStart, const String& lenArg)
+{
+    String respStr;
+
     // Get total file length (also validates the file exists)
     uint32_t fileLength = 0;
     if (!fileSystem.getFileInfo(fileSystemStr, fileNameStr, fileLength))
-        return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "nofile");
+    {
+        Raft::setJsonErrorResult(reqStr.c_str(), respStr, "nofile");
+        return respStr;
+    }
 
     // Default length to remainder of file when not specified
     uint32_t sectionLen = lenArg.length() > 0 ? strtoul(lenArg.c_str(), nullptr, 10) : 0;
@@ -299,7 +360,10 @@ RaftRetCode FileManager::apiFileSection(const String &reqStr, String& respStr, c
         size_t expectedLen = base64_encode_expected_len_nonewlines(actualLen);
         char* encoded = new char[expectedLen + 2];
         if (!encoded)
-            return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "nomem");
+        {
+            Raft::setJsonErrorResult(reqStr.c_str(), respStr, "nomem");
+            return respStr;
+        }
         int len = base64_encode_block((const char*)fileData.data(), actualLen, encoded, &state);
         len += base64_encode_blockend(encoded + len, &state);
         encoded[len] = '\0';
@@ -312,7 +376,7 @@ RaftRetCode FileManager::apiFileSection(const String &reqStr, String& respStr, c
                 R"(","fname":")" + fileNameStr + R"(","start":)" + String(sectionStart) +
                 R"(,"len":)" + String(actualLen) + R"(,"total":)" + String(fileLength) +
                 R"(,"data":")" + base64Str + R"("})";
-    return RaftRetCode::RAFT_OK;
+    return respStr;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -328,35 +392,18 @@ RaftRetCode FileManager::apiFileHash(const String &reqStr, String& respStr, cons
     String fileNameStr = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 2);
     fileNameStr.replace("~", "/");
 
-    // Get total file length (also validates the file exists)
-    uint32_t fileLength = 0;
-    if (!fileSystem.getFileInfo(fileSystemStr, fileNameStr, fileLength))
-        return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "nofile");
-
-    // Read the file on the file system worker (reading a large file takes a while) and reply when done
-    RestAPIEndpointManager* pRestAPIEndpointManager = getRestAPIEndpointManager();
-    if (sourceInfo.canDefer && pRestAPIEndpointManager &&
-            (pRestAPIEndpointManager->deferResponse(reqStr.c_str(), sourceInfo, FILE_HASH_TIMEOUT_MS) == RAFT_RESP_DEFERRED))
-    {
-        std::shared_ptr<DeferredFileJob> pJob = std::make_shared<DeferredFileJob>();
-        pJob->deferToken = sourceInfo.deferToken;
-        pJob->reqStr = reqStr;
-        if (!fileSystemWorker.submit([pJob, fileSystemStr, fileNameStr, fileLength]() {
-                    pJob->respStr = fileHashResp(pJob->reqStr, fileSystemStr, fileNameStr, fileLength);
-                    pJob->done = true;
-                }))
+    // Hash the file on the file system worker (reading a large file takes a while)
+    return replyFromWorker(reqStr, respStr, sourceInfo, [reqStr, fileSystemStr, fileNameStr]() {
+        // Get total file length (also validates the file exists)
+        uint32_t fileLength = 0;
+        if (!fileSystem.getFileInfo(fileSystemStr, fileNameStr, fileLength))
         {
-            // The worker can't take it - hash it here
-            pJob->respStr = fileHashResp(reqStr, fileSystemStr, fileNameStr, fileLength);
-            pJob->done = true;
+            String errResp;
+            Raft::setJsonErrorResult(reqStr.c_str(), errResp, "nofile");
+            return errResp;
         }
-        _deferredFileJobs.push_back(pJob);
-        return RAFT_RESP_DEFERRED;
-    }
-
-    // The reply can't be deferred - hash it here
-    respStr = fileHashResp(reqStr, fileSystemStr, fileNameStr, fileLength);
-    return RaftRetCode::RAFT_OK;
+        return fileHashResp(reqStr, fileSystemStr, fileNameStr, fileLength);
+    });
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -415,14 +462,20 @@ RaftRetCode FileManager::apiDeleteFile(const String &reqStr, String& respStr, co
     String extraPath = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 3);
     if (extraPath.length() > 0)
         filenameStr += "/" + extraPath;
-    bool rslt = false;
     filenameStr.replace("~", "/");
-    if (filenameStr.length() != 0)
-        rslt = fileSystem.deleteFile(fileSystemStr, filenameStr);
-    LOG_I(MODULE_PREFIX, "deleteFile reqStr %s fs %s, filename %s rslt %s", 
-                        reqStr.c_str(), fileSystemStr.c_str(), filenameStr.c_str(),
-                        rslt ? "ok" : "fail");
-    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt);
+
+    // Delete on the file system worker (freeing a large file's blocks takes a while)
+    return replyFromWorker(reqStr, respStr, sourceInfo, [reqStr, fileSystemStr, filenameStr]() {
+        bool rslt = false;
+        if (filenameStr.length() != 0)
+            rslt = fileSystem.deleteFile(fileSystemStr, filenameStr);
+        LOG_I(MODULE_PREFIX, "deleteFile reqStr %s fs %s, filename %s rslt %s", 
+                            reqStr.c_str(), fileSystemStr.c_str(), filenameStr.c_str(),
+                            rslt ? "ok" : "fail");
+        String deleteResp;
+        Raft::setJsonBoolResult(reqStr.c_str(), deleteResp, rslt);
+        return deleteResp;
+    });
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
