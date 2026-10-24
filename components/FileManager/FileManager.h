@@ -15,6 +15,7 @@
 #include "FileStreamBlock.h"
 #include "ProtocolExchange.h"
 #include <list>
+#include <functional>
 #include <memory>
 #include <atomic>
 
@@ -61,9 +62,15 @@ private:
         std::atomic<bool> done{false};
     };
     std::list<std::shared_ptr<DeferredFileJob>> _deferredFileJobs;
-    static const uint32_t FILE_HASH_TIMEOUT_MS = 60000;
+    static const uint32_t FILE_JOB_TIMEOUT_MS = 60000;
     static const uint32_t UPLOAD_END_TIMEOUT_MS = 60000;
     void serviceDeferredFileJobs();
+    RaftRetCode replyFromWorker(const String& reqStr, String& respStr, const APISourceInfo& sourceInfo,
+                std::function<String()> work);
+
+    // File section reply (base64 data)
+    static String fileSectionResp(const String& reqStr, const String& fileSystemStr, const String& fileNameStr,
+                uint32_t sectionStart, const String& lenArg);
 
     // File hash (CRC16-CCITT) reply
     static String fileHashResp(const String& reqStr, const String& fileSystemStr, const String& fileNameStr,
