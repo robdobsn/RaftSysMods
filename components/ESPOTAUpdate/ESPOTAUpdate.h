@@ -10,6 +10,7 @@
 #pragma once
 
 #include <atomic>
+#include <deque>
 #include "RaftUtils.h"
 #include "RaftSysMod.h"
 #include "FileStreamBlock.h"
@@ -23,6 +24,8 @@ class APISourceInfo;
 
 class ESPOTAUpdate : public RaftSysMod
 {
+    class OTAUpdateFileBlock;
+
 public:
     ESPOTAUpdate(const char* pModuleName, RaftJsonIF& sysConfig);
 
@@ -42,6 +45,7 @@ public:
     virtual bool fileStreamStart(const char* fileName, size_t fileLen) override final;
     virtual RaftRetCode fileStreamDataBlock(FileStreamBlock& fileStreamBlock) override final;
     virtual bool fileStreamCancelEnd(bool isNormalEnd) override final;
+    virtual RaftRetCode fileStreamWriteStatus() const override final;
 
     // Get debug string
     virtual String getDebugJSON() const override final;
@@ -62,10 +66,10 @@ private:
     bool _otaDirectEnabled;
     static const int TIME_TO_WAIT_BEFORE_RESTART_MS = 1000;
 
-    // Max time apiFirmwareMain waits for the worker task to finish the update so that it can report the result
+    // Max time the reply to an HTTP update waits for the update to finish so that it can report the result
     static const uint32_t OTA_COMPLETION_WAIT_MAX_MS = 15000;
 
-    // Restart pending (set on the worker task - the start time is written before the flag)
+    // Restart pending (set on the file system worker - the start time is written before the flag)
     std::atomic<bool> _restartPending{false};
     volatile int _restartPendingStartMs = 0;
 
@@ -73,8 +77,8 @@ private:
     std::atomic<bool> _otaDirectInProgress{false};
     esp_ota_handle_t _espOTAHandle = -1;
 
-    // Cancel (or end) requested - set on the main task and actioned on the worker task
-    // This ensures a cancel is not lost if it can't be queued because the worker is busy (e.g. in esp_ota_begin)
+    // Cancel (or end) requested - set on the main task and actioned on the file system worker, which drops the blocks
+    // still waiting
     std::atomic<bool> _otaCancelRequested{false};
 
     // Semaphore on update status
@@ -101,14 +105,22 @@ private:
     // Firmware update status
     FWUpdateStatus _otaStatus;
 
-    // Task that operates the bus
-    volatile TaskHandle_t _otaWorkerTaskHandle = nullptr;
-    static const int DEFAULT_TASK_CORE = 0;
-    static const int DEFAULT_TASK_PRIORITY = 5;
-    static const int DEFAULT_TASK_STACK_SIZE_BYTES = 4000;
+    // Requests (blocks, and cancels) waiting for the file system worker: a job there takes them in order until
+    // there are none left. _otaRequestsMutex guards _otaRequests; _otaJobOutstanding is set while there are requests
+    // or the job runs
+    std::deque<OTAUpdateFileBlock*> _otaRequests;
+    mutable RaftMutex _otaRequestsMutex;
+    std::atomic<bool> _otaJobOutstanding{false};
+    std::atomic<uint32_t> _otaPendingBytes{0};
+    std::atomic<bool> _otaWriteFailed{false};
+    static const uint32_t HTTP_PENDING_MAX_BYTES = 16384;
+    static const uint32_t REQUEST_HEAP_MARGIN_BYTES = 16384;
 
-    // Queue of OTA update requests
-    QueueHandle_t _otaUpdateQueue = nullptr;
+    // Reply to an HTTP update deferred until the update is finished
+    bool _httpReplyDeferred = false;
+    uint32_t _httpReplyDeferToken = 0;
+    String _httpReplyReqStr;
+    String otaResultResp(const String& reqStr);
 
 private:
     // Handle received data
@@ -119,11 +131,12 @@ private:
     RaftRetCode apiFirmwareMain(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
     bool apiReadyToReceiveData(const APISourceInfo& sourceInfo);
 
-    // Worker task
-    static void otaWorkerTaskStatic(void* pvParameters);
-    void otaWorkerTask();
+    // Requests on the file system worker
+    bool queueRequest(OTAUpdateFileBlock* pReqRec);
+    void otaJob();
+    void handleRequest(OTAUpdateFileBlock* pReqRec);
 
-    // Functions used by task
+    // Functions used on the file system worker
     bool startOTAUpdate(size_t fileLen);
     bool completeOTAUpdate(bool cancelUpdate);
 
