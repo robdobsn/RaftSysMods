@@ -291,7 +291,7 @@ double BLEManager::getNamedValue(const char* valueName, bool& isValid)
         case 'R': 
         case 'r': { return _gapServer.getRSSI(isValid); }
         case 'C':
-        case 'c': { isValid = true; return _gapServer.isConnected(); }
+        case 'c': { isValid = true; return _gapServer.isSessionActive(); }
 #endif
         default: { isValid = false; return 0; }
     }

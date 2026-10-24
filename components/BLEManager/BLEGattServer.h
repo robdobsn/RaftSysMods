@@ -31,7 +31,7 @@
 #undef max
 
 // Callback types
-typedef std::function<void (const char* characteristicName, bool readOp, 
+typedef std::function<void (uint16_t connHandle, const char* characteristicName, bool readOp, 
                 std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg)> BLEGattServerAccessCBType;
 typedef int (*BLECharAccessFnType)(uint16_t conn_handle, uint16_t attr_handle,
                                               struct ble_gatt_access_ctxt *ctxt,
@@ -78,8 +78,15 @@ public:
     // Callback
     static void registrationCallbackStatic(struct ble_gatt_register_ctxt *ctxt, void *arg);
 
-    // Subscription
-    void handleSubscription(struct ble_gap_event * pEvent, String& statusStr);
+    // Subscription - returns true if the event is for the response characteristic (subscribed is then set);
+    // it isn't applied here as only the subscription of the connection sent on counts (setResponseNotifyState)
+    bool handleSubscription(struct ble_gap_event * pEvent, String& statusStr, bool& subscribed);
+
+    // Set whether the connection sent on is subscribed to the response characteristic
+    void setResponseNotifyState(bool subscribed)
+    {
+        _responseNotifyState = subscribed;
+    }
 
     // Send to central (using notification or indication)
     BLEGattServerSendResult sendToCentral(const uint8_t* pBuf, uint32_t bufLen, bool useIndication);

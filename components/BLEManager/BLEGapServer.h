@@ -21,6 +21,8 @@
 #include "BLEConsts.h"
 #include "BLEManStats.h"
 #include "BLEGattServer.h"
+#include "BLEConnArbiter.h"
+#include "RaftThreading.h"
 #include "CommsCoreIF.h"
 #include "BLEConfig.h"
 #include "BLEAdvertDecoder.h"
@@ -95,25 +97,14 @@ public:
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Check if there is a session: a connection that has sent a command (a central that connects and sends
+    ///        nothing, e.g. the Windows Bluetooth stack refreshing its cache, is connected but has no session)
+    /// @return true if there is a session
+    bool isSessionActive() const;
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Disconnect the BLE server immediately
-    void disconnect()
-    {
-        // Snapshot the connection handle (it is written on the NimBLE host task)
-        uint16_t connHandle = _bleGapConnHandle.load();
-        if (connHandle != BLE_HS_CONN_HANDLE_NONE)
-        {
-            // The reason code 0x13 corresponds to "Remote User Terminated Connection"
-            int rc = ble_gap_terminate(connHandle, 0x13);
-            if (rc != NIMBLE_RETC_OK)
-            {
-                LOG_W(MODULE_PREFIX, "disconnect failed %s (%d)", BLEGattServer::getHSErrorMsg(rc).c_str(), rc);
-            }
-            else
-            {
-                LOG_I(MODULE_PREFIX, "disconnect initiated successfully");
-            }
-        }
-    }
+    void disconnect();
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Get the outbound queue handler
@@ -193,14 +184,24 @@ private:
     // ChannelID used to identify this message channel to the CommsCoreIF
     uint32_t _commsChannelID = CommsCoreIF::CHANNEL_ID_UNDEFINED;
 
-    // Connection handle - BLE_HS_CONN_HANDLE_NONE when not connected
-    // This is the single source of truth for connection state - it is written on the NimBLE host task
-    // and should be snapshotted once in any function that uses it
+    // Handle of the connection sent on (the primary - see BLEConnArbiter) - BLE_HS_CONN_HANDLE_NONE when not
+    // connected. It is written on the NimBLE host task and should be snapshotted once in any function that uses it
     std::atomic<uint16_t> _bleGapConnHandle{BLE_HS_CONN_HANDLE_NONE};
 
-    // Count of connections made (incremented on the NimBLE host task before the handle is set) and the
-    // count/state last handled by loop() on the main task - used to call _statusChangeFn from the main task only
-    std::atomic<uint32_t> _connectCount{0};
+    // Connections (which central is served when more than one is connected) - changed on the NimBLE host task,
+    // read on both, so every access holds the mutex (never while calling NimBLE)
+    BLEConnArbiter _connArbiter;
+    mutable RaftMutex _connArbiterMutex;
+    uint32_t _connArbiterServiceMs = 0;
+    static const uint32_t CONN_ARBITER_SERVICE_MS = 500;
+
+    // Connections to disconnect - requested on either task, disconnected by loop() on the main task (as the rest of
+    // this class does) so NimBLE isn't called from within its own callbacks
+    std::atomic<uint16_t> _terminatePending[2] = {BLE_HS_CONN_HANDLE_NONE, BLE_HS_CONN_HANDLE_NONE};
+    void serviceTerminatePending();
+
+    // Session count/state last handled by loop() on the main task - used to call _statusChangeFn (a session
+    // starting or ending) from the main task only
     uint32_t _connectCountHandled = 0;
     bool _connStateReported = false;
 
@@ -250,9 +251,6 @@ private:
     std::atomic<bool> _connIntervalCheckPending{false};
     std::atomic<uint32_t> _connIntervalCheckPendingStartMs{0};
 
-    // Time the current connection was established (for logging connection duration)
-    std::atomic<uint32_t> _connStartMs{0};
-
     static const uint32_t CONN_INTERVAL_CHECK_MS = 200;
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -300,6 +298,15 @@ private:
     void setConnState(bool isConnected, uint16_t connHandle = BLE_HS_CONN_HANDLE_NONE);
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Carry out what the connection arbiter decided (set the primary connection, disconnect one)
+    /// @param action the decision
+    void applyConnAction(const BLEConnArbiter::Action& action);
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// @brief Check whether another central can connect (so whether to advertise)
+    bool canAcceptConn() const;
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Handle connection state changes (calls the status change function from the main task)
     void loopConnStateChangeHandler();
 
@@ -309,7 +316,7 @@ private:
     /// @param readOp true if the operation is a read; false if it is a write
     /// @param payloadbuffer pointer to the buffer containing the data being read or written
     /// @param payloadlength length of the data in the payload buffer
-    void gattAccessCallback(const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength);
+    void gattAccessCallback(uint16_t connHandle, const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength);
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// @brief Check if a restart of the BLE service is required and handles the restart process.

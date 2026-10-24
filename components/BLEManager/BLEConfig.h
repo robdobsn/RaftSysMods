@@ -79,6 +79,8 @@ public:
     static const uint32_t DEFAULT_SCAN_INTERVAL_MS = 200;
     static const uint32_t DEFAULT_SCAN_WINDOW_MS = 150;
     static const uint32_t DEFAULT_ADVERTISING_INTERVAL_MS = 250;
+    static const uint32_t DEFAULT_MAX_CONNS = 2;
+    static const uint32_t DEFAULT_IDLE_CONN_DROP_MS = 8000;
 
     bool setup(const RaftJsonIF& config)
     {
@@ -102,6 +104,11 @@ public:
         connIntvPrefMs = Raft::clamp(connIntvPrefMs, 7.5, 4000.0);
         connIntervalPreferredBLEUnits = std::round(connIntvPrefMs / 1.25);
         connLatencyPref = config.getLong("connLatencyPref", DEFAULT_CONN_LATENCY);
+
+        // Centrals served at once (2: advertise while one is connected, and the one that sends a command is the
+        // session - see BLEConnArbiter) and how long a connection that sends nothing is kept while there is another
+        maxConns = config.getLong("maxConns", DEFAULT_MAX_CONNS);
+        idleConnDropMs = config.getLong("idleConnDropMs", DEFAULT_IDLE_CONN_DROP_MS);
 
         // Advertising
         advertisingIntervalMs = config.getLong("advIntervalMs", DEFAULT_ADVERTISING_INTERVAL_MS);
@@ -180,6 +187,8 @@ public:
                     " useInd:" + String(sendUsingIndication) + 
                     " conItvPrefMs:" + String(connIntervalPreferredBLEUnits*1.25) + 
                     " conLatPref:" + String(connLatencyPref) + 
+                    " maxConns:" + String(maxConns) + 
+                    " idleConnDropMs:" + String(idleConnDropMs) + 
                     " maxPktLn:" + String(maxPacketLen) + 
                     " MTU:" + String(preferredMTUSize) +
                     " llPktTPref:" + String(llPacketTimePref) + 
@@ -245,6 +254,8 @@ public:
     uint16_t supvTimeoutPrefMs = PREF_SUPERVISORY_TIMEOUT_MS;
     uint16_t llPacketTimePref = DEFAULT_LL_PACKET_TIME;
     uint16_t llPacketLengthPref = DEFAULT_LL_PACKET_LENGTH;
+    uint8_t maxConns = DEFAULT_MAX_CONNS;
+    uint32_t idleConnDropMs = DEFAULT_IDLE_CONN_DROP_MS;
 
     // Advertising
     uint16_t advertisingIntervalMs = 0;

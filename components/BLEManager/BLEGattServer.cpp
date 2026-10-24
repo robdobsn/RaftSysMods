@@ -225,7 +225,7 @@ int BLEGattServer::commandCharAccess(uint16_t conn_handle, uint16_t attr_handle,
 
             // Callback with data
             if (_accessCallback && (nimbleRetCode==0) && (rxMsg.size() > 0))
-                _accessCallback("cmdmsg", false, rxMsg);
+                _accessCallback(conn_handle, "cmdmsg", false, rxMsg);
 
             return nimbleRetCode;
         }
@@ -545,17 +545,18 @@ uint16_t BLEGattServer::getConnMTU()
 // Handle subscription
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void BLEGattServer::handleSubscription(struct ble_gap_event * pEvent, String& statusStr)
+bool BLEGattServer::handleSubscription(struct ble_gap_event * pEvent, String& statusStr, bool& subscribed)
 {
     // Check enabled
+    subscribed = false;
     if (!_isEnabled)
-        return;
+        return false;
     // Only the response characteristic matters (a central may also subscribe to others, e.g. Service Changed).
     // A central may enable notifications, indications or both - any of them counts as subscribed (some
     // centrals, e.g. Windows via btleplug, enable only indications when both are supported)
-    if (pEvent->subscribe.attr_handle == _characteristicValueAttribHandle) {
-        _responseNotifyState = (pEvent->subscribe.cur_notify != 0) || (pEvent->subscribe.cur_indicate != 0);
-    }
+    bool isResponseChar = pEvent->subscribe.attr_handle == _characteristicValueAttribHandle;
+    if (isResponseChar)
+        subscribed = (pEvent->subscribe.cur_notify != 0) || (pEvent->subscribe.cur_indicate != 0);
     statusStr = "subscribe attr_handle=" + String(pEvent->subscribe.attr_handle) + 
                 " reason=" + getHSErrorMsg(pEvent->subscribe.reason) +
                 " prevNotify=" + String(pEvent->subscribe.prev_notify) +
@@ -563,8 +564,10 @@ void BLEGattServer::handleSubscription(struct ble_gap_event * pEvent, String& st
                 " prevInd=" + String(pEvent->subscribe.prev_indicate) +
                 " curInd=" + String(pEvent->subscribe.cur_indicate);
 #ifdef DEBUG_RESP_SUBSCRIPTION
-    LOG_W(MODULE_PREFIX, "handleSubscription notify enabled %s", _responseNotifyState ? "YES" : "NO");
+    LOG_W(MODULE_PREFIX, "handleSubscription connHandle %d responseChar %s subscribed %s", pEvent->subscribe.conn_handle,
+                isResponseChar ? "YES" : "NO", subscribed ? "YES" : "NO");
 #endif
+    return isResponseChar;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

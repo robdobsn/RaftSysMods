@@ -73,14 +73,15 @@ BLEGapServer* BLEGapServer::_pThis = nullptr;
 /// @param statusChangeFn function pointer to handle status changes
 BLEGapServer::BLEGapServer(GetAdvertisingInfoFnType getAdvertisingInfoFn, 
                 StatusChangeFnType statusChangeFn) :
-        _gattServer([this](const char* characteristicName, bool readOp, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg)
+        _gattServer([this](uint16_t connHandle, const char* characteristicName, bool readOp, std::vector<uint8_t, SpiramAwareAllocator<uint8_t>> rxMsg)
                     {
-                        return gattAccessCallback(characteristicName, readOp, rxMsg.data(), rxMsg.size());
+                        return gattAccessCallback(connHandle, characteristicName, readOp, rxMsg.data(), rxMsg.size());
                     },
                     _bleStats),
         _bleAdvertDecoder()
 {
     _pThis = this;
+    RaftMutex_init(_connArbiterMutex);
     _getAdvertisingInfoFn = getAdvertisingInfoFn;
     _statusChangeFn = statusChangeFn;
 }
@@ -89,6 +90,7 @@ BLEGapServer::BLEGapServer(GetAdvertisingInfoFnType getAdvertisingInfoFn,
 /// @brief Destructor for BLEGapServer
 BLEGapServer::~BLEGapServer()
 {
+    RaftMutex_destroy(_connArbiterMutex);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -115,6 +117,12 @@ bool BLEGapServer::setup(CommsCoreIF* pCommsCoreIF, const BLEConfig& bleConfig)
     {
         // Currently disconnected - this must be done before NimBLE is started as (once started) the
         // NimBLE host task owns the connection state and a real connection must not be overwritten
+        if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+        {
+            _connArbiter.configure(_bleConfig.maxConns, _bleConfig.idleConnDropMs);
+            _connArbiter.clear();
+            RaftMutex_unlock(_connArbiterMutex);
+        }
         setConnState(false);
 
         // Start NimBLE
@@ -189,6 +197,28 @@ void BLEGapServer::loop(NamedValueProvider* pNamedValueProvider)
     // Loop over restart handler
     if (loopRestartHandler())
         return;
+
+    // Disconnect connections the arbiter dropped
+    if (_bleHostReady)
+        serviceTerminatePending();
+
+    // Drop a connection that has sent nothing while another is connected
+    if (_bleHostReady && Raft::isTimeout(millis(), _connArbiterServiceMs, CONN_ARBITER_SERVICE_MS))
+    {
+        _connArbiterServiceMs = millis();
+        BLEConnArbiter::Action action;
+        if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+        {
+            action = _connArbiter.service(millis());
+            RaftMutex_unlock(_connArbiterMutex);
+        }
+        if (action.terminate != BLE_HS_CONN_HANDLE_NONE)
+        {
+            LOG_I(MODULE_PREFIX, "dropping connHandle %d: no command in %dms while another central is connected",
+                        action.terminate, (int)_bleConfig.idleConnDropMs);
+            applyConnAction(action);
+        }
+    }
 
     // Get the bus used to disseminate BTHome data (if required) - done here as the bus system
     // must not be accessed from the NimBLE host task
@@ -299,6 +329,14 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
     // RSSI
     String rssiStr = isConn ? R"("rssi":)" + String((int)_rssi.load()) : "";
 
+    // Session (a connection that has sent a command) and the number of centrals connected
+    String sessStr;
+    if (isConn && RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+    {
+        sessStr = R"("sess":)" + String(_connArbiter.isSessionActive() ? 1 : 0) + R"(,"nConn":)" + String((int)_connArbiter.numConns());
+        RaftMutex_unlock(_connArbiterMutex);
+    }
+
     // Check format
     if (shortForm)
     {
@@ -319,6 +357,8 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
             statusStr += "," + advNameStr;
         if (!rssiStr.isEmpty())
             statusStr += "," + rssiStr;
+        if (!sessStr.isEmpty())
+            statusStr += "," + sessStr;
     }
     else
     {
@@ -342,6 +382,8 @@ String BLEGapServer::getStatusJSON(bool includeBraces, bool shortForm) const
             statusStr += "," + advNameStr;
         if (!rssiStr.isEmpty())
             statusStr += "," + rssiStr;
+        if (!sessStr.isEmpty())
+            statusStr += "," + sessStr;
         statusStr += "," + bleMACStr;
     }
 
@@ -421,6 +463,15 @@ bool BLEGapServer::startAdvertising()
 
     if (!_isInit || !_bleHostReady)
         return false;
+
+    // Not while every connection is in use (a disconnection requests advertising again)
+    if (!canAcceptConn())
+    {
+#ifdef DEBUG_BLE_ADVERTISING
+        LOG_I(MODULE_PREFIX, "startAdvertising - not while every connection is in use");
+#endif
+        return true;
+    }
 
     // Check if already advertising
     if (ble_gap_adv_active())
@@ -604,9 +655,22 @@ int BLEGapServer::nimbleGapEvent(struct ble_gap_event *event)
             _gattServer.getOutbound().notifyTxComplete(event->notify_tx.status, event->notify_tx.indication != 0);
             break;
         case BLE_GAP_EVENT_SUBSCRIBE:
-            // Handle subscription to GATT attr
-            _gattServer.handleSubscription(event, statusStr);
+        {
+            // Handle subscription to GATT attr (only the subscription of the connection sent on is applied)
+            bool subscribed = false;
+            connHandle = event->subscribe.conn_handle;
+            if (_gattServer.handleSubscription(event, statusStr, subscribed))
+            {
+                BLEConnArbiter::Action action;
+                if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+                {
+                    action = _connArbiter.onSubscribe(event->subscribe.conn_handle, subscribed);
+                    RaftMutex_unlock(_connArbiterMutex);
+                }
+                applyConnAction(action);
+            }
             break;
+        }
         case BLE_GAP_EVENT_MTU:
             statusStr = "mtu:" + String(event->mtu.value) + ",chanID:" + String(event->mtu.channel_id);
             break;
@@ -676,8 +740,27 @@ void BLEGapServer::bleHostTask(void *param)
 /// @param readOp true if the operation is a read; false if it is a write
 /// @param payloadbuffer pointer to the buffer containing the data being read or written
 /// @param payloadlength length of the data in the payload buffer
-void BLEGapServer::gattAccessCallback(const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength)
+void BLEGapServer::gattAccessCallback(uint16_t connHandle, const char* characteristicName, bool readOp, const uint8_t *payloadbuffer, int payloadlength)
 {
+    // A command makes its connection the session (and the connection sent on, if it wasn't)
+    if (!readOp)
+    {
+        BLEConnArbiter::Action action;
+        if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+        {
+            action = _connArbiter.onCommand(connHandle);
+            RaftMutex_unlock(_connArbiterMutex);
+        }
+        if (action.primaryChanged)
+        {
+            LOG_I(MODULE_PREFIX, "connHandle %d sent a command so is now the session (connHandle %d dropped)",
+                        connHandle, action.terminate == BLE_HS_CONN_HANDLE_NONE ? -1 : (int)action.terminate);
+        }
+        applyConnAction(action);
+        if (!action.accept)
+            return;
+    }
+
     // Check for test frames (used to determine performance of the link)
     if ((payloadlength > 10) && (payloadbuffer[5] == 0x1f) && (payloadbuffer[6] == 0x9d) && (payloadbuffer[7] == 0xf4) && (payloadbuffer[8] == 0x7a) && (payloadbuffer[9] == 0xb5))
     {
@@ -785,20 +868,125 @@ void BLEGapServer::setConnState(bool isConnected, uint16_t connHandle)
     if (!isConnected)
         connHandle = BLE_HS_CONN_HANDLE_NONE;
 
-#ifdef USE_TIMED_ADVERTISING_CHECK
-    // Reset timer for advertising check (timestamp must be written before the flag)
-    _advertisingCheckMs = millis();
-    _advertisingCheckRequired = !isConnected;
-#endif
-
-    // Set into GATT
+    // Set into GATT (hooks are informed of a session starting or ending from loop() on the main task)
     _gattServer.setConnState(isConnected, connHandle);
-
-    // Connected state change - hooks are informed of the status change from loop() on the main task
-    // (the connect count must be incremented before the handle is set - see loopConnStateChangeHandler)
-    if (isConnected)
-        _connectCount++;
     _bleGapConnHandle = connHandle;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Carry out what the connection arbiter decided
+/// @param action the decision
+/// @note Called on the NimBLE host task (events) or the main task (dropping an idle connection)
+void BLEGapServer::applyConnAction(const BLEConnArbiter::Action& action)
+{
+    if (action.primaryChanged || action.primarySubChanged)
+    {
+        uint16_t primary = BLE_HS_CONN_HANDLE_NONE;
+        bool subscribed = false;
+        if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+        {
+            primary = _connArbiter.primary();
+            subscribed = _connArbiter.primarySubscribed();
+            RaftMutex_unlock(_connArbiterMutex);
+        }
+        if (action.primaryChanged)
+        {
+            setConnState(primary != BLE_HS_CONN_HANDLE_NONE, primary);
+
+            // Check the connection interval of the new connection (the start time must be written before the flag
+            // and the connection handle must be set before either)
+            if (primary != BLE_HS_CONN_HANDLE_NONE)
+            {
+                _connIntervalCheckPendingStartMs = millis();
+                _connIntervalCheckPending = true;
+            }
+        }
+        _gattServer.setResponseNotifyState(subscribed);
+    }
+    if (action.terminate != BLE_HS_CONN_HANDLE_NONE)
+    {
+        // Disconnected from loop() on the main task
+        uint16_t none = BLE_HS_CONN_HANDLE_NONE;
+        if (!_terminatePending[0].compare_exchange_strong(none, action.terminate))
+        {
+            none = BLE_HS_CONN_HANDLE_NONE;
+            if (!_terminatePending[1].compare_exchange_strong(none, action.terminate))
+                LOG_W(MODULE_PREFIX, "applyConnAction disconnect connHandle %d not queued", action.terminate);
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Disconnect the connections the arbiter decided to drop (main task)
+void BLEGapServer::serviceTerminatePending()
+{
+    for (auto& pending : _terminatePending)
+    {
+        uint16_t connHandle = pending.exchange(BLE_HS_CONN_HANDLE_NONE);
+        if (connHandle == BLE_HS_CONN_HANDLE_NONE)
+            continue;
+        // 0x13 is "Remote User Terminated Connection"
+        int rc = ble_gap_terminate(connHandle, 0x13);
+        if ((rc != NIMBLE_RETC_OK) && (rc != BLE_HS_EALREADY) && (rc != BLE_HS_ENOTCONN))
+        {
+            LOG_W(MODULE_PREFIX, "serviceTerminatePending disconnect connHandle %d failed %s (%d)", connHandle,
+                        BLEGattServer::getHSErrorMsg(rc).c_str(), rc);
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Check whether another central can connect (so whether to advertise)
+bool BLEGapServer::canAcceptConn() const
+{
+    bool canAccept = true;
+    if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+    {
+        canAccept = _connArbiter.canAcceptConn();
+        RaftMutex_unlock(_connArbiterMutex);
+    }
+    return canAccept;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Check if there is a session (a connection that has sent a command)
+bool BLEGapServer::isSessionActive() const
+{
+    bool isActive = false;
+    if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+    {
+        isActive = _connArbiter.isSessionActive();
+        RaftMutex_unlock(_connArbiterMutex);
+    }
+    return isActive;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Disconnect every central immediately
+void BLEGapServer::disconnect()
+{
+    uint16_t handles[2] = {BLE_HS_CONN_HANDLE_NONE, BLE_HS_CONN_HANDLE_NONE};
+    if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+    {
+        handles[0] = _connArbiter.primary();
+        handles[1] = _connArbiter.other();
+        RaftMutex_unlock(_connArbiterMutex);
+    }
+    for (uint16_t connHandle : handles)
+    {
+        if (connHandle == BLE_HS_CONN_HANDLE_NONE)
+            continue;
+        // The reason code 0x13 corresponds to "Remote User Terminated Connection"
+        int rc = ble_gap_terminate(connHandle, 0x13);
+        if (rc != NIMBLE_RETC_OK)
+        {
+            LOG_W(MODULE_PREFIX, "disconnect connHandle %d failed %s (%d)", connHandle, BLEGattServer::getHSErrorMsg(rc).c_str(), rc);
+        }
+        else
+        {
+            LOG_I(MODULE_PREFIX, "disconnect connHandle %d initiated successfully", connHandle);
+        }
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -807,9 +995,15 @@ void BLEGapServer::setConnState(bool isConnected, uint16_t connHandle)
 /// must only be called from the main task as the hooks (e.g. pausing WiFi) access main-task-owned state
 void BLEGapServer::loopConnStateChangeHandler()
 {
-    // Snapshot the state and then the connect count (in that order - so the count is never older than the state)
-    bool isConn = isConnected();
-    uint32_t connectCount = _connectCount.load();
+    // Snapshot the session state and count (a session is a connection that has sent a command)
+    bool isConn = false;
+    uint32_t connectCount = _connectCountHandled;
+    if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+    {
+        isConn = _connArbiter.isSessionActive();
+        connectCount = _connArbiter.sessionCount();
+        RaftMutex_unlock(_connArbiterMutex);
+    }
     bool isNewConn = connectCount != _connectCountHandled;
     _connectCountHandled = connectCount;
 
@@ -1096,14 +1290,29 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
                             _bleConfig.llPacketLengthPref,
                             _bleConfig.llPacketTimePref);
 #endif
-        // Now connected
-        _connStartMs = millis();
-        setConnState(true, event->connect.conn_handle);
+        // Now connected - the arbiter decides whether this is the connection sent on
+        BLEConnArbiter::Action action;
+        uint32_t numConns = 0;
+        if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+        {
+            action = _connArbiter.onConnect(event->connect.conn_handle, millis());
+            numConns = _connArbiter.numConns();
+            RaftMutex_unlock(_connArbiterMutex);
+        }
+        if (action.terminate == event->connect.conn_handle)
+        {
+            LOG_I(MODULE_PREFIX, "connHandle %d refused - every connection is in use", event->connect.conn_handle);
+        }
+        else
+        {
+            LOG_I(MODULE_PREFIX, "connected connHandle %d (%s, %d connected)", event->connect.conn_handle,
+                        action.primaryChanged ? "sent on" : "waiting for a command", (int)numConns);
+        }
+        applyConnAction(action);
 
-        // Conn interval check pending (the start time must be written before the flag and
-        // the connection handle must be set before either)
-        _connIntervalCheckPendingStartMs = millis();
-        _connIntervalCheckPending = true;
+        // Advertise while another central can connect (a connection stops advertising)
+        if (_bleConfig.enPeripheral && canAcceptConn())
+            _advertisingStartRequired = true;
     }
     else
     {
@@ -1113,9 +1322,6 @@ int BLEGapServer::gapEventConnect(struct ble_gap_event *event, String& statusStr
         // Always log failed connects (rare, and useful for diagnosing link problems)
         LOG_W(MODULE_PREFIX, "connect failed status %s (0x%x)",
                 getDisconnReasonStr(event->connect.status), event->connect.status);
-
-        // Not connected
-        setConnState(false);
 
         // Check if peripheral mode is enabled
         if (_bleConfig.enPeripheral)
@@ -1141,13 +1347,36 @@ int BLEGapServer::gapEventDisconnect(struct ble_gap_event *event, String& status
     statusStr = "disconn reason " + BLEGattServer::getHSErrorMsg(event->disconnect.reason);
     connHandle = event->disconnect.conn.conn_handle;
 
-    // Always log the disconnect reason (one line per disconnect, useful for diagnosing link problems)
-    LOG_I(MODULE_PREFIX, "disconnected reason %s (0x%x) after %.1fs",
-            getDisconnReasonStr(event->disconnect.reason), event->disconnect.reason,
-            Raft::timeElapsed(millis(), _connStartMs.load()) / 1000.0);
+    // Connection terminated - if it was the one sent on, any other becomes it
+    BLEConnArbiter::Action action;
+    BLEConnArbiter::Role role = BLEConnArbiter::Role::None;
+    uint32_t connMs = 0;
+    if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+    {
+        action = _connArbiter.onDisconnect(event->disconnect.conn.conn_handle, role, connMs);
+        RaftMutex_unlock(_connArbiterMutex);
+    }
 
-    // Connection terminated
-    setConnState(false);
+    // Always log the disconnect reason (one line per disconnect, useful for diagnosing link problems)
+    if (role == BLEConnArbiter::Role::None)
+    {
+        LOG_I(MODULE_PREFIX, "disconnected connHandle %d (dropped) reason %s (0x%x)", event->disconnect.conn.conn_handle,
+                getDisconnReasonStr(event->disconnect.reason), event->disconnect.reason);
+    }
+    else
+    {
+        LOG_I(MODULE_PREFIX, "disconnected connHandle %d (%s) reason %s (0x%x) after %.1fs", event->disconnect.conn.conn_handle,
+                role == BLEConnArbiter::Role::Primary ? "sent on" : "waiting",
+                getDisconnReasonStr(event->disconnect.reason), event->disconnect.reason,
+                Raft::timeElapsed(millis(), connMs) / 1000.0);
+    }
+    applyConnAction(action);
+
+#ifdef USE_TIMED_ADVERTISING_CHECK
+    // Check advertising (timestamp must be written before the flag)
+    _advertisingCheckMs = millis();
+    _advertisingCheckRequired = true;
+#endif
 
     // Check if we should restart - peripheral mode
     if (_bleConfig.enPeripheral)
@@ -1291,6 +1520,11 @@ bool BLEGapServer::loopRestartHandler()
                 {
                     // The stack is stopped so there is no connection (the NimBLE host task is not
                     // running at this point so connection state is set here)
+                    if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
+                    {
+                        _connArbiter.clear();
+                        RaftMutex_unlock(_connArbiterMutex);
+                    }
                     setConnState(false);
                     _bleRestartLastMs = millis();
                     _bleRestartState = BLERestartState_StartRequired;
@@ -1347,7 +1581,7 @@ void BLEGapServer::serviceTimedAdvertisingCheck()
 {
 #ifdef USE_TIMED_ADVERTISING_CHECK
     // Handle advertising check
-    if (_bleConfig.enPeripheral && _bleHostReady && (!isConnected()) && (_advertisingCheckRequired))
+    if (_bleConfig.enPeripheral && _bleHostReady && canAcceptConn() && (_advertisingCheckRequired))
     {
         if (Raft::isTimeout(millis(), _advertisingCheckMs.load(), ADVERTISING_CHECK_MS))
         {
