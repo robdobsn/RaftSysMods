@@ -1,0 +1,22 @@
+name: Linux unit tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out RaftCore (for its utilities)
+        uses: actions/checkout@v4
+        with:
+          repository: robdobsn/RaftCore
+          path: RaftCore
+      - name: Build and run the Linux unit tests
+        run: make -C linux_unit_tests check RAFTCORE=../RaftCore
