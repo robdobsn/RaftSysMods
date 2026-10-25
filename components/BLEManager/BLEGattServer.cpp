@@ -558,16 +558,31 @@ bool BLEGattServer::handleSubscription(struct ble_gap_event * pEvent, String& st
     if (isResponseChar)
         subscribed = (pEvent->subscribe.cur_notify != 0) || (pEvent->subscribe.cur_indicate != 0);
     statusStr = "subscribe attr_handle=" + String(pEvent->subscribe.attr_handle) + 
-                " reason=" + getHSErrorMsg(pEvent->subscribe.reason) +
+                " reason=" + getSubscribeReasonName(pEvent->subscribe.reason) +
                 " prevNotify=" + String(pEvent->subscribe.prev_notify) +
                 " curNotify=" + String(pEvent->subscribe.cur_notify) +
                 " prevInd=" + String(pEvent->subscribe.prev_indicate) +
                 " curInd=" + String(pEvent->subscribe.cur_indicate);
 #ifdef DEBUG_RESP_SUBSCRIPTION
-    LOG_W(MODULE_PREFIX, "handleSubscription connHandle %d responseChar %s subscribed %s", pEvent->subscribe.conn_handle,
-                isResponseChar ? "YES" : "NO", subscribed ? "YES" : "NO");
+    LOG_W(MODULE_PREFIX, "handleSubscription connHandle %d responseChar %s subscribed %s %s", pEvent->subscribe.conn_handle,
+                isResponseChar ? "YES" : "NO", subscribed ? "YES" : "NO", statusStr.c_str());
 #endif
     return isResponseChar;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Name of the reason for a subscribe event (it isn't an error code)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+const char* BLEGattServer::getSubscribeReasonName(uint8_t reason)
+{
+    switch (reason)
+    {
+        case BLE_GAP_SUBSCRIBE_REASON_WRITE: return "write";
+        case BLE_GAP_SUBSCRIBE_REASON_TERM: return "term";
+        case BLE_GAP_SUBSCRIBE_REASON_RESTORE: return "restore";
+        default: return "unknown";
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
