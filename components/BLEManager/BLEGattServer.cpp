@@ -16,6 +16,7 @@
 #include "RaftArduino.h"
 #include "NamedValueProvider.h"
 #include "BLEGattServer.h"
+#include "BLEManStats.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
@@ -71,6 +72,7 @@ ble_uuid128_t BLEGattServer::DEFAULT_MESSAGE_RESPONSE_UUID =
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 BLEGattServer::BLEGattServer(BLEGattServerAccessCBType callback, BLEManStats& bleStats) :
+    _bleStats(bleStats),
     _bleOutbound(*this, bleStats)
 {
     _accessCallback = callback;
@@ -364,6 +366,15 @@ BLEGattServerSendResult BLEGattServer::sendToCentral(const uint8_t* pBuf, uint32
 
     // Form buffer to send
     struct os_mbuf *om = ble_hs_mbuf_from_flat(pBuf, bufLen);
+
+    // No buffer (NimBLE's pool is used up, e.g. by notifications sent faster than the link takes them): send
+    // it later. It mustn't be passed on: NimBLE takes a null buffer to mean "send the characteristic's value",
+    // which is empty here, and reports success - so the packet would be lost from the message
+    if (!om)
+    {
+        _bleStats.txNoBuf();
+        return BLEGATT_SERVER_SEND_RESULT_TRY_AGAIN;
+    }
 #ifdef DEBUG_RESP_CHARACTERISTIC
     LOG_I(MODULE_PREFIX, "sendToCentral sending bufLen %d om %p", bufLen, om);
 #endif

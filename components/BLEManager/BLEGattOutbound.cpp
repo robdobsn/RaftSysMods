@@ -56,6 +56,7 @@ bool BLEGattOutbound::setup(const BLEConfig& bleConfig)
     // Setup queues
     _commandQueue.setMaxLen(bleConfig.outboundQueueSize);
     _publishQueue.setMaxLen(bleConfig.publishQueueSize);
+    _publishQueueMaxBytes = bleConfig.publishQueueMaxBytes;
 
     // Check if a thread should be started for sending
     if (bleConfig.useTaskForSending)
@@ -149,23 +150,36 @@ bool BLEGattOutbound::isReadyToSend(uint32_t channelID, CommsMsgTypeCode msgType
 {
     if (msgType == MSG_TYPE_PUBLISH)
     {
-        bool canSend = _publishQueue.count() < _publishQueue.maxLen();
+        bool canSend = (_publishQueue.count() < _publishQueue.maxLen()) &&
+                        (_publishQueueBytes.load() < _publishQueueMaxBytes);
         if (!canSend)
         {
+            // A publisher asks again (each loop) while the queue is full, so a drop is counted once per spell of
+            // the queue being full, and the warning is limited to one a second (with the number of refusals)
             // A drop within PUBLISH_DROP_CONNECT_GRACE_MS of connection is the harmless startup burst
             // (link still ramping up, backlog flushing). A later drop is operational - the publish rate
             // is exceeding the BLE drain rate - and is the case worth flagging.
             uint32_t connStartMs = _connStartMs.load();
             bool operationalDrop = (connStartMs != 0) &&
                         Raft::isTimeout(millis(), connStartMs, PUBLISH_DROP_CONNECT_GRACE_MS);
-            _bleStats.txPublishDropped(operationalDrop);
+            if (!_publishQueueFull)
+                _bleStats.txPublishDropped(operationalDrop);
+            _publishQueueFull = true;
+            _publishRefusedSinceWarn++;
 #ifdef WARN_ON_PUBLISH_QUEUE_FULL
-            if (operationalDrop)
+            if (operationalDrop && Raft::isTimeout(millis(), _publishFullLastWarnMs, PUBLISH_FULL_WARN_INTERVAL_MS))
             {
-                LOG_W(MODULE_PREFIX, "isReadyToSend PUBLISH DROPPED (operational) qCount %d maxLen %d",
-                            _publishQueue.count(), _publishQueue.maxLen());
+                LOG_W(MODULE_PREFIX, "isReadyToSend PUBLISH QUEUE FULL (operational) qCount %d maxLen %d qBytes %d maxBytes %d refused %d",
+                            _publishQueue.count(), _publishQueue.maxLen(),
+                            (int)_publishQueueBytes.load(), (int)_publishQueueMaxBytes, (int)_publishRefusedSinceWarn);
+                _publishFullLastWarnMs = millis();
+                _publishRefusedSinceWarn = 0;
             }
 #endif
+        }
+        else
+        {
+            _publishQueueFull = false;
         }
         return canSend;
     }
@@ -200,25 +214,36 @@ bool BLEGattOutbound::sendMsg(CommsChannelMsg& msg)
 #endif
 #endif
 
+    // The message's buffer is taken if it may be (e.g. a message just encoded for sending), and copied otherwise,
+    // then moved into the queue
+    uint32_t msgLen = msg.getBufLen();
+    ProtocolRawMsg bleOutMsg;
+    if (msg.isBufTakeable())
+        bleOutMsg.takeBuffer(msg.getCmdVector());
+    else
+        bleOutMsg.setFromBuffer(msg.getBuf(), msg.getBufLen());
+
     // Route to appropriate queue based on message type
-    ProtocolRawMsg bleOutMsg(msg.getBuf(), msg.getBufLen());
     bool putOk = false;
     if (msg.getMsgTypeCode() == MSG_TYPE_PUBLISH)
     {
-        putOk = _publishQueue.put(bleOutMsg, OUTBOUND_QUEUE_MAX_MS_TO_WAIT);
+        // Counted before it is queued, as the sending side may take it off the queue at once
+        _publishQueueBytes += msgLen;
+        putOk = _publishQueue.put(std::move(bleOutMsg), OUTBOUND_QUEUE_MAX_MS_TO_WAIT);
         if (!putOk)
         {
+            _publishQueueBytes -= msgLen;
             LOG_W(MODULE_PREFIX, "sendBLEMsg PUBLISH FAILEDTOSEND totalLen %d qCount %d", 
-                        msg.getBufLen(), _publishQueue.count());
+                        (int)msgLen, _publishQueue.count());
         }
     }
     else
     {
-        putOk = _commandQueue.put(bleOutMsg, OUTBOUND_QUEUE_MAX_MS_TO_WAIT);
+        putOk = _commandQueue.put(std::move(bleOutMsg), OUTBOUND_QUEUE_MAX_MS_TO_WAIT);
         if (!putOk)
         {
             LOG_W(MODULE_PREFIX, "sendBLEMsg CMD FAILEDTOSEND totalLen %d qCount %d", 
-                        msg.getBufLen(), _commandQueue.count());
+                        (int)msgLen, _commandQueue.count());
         }
     }
 
@@ -285,7 +310,7 @@ int32_t BLEGattOutbound::decrementMsgsInFlight()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 bool BLEGattOutbound::handleSendFromQueue(ThreadSafeQueue<ProtocolRawMsg>& queue, 
-                uint16_t& msgPos, bool useIndication, const char* queueName)
+                uint32_t& msgPos, bool useIndication, const char* queueName)
 {
     // If this queue uses indication, check if an indication is already in flight
     if (useIndication && isIndicationInFlight())
@@ -298,21 +323,22 @@ bool BLEGattOutbound::handleSendFromQueue(ThreadSafeQueue<ProtocolRawMsg>& queue
             return false;
     }
 
-    // Peek next message in queue
-    ProtocolRawMsg bleOutMsg;
-    if (!queue.peek(bleOutMsg, OUTBOUND_QUEUE_MAX_MS_TO_WAIT))
-        return false;
-
-    // Extract next section of message to send
-    uint32_t toSendLen = 0;
-    bool removeFromQueue = true;
-    if (bleOutMsg.getBufLen() > msgPos)
-        toSendLen = bleOutMsg.getBufLen() - msgPos;
+    // Copy the next section of the message at the front of the queue (copying the whole message for each
+    // section sent took many ms per section for a large message, and held the queue locked meanwhile)
     uint32_t maxLen = getMaxSendLen();
-    if (toSendLen > maxLen)
-        toSendLen = maxLen;
-    if (bleOutMsg.getBufLen() > msgPos + toSendLen)
-        removeFromQueue = false;
+    uint32_t msgLen = 0;
+    uint32_t toSendLen = 0;
+    bool msgFound = queue.peekWith([&](const ProtocolRawMsg& bleOutMsg) {
+            msgLen = bleOutMsg.getBufLen();
+            if (msgLen > msgPos)
+                toSendLen = msgLen - msgPos;
+            if (toSendLen > maxLen)
+                toSendLen = maxLen;
+            _sendChunk.assign(bleOutMsg.getBuf() + msgPos, bleOutMsg.getBuf() + msgPos + toSendLen);
+        }, OUTBOUND_QUEUE_MAX_MS_TO_WAIT);
+    if (!msgFound)
+        return false;
+    bool removeFromQueue = msgLen <= msgPos + toSendLen;
 
     BLEGattServerSendResult rslt = BLEGATT_SERVER_SEND_RESULT_TRY_AGAIN;
     if (toSendLen != 0)
@@ -329,7 +355,7 @@ bool BLEGattOutbound::handleSendFromQueue(ThreadSafeQueue<ProtocolRawMsg>& queue
             _lastNotifySendMs = millis();
 
         // Send to central
-        rslt = _gattServer.sendToCentral(bleOutMsg.getBuf() + msgPos, toSendLen, useIndication);
+        rslt = _gattServer.sendToCentral(_sendChunk.data(), toSendLen, useIndication);
         if (rslt == BLEGATT_SERVER_SEND_RESULT_OK)
         {
             _bleStats.txMsg(toSendLen, true);
@@ -365,12 +391,14 @@ bool BLEGattOutbound::handleSendFromQueue(ThreadSafeQueue<ProtocolRawMsg>& queue
         if (queue.pop(OUTBOUND_QUEUE_MAX_MS_TO_WAIT))
         {
             msgPos = 0;
+            if (&queue == &_publishQueue)
+                _publishQueueBytes -= msgLen;
         }
         else
         {
             // Failed to remove (queue mutex not obtained) so set the position to the end of the message to
             // ensure that no part of it is sent again - removal will be attempted again on the next call
-            msgPos = bleOutMsg.getBufLen() > UINT16_MAX ? UINT16_MAX : bleOutMsg.getBufLen();
+            msgPos = msgLen;
         }
     }
 
@@ -379,12 +407,12 @@ bool BLEGattOutbound::handleSendFromQueue(ThreadSafeQueue<ProtocolRawMsg>& queue
     {
         int32_t msgsInFlight = _outboundMsgsInFlight.load();
         LOG_I(MODULE_PREFIX, "handleSendFromQ %s sendLen %d totalLen %d msgPos %d sendOk %d inFlight %d leftInQ %d removeFromQ %d", 
-                queueName, toSendLen, bleOutMsg.getBufLen(), msgPos, rslt, msgsInFlight, queue.count(), removeFromQueue);
+                queueName, toSendLen, msgLen, msgPos, rslt, msgsInFlight, queue.count(), removeFromQueue);
     }
     else
     {
         LOG_I(MODULE_PREFIX, "handleSendFromQ %s sendLen %d totalLen %d msgPos %d sendOk %s leftInQ %d removeFromQ %d", 
-            queueName, toSendLen, bleOutMsg.getBufLen(), msgPos, 
+            queueName, toSendLen, msgLen, msgPos, 
             rslt == BLEGATT_SERVER_SEND_RESULT_OK ? "OK" : rslt == BLEGATT_SERVER_SEND_RESULT_FAIL ? "FAIL" : "TRYAGAIN", 
             queue.count(), removeFromQueue);
     }

@@ -176,6 +176,9 @@ private:
     uint32_t _lastBLEErrorMsgMs = 0;
     uint32_t _lastBLEErrorMsgCode = 0;
 
+    // Stats
+    BLEManStats& _bleStats;
+
     // Outbound handler
     BLEGattOutbound _bleOutbound;
 
