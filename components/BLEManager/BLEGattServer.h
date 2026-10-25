@@ -106,6 +106,8 @@ public:
 
     // Get HS error message
     static String getHSErrorMsg(int errorCode);
+    // Name of the reason for a subscribe event (CCCD written, connection ended, or restored when bonded)
+    static const char* getSubscribeReasonName(uint8_t reason);
 
     // Outbound
     BLEGattOutbound& getOutbound()

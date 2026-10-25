@@ -1761,8 +1761,9 @@ std::vector<uint8_t> BLEGapServer::generateManufacturerData(uint16_t manufacture
         // Convert serial number from ascii hex to binary (will be like BCD)
         auto serialNoBytes = Raft::getBytesFromHexStr(serialNo.c_str(), MAX_SERIAL_NO_BYTES);
 
-        // Use the last N digits of the serial number
-        uint32_t maxSerialNoBytes = _bleConfig.advManufTotalByteLimit - manufacturerData.size();
+        // Use the last N digits of the serial number (none if the ID and fixed data already fill the limit)
+        uint32_t maxSerialNoBytes = _bleConfig.advManufTotalByteLimit > manufacturerData.size() ?
+                    _bleConfig.advManufTotalByteLimit - manufacturerData.size() : 0;
         uint32_t startPos = serialNoBytes.size() > maxSerialNoBytes ? serialNoBytes.size() - maxSerialNoBytes : 0;
         manufacturerData.insert(manufacturerData.end(), serialNoBytes.begin() + startPos, serialNoBytes.begin() + serialNoBytes.size());
     }
