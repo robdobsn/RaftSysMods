@@ -35,6 +35,7 @@ public:
         _rxTestFrameBytes = 0;
         _txPublishDropCount = 0;
         _txPublishDropOpCount = 0;
+        _txNoBufCount = 0;
         _rxRate.clear();
         _txRate.clear();
         _txErrRate.clear();
@@ -63,13 +64,20 @@ public:
         _txErrRate.sample(_txErrCount);
     }
 
-    // A publish was dropped because the outbound publish queue was full. operational is true if the drop
-    // occurred during normal operation (not during the post-connection burst) - i.e. the case that matters
+    // Publishes were refused because the outbound publish queue was full (counted once each time it fills, as a
+    // publisher asks again while it is full). operational is true if this occurred during normal operation (not
+    // during the post-connection burst) - i.e. the case that matters
     void txPublishDropped(bool operational)
     {
         _txPublishDropCount++;
         if (operational)
             _txPublishDropOpCount++;
+    }
+
+    // NimBLE had no buffer for a packet (it is sent again later)
+    void txNoBuf()
+    {
+        _txNoBufCount++;
     }
 
     void rxTestFrame(uint32_t msgSize, bool seqOK, bool dataOK)
@@ -114,6 +122,11 @@ public:
                     (int)_txPublishDropCount.load(), (int)_txPublishDropOpCount.load());
             json += buf;
         }
+        if (_txNoBufCount.load() > 0)
+        {
+            snprintf(buf, sizeof(buf), R"(,"txNoBuf":%d)", (int)_txNoBufCount.load());
+            json += buf;
+        }
         if (_rxTestFrameCount.load() > 0)
         {
             snprintf(buf, sizeof(buf), R"("tM":%d,"tB":%d,"tBPS":%.1f,"tSeqErrs":%d,"tDatErrs":%d)",
@@ -156,6 +169,7 @@ private:
     std::atomic<uint32_t> _txErrCount{0};
     std::atomic<uint32_t> _txPublishDropCount{0};
     std::atomic<uint32_t> _txPublishDropOpCount{0};
+    std::atomic<uint32_t> _txNoBufCount{0};
     #define MOVING_AVERAGE_WINDOW_SIZE 5
     MovingRate<MOVING_AVERAGE_WINDOW_SIZE> _rxRate;
     MovingRate<MOVING_AVERAGE_WINDOW_SIZE> _txRate;

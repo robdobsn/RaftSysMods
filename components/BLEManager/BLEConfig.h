@@ -70,6 +70,8 @@ public:
     static const uint32_t BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS = 500;
     static const uint32_t DEFAULT_OUTBOUND_QUEUE_RESERVE_FOR_NON_PUBLISH = 10;
     static const uint32_t DEFAULT_PUBLISH_QUEUE_SIZE = 30;
+    // About a second of link time with notifications
+    static const uint32_t DEFAULT_PUBLISH_QUEUE_MAX_BYTES = 32768;
     static const bool DEFAULT_PUBLISH_USE_INDICATE = false;
     static const uint32_t DEFAULT_CONN_INTERVAL_BLE_UNITS = 12; // 15ms
     static const uint32_t DEFAULT_CONN_LATENCY = 0;
@@ -148,6 +150,7 @@ public:
         outMsgsInFlightTimeoutMs = config.getLong("outMsgsInFlightMs", BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS);
         outQReserveForNonPublish = config.getLong("outQResvNonPub", DEFAULT_OUTBOUND_QUEUE_RESERVE_FOR_NON_PUBLISH);
         publishQueueSize = config.getLong("pubQSize", DEFAULT_PUBLISH_QUEUE_SIZE);
+        publishQueueMaxBytes = config.getLong("pubQMaxBytes", DEFAULT_PUBLISH_QUEUE_MAX_BYTES);
         publishUseIndication = config.getBool("pubUseInd", DEFAULT_PUBLISH_USE_INDICATE);
 
         // Task settings
@@ -290,6 +293,7 @@ public:
     uint32_t outMsgsInFlightTimeoutMs = BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS;
     uint16_t outQReserveForNonPublish = DEFAULT_OUTBOUND_QUEUE_RESERVE_FOR_NON_PUBLISH;
     uint16_t publishQueueSize = DEFAULT_PUBLISH_QUEUE_SIZE;
+    uint32_t publishQueueMaxBytes = DEFAULT_PUBLISH_QUEUE_MAX_BYTES;
     bool publishUseIndication:1 = DEFAULT_PUBLISH_USE_INDICATE;
 
     // Task settings

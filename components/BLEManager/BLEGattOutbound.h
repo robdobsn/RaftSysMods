@@ -70,17 +70,33 @@ private:
     // Command queue: typically uses indication (ACK'd, reliable)
     ThreadSafeQueue<ProtocolRawMsg> _commandQueue;
     std::atomic<bool> _commandUseIndication{true};
-    uint16_t _commandMsgPos = 0;
+    uint32_t _commandMsgPos = 0;
 
     // Publish queue: typically uses notification (faster, no ACK wait)
     ThreadSafeQueue<ProtocolRawMsg> _publishQueue;
     std::atomic<bool> _publishUseIndication{false};
-    uint16_t _publishMsgPos = 0;
+    uint32_t _publishMsgPos = 0;
+
+    // Bytes in the publish queue, and the most there may be before more publishes are refused (one message may
+    // take it over the limit, so a message larger than the limit is still sent when the queue is empty). A limit
+    // on the count alone lets large messages (e.g. camera frames) pile up for many seconds of link time
+    std::atomic<uint32_t> _publishQueueBytes{0};
+    uint32_t _publishQueueMaxBytes = BLEConfig::DEFAULT_PUBLISH_QUEUE_MAX_BYTES;
+
+    // The part of a message being sent, copied out of the queue (so the queue isn't locked during the send)
+    std::vector<uint8_t> _sendChunk;
 
     // Time the current connection was established (0 if not connected) - used to distinguish
     // publish-queue drops during the post-connection burst from drops during normal operation
     std::atomic<uint32_t> _connStartMs{0};
     static const uint32_t PUBLISH_DROP_CONNECT_GRACE_MS = 5000;
+
+    // Publish queue full: whether it was full when last asked, publishes refused since the last warning, and the
+    // time of that warning (warnings are limited as a publisher asks again each loop while the queue is full)
+    bool _publishQueueFull = false;
+    uint32_t _publishRefusedSinceWarn = 0;
+    uint32_t _publishFullLastWarnMs = 0;
+    static const uint32_t PUBLISH_FULL_WARN_INTERVAL_MS = 1000;
 
     // Max time to wait for the mutex on the outbound queues
     static const uint32_t OUTBOUND_QUEUE_MAX_MS_TO_WAIT = 10;
@@ -117,7 +133,7 @@ private:
 
     // Outbound queue handling
     void serviceOutboundQueue();
-    bool handleSendFromQueue(ThreadSafeQueue<ProtocolRawMsg>& queue, uint16_t& msgPos, 
+    bool handleSendFromQueue(ThreadSafeQueue<ProtocolRawMsg>& queue, uint32_t& msgPos, 
                 bool useIndication, const char* queueName);
     void outboundMsgTask();
 
