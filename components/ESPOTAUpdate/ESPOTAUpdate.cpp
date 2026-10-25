@@ -14,6 +14,7 @@
 #include "RaftArduino.h"
 #include "SysManager.h"
 #include "ProtocolExchange.h"
+#include "FileSystemWorker.h"
 
 // Debug
 #define DEBUG_ESP_OTA_UPDATE_FIRST_AND_LAST
@@ -30,6 +31,7 @@
 ESPOTAUpdate::ESPOTAUpdate(const char* pModuleName, RaftJsonIF& sysConfig)
     : RaftSysMod(pModuleName, sysConfig)
 {
+    RaftMutex_init(_otaRequestsMutex);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -62,6 +64,15 @@ void ESPOTAUpdate::setup()
 
 void ESPOTAUpdate::loop()
 {
+    // Reply to an HTTP update once it is finished
+    if (_httpReplyDeferred && !_otaJobOutstanding.load())
+    {
+        _httpReplyDeferred = false;
+        RestAPIEndpointManager* pRestAPIEndpointManager = getRestAPIEndpointManager();
+        if (pRestAPIEndpointManager)
+            pRestAPIEndpointManager->completeDeferred(_httpReplyDeferToken, otaResultResp(_httpReplyReqStr));
+    }
+
     // Check if restart is pending
     if (_restartPending && 
             Raft::isTimeout(millis(), _restartPendingStartMs, TIME_TO_WAIT_BEFORE_RESTART_MS))
@@ -138,24 +149,46 @@ RaftRetCode ESPOTAUpdate::apiFirmwareMain(const String &reqStr, String &respStr,
     LOG_I(MODULE_PREFIX, "apiESPFirmwareMain");
 #endif
 
-    // This is called (on the main task) when the whole of the firmware image has been received - which means
-    // the final block has been passed to the worker task but NOT that the worker has finished with it. The worker
-    // still has to write that block and complete the update (esp_ota_end verifies the whole image which takes
-    // some time) and until it has done so the status is "InProgress" which would be reported as a failure of
-    // an update which then succeeds. The worker leaves each item in the queue until it has finished handling
-    // it so the queue being empty means the result is final. The wait is bounded and the restart which follows
-    // a successful update is performed in loop() (on this task) so it can't occur before the response is sent.
-    uint32_t waitStartMs = millis();
-    while (_otaUpdateQueue && (uxQueueMessagesWaiting(_otaUpdateQueue) > 0))
+    // This is called (on the main task) when the whole of the firmware image has been received - which means the
+    // final block has been passed to the file system worker but NOT that it has been written. The worker still has
+    // to write that block and complete the update (esp_ota_end verifies the whole image which takes some time) and
+    // until it has done so the status is "InProgress", which would be reported as a failure of an update which then
+    // succeeds. So the reply waits until the worker has finished (it is deferred, and sent from loop()). The restart
+    // which follows a successful update is made in loop() a second later, after the reply
+    if (_otaJobOutstanding.load())
     {
-        if (Raft::isTimeout(millis(), waitStartMs, OTA_COMPLETION_WAIT_MAX_MS))
+        RestAPIEndpointManager* pRestAPIEndpointManager = getRestAPIEndpointManager();
+        if (sourceInfo.canDefer && pRestAPIEndpointManager &&
+                (pRestAPIEndpointManager->deferResponse(reqStr.c_str(), sourceInfo, OTA_COMPLETION_WAIT_MAX_MS) == RAFT_RESP_DEFERRED))
         {
-            LOG_W(MODULE_PREFIX, "apiFirmwareMain timed-out waiting for OTA update to complete");
-            break;
+            _httpReplyDeferred = true;
+            _httpReplyDeferToken = sourceInfo.deferToken;
+            _httpReplyReqStr = reqStr;
+            return RAFT_RESP_DEFERRED;
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
 
+        // The reply can't be deferred - wait here (bounded)
+        uint32_t waitStartMs = millis();
+        while (_otaJobOutstanding.load())
+        {
+            if (Raft::isTimeout(millis(), waitStartMs, OTA_COMPLETION_WAIT_MAX_MS))
+            {
+                LOG_W(MODULE_PREFIX, "apiFirmwareMain timed-out waiting for OTA update to complete");
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
+    respStr = otaResultResp(reqStr);
+    return RAFT_OK;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Result of the last update (reply to the HTTP update)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+String ESPOTAUpdate::otaResultResp(const String& reqStr)
+{
     // Get status (wait forever - see note in header - so a busy mutex cannot result in failure being reported)
     FWUpdateStatus otaStatus;
     if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, portMAX_DELAY) == pdTRUE))
@@ -166,8 +199,9 @@ RaftRetCode ESPOTAUpdate::apiFirmwareMain(const String &reqStr, String &respStr,
         // Release semaphore
         xSemaphoreGive(_fwUpdateStatusSemaphore);
     }
-
-    return Raft::setJsonResult(reqStr.c_str(), respStr, otaStatus.lastOTAUpdateOK, otaStatus.lastOTAUpdateResult.c_str());
+    String respStr;
+    Raft::setJsonResult(reqStr.c_str(), respStr, otaStatus.lastOTAUpdateOK, otaStatus.lastOTAUpdateResult.c_str());
+    return respStr;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -196,21 +230,14 @@ RaftRetCode ESPOTAUpdate::apiFirmwarePart(const String& reqStr, FileStreamBlock&
 
 bool ESPOTAUpdate::apiReadyToReceiveData(const APISourceInfo& sourceInfo)
 {
-    // Check if queue is valid
-    bool queueValid = _otaUpdateQueue != nullptr;
-
-    // Check if queue is empty
-    bool queueEmpty = queueValid && (uxQueueMessagesWaiting(_otaUpdateQueue) == 0);
+    // Not ready while the blocks waiting to be written are at their limit (the web server then stops reading the
+    // request so the client is slowed by TCP flow control)
+    bool isReady = _otaPendingBytes.load() < HTTP_PENDING_MAX_BYTES;
 #ifdef DEBUG_ESP_OTA_UPDATE_NOT_READY
-    // Debug
-    if (queueValid && !queueEmpty)
-    {
-        LOG_I(MODULE_PREFIX, "apiRdy qV %s qE %s",
-                queueValid ? "Y" : "N", queueEmpty ? "Y" : "N");
-    }
+    if (!isReady)
+        LOG_I(MODULE_PREFIX, "apiRdy not ready pending %d", (int)_otaPendingBytes.load());
 #endif
-    // If invalid then return true so we don't block indefinitely
-    return !queueValid || queueEmpty;
+    return isReady;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -226,71 +253,47 @@ bool ESPOTAUpdate::fileStreamStart(const char* fileName, size_t fileLen)
         return false;
     }
 
-    // Extract params
-    UBaseType_t taskCore = config.getLong("taskCore", DEFAULT_TASK_CORE);
-    BaseType_t taskPriority = config.getLong("taskPriority", DEFAULT_TASK_PRIORITY);
-    int taskStackSize = config.getLong("taskStack", DEFAULT_TASK_STACK_SIZE_BYTES);
-
-    // Create a queue for the task
-    if (_otaUpdateQueue == nullptr)
-        _otaUpdateQueue = xQueueCreate(1, sizeof(OTAUpdateFileBlock*));
-
-    // Start a task to handle the update
-    BaseType_t retc = pdPASS;
-    if (_otaWorkerTaskHandle == nullptr)
-    {
-        retc = xTaskCreatePinnedToCore(
-                    ESPOTAUpdate::otaWorkerTaskStatic,
-                    "OTATask",             // task name
-                    taskStackSize,                          // stack size of task
-                    this,                                   // parameter passed to task on execute
-                    taskPriority,                           // priority
-                    (TaskHandle_t*)&_otaWorkerTaskHandle,   // task handle
-                    taskCore);                              // pin task to core N
-    }
-
 #ifdef DEBUG_ESP_OTA_UPDATE
     // Debug
-    LOG_I(MODULE_PREFIX, "fileStreamStart created task %s %s %d", retc == pdPASS ? "OK" : "FAILED", fileName, fileLen);
+    LOG_I(MODULE_PREFIX, "fileStreamStart %s %d", fileName, fileLen);
 #endif
-    return retc == pdPASS;
+    return true;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Handle a file stream block (from API or other source)
+// Handle a file stream block (from API or other source) - it is written on the file system worker
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 RaftRetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
 {
     // Check if this is the start of a new update
-    if (!_otaWorkerTaskHandle || (!_otaDirectInProgress && fileStreamBlock.firstBlock))
+    if (!_otaDirectInProgress && fileStreamBlock.firstBlock)
     {
         if (!fileStreamStart(fileStreamBlock.filename, 
                     fileStreamBlock.fileLenValid ? fileStreamBlock.fileLen : fileStreamBlock.contentLen))
             return RAFT_INVALID_OPERATION;
+        _otaWriteFailed = false;
     }
 
-    // Send block to worker queue
-    OTAUpdateFileBlock* pReqRec = new OTAUpdateFileBlock(fileStreamBlock);
-
-    // Add request to queue (prepare to wait a long time here is the process is busy)
-    if (xQueueSend(_otaUpdateQueue, &pReqRec, 5000) == pdPASS)
-    {
-#ifdef DEBUG_ESP_OTA_UPDATE_SEND_OK
-        // Debug
-        LOG_I(MODULE_PREFIX, "fileStreamDataBlock xQueueSend ok");
-#endif
-    }
-    else
-    {
-        LOG_E(MODULE_PREFIX, "fileStreamDataBlock xQueueSend failed");
-        delete pReqRec;
+    // A block that failed to write stops the update
+    if (_otaWriteFailed.load())
         return RAFT_OTHER_FAILURE;
+
+    // Check the memory is there for a copy of the block (with exceptions disabled a failed allocation would crash)
+    if (fileStreamBlock.blockLen + REQUEST_HEAP_MARGIN_BYTES > SpiramAwareAllocator<uint8_t>::max_allocatable())
+    {
+        LOG_E(MODULE_PREFIX, "fileStreamDataBlock no memory for block len %d", (int)fileStreamBlock.blockLen);
+        return RAFT_INSUFFICIENT_RESOURCE;
     }
- 
+
+    // Queue a copy of the block
+    if (!queueRequest(new OTAUpdateFileBlock(fileStreamBlock)))
+        return RAFT_OTHER_FAILURE;
+#ifdef DEBUG_ESP_OTA_UPDATE_SEND_OK
+    LOG_I(MODULE_PREFIX, "fileStreamDataBlock queued len %d", (int)fileStreamBlock.blockLen);
+#endif
     return RAFT_OK;
 }
-
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Firmware update cancel
@@ -298,180 +301,207 @@ RaftRetCode ESPOTAUpdate::fileStreamDataBlock(FileStreamBlock& fileStreamBlock)
 
 bool ESPOTAUpdate::fileStreamCancelEnd(bool isNormalEnd)
 {
-    // Check the queue exists (it is created when an update is started)
-    if (_otaUpdateQueue == nullptr)
-        return false;
-
-    // Flag that cancel (or end) is requested - this is done before attempting to queue the request so that
-    // the request isn't lost if the queue is full because the worker is busy (the worker checks the flag
-    // whenever it completes a request). Note that the worker ignores the request if an update is not in progress
-    // (which is the case after a normal end) so the result of a completed update is not overwritten
+    // Flag that cancel (or end) is requested - the job checks the flag after each request and then drops the blocks
+    // still waiting. Note that the job ignores the request if an update is not in progress (which is the case after
+    // a normal end) so the result of a completed update is not overwritten
     _otaCancelRequested = true;
 
-    // Create a cancel request (this wakes the worker if it is idle)
-    OTAUpdateFileBlock* pReqRec = new OTAUpdateFileBlock(true);
-
-    // Add request to queue
-    if (xQueueSend(_otaUpdateQueue, &pReqRec, 1) == pdPASS)
-    {
-#ifdef DEBUG_ESP_OTA_UPDATE_SEND_OK
-        // Debug
-        LOG_I(MODULE_PREFIX, "fileStreamCancelEnd xQueueSend ok len %d pos %d", 
-                    pReqRec->fsb.blockLen, pReqRec->fsb.filePos);
-#endif
-    }
-    else
-    {
-        // Worker is busy - it will handle the cancel using the flag when it completes the current request
-        delete pReqRec;
-    }
+    // Queue a cancel request (this starts the job if it isn't running)
+    queueRequest(new OTAUpdateFileBlock(true));
     return true;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Worker task (static version calls the other)
-void ESPOTAUpdate::otaWorkerTaskStatic(void* pvParameters)
+// Status of blocks written in the background (the file upload acknowledges blocks once they are written)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+RaftRetCode ESPOTAUpdate::fileStreamWriteStatus() const
 {
-    ESPOTAUpdate* pThis = (ESPOTAUpdate*)pvParameters;
-    pThis->otaWorkerTask();
+    if (_otaJobOutstanding.load())
+        return RAFT_BUSY;
+    return _otaWriteFailed.load() ? RAFT_OTHER_FAILURE : RAFT_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Worker task
-void ESPOTAUpdate::otaWorkerTask()
+// Queue a request and start the job on the file system worker if it isn't running
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool ESPOTAUpdate::queueRequest(OTAUpdateFileBlock* pReqRec)
 {
-    // Loop forever
+    if (!pReqRec)
+        return false;
+    RaftMutex_lock(_otaRequestsMutex, RAFT_MUTEX_WAIT_FOREVER);
+    _otaRequests.push_back(pReqRec);
+    _otaPendingBytes += pReqRec->fsb.blockLen;
+    bool startJob = !_otaJobOutstanding.load();
+    _otaJobOutstanding = true;
+    RaftMutex_unlock(_otaRequestsMutex);
+
+    // Start the job (or handle the requests here if the worker can't take it)
+    if (startJob && !fileSystemWorker.submit(std::bind(&ESPOTAUpdate::otaJob, this)))
+        otaJob();
+    return true;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Job on the file system worker: handles the requests in order until there are none left
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void ESPOTAUpdate::otaJob()
+{
     while (true)
     {
-        // Peek the queue to see if there is a request
-        OTAUpdateFileBlock* pReqRec = nullptr;
-        if (xQueuePeek(_otaUpdateQueue, &pReqRec, portMAX_DELAY) != pdPASS)
+        // Take the next request
+        RaftMutex_lock(_otaRequestsMutex, RAFT_MUTEX_WAIT_FOREVER);
+        if (_otaRequests.empty())
         {
-            LOG_E(MODULE_PREFIX, "otaWorkerTask xQueuePeek failed");
-            continue;
+            _otaJobOutstanding = false;
+            RaftMutex_unlock(_otaRequestsMutex);
+            return;
         }
+        OTAUpdateFileBlock* pReqRec = _otaRequests.front();
+        _otaRequests.pop_front();
+        RaftMutex_unlock(_otaRequestsMutex);
 
-        // Handle the request
-        if (pReqRec->fsb.isCancelUpdate())
+        // Handle it
+        handleRequest(pReqRec);
+        _otaPendingBytes -= pReqRec->fsb.blockLen;
+        delete pReqRec;
+
+        // Cancel requested: the update is ended and the blocks still waiting are dropped
+        if (_otaCancelRequested.exchange(false))
         {
-            // Cancel update (if in progress - a cancel is also requested after a normal end and,
-            // in that case, the result of the completed update must not be overwritten)
             if (_otaDirectInProgress)
             {
-                LOG_I(MODULE_PREFIX, "otaWorkerTask cancel update");
+                LOG_I(MODULE_PREFIX, "otaJob cancel update");
                 completeOTAUpdate(true);
             }
-        }
-        else
-        {
-
-            // Handle block
-#ifdef DEBUG_ESP_OTA_UPDATE_FIRST_AND_LAST
-            // Debug
-            if (pReqRec->fsb.firstBlock || pReqRec->fsb.finalBlock)
+            RaftMutex_lock(_otaRequestsMutex, RAFT_MUTEX_WAIT_FOREVER);
+            for (OTAUpdateFileBlock* pDropped : _otaRequests)
             {
-                LOG_I(MODULE_PREFIX, "otaWorkerTask blkLen %d pos %d bytesRcvd %d %s", 
-                        pReqRec->fsb.blockLen, pReqRec->fsb.filePos,
-                        pReqRec->fsb.filePos + pReqRec->fsb.blockLen,
-                        pReqRec->fsb.firstBlock ? "FIRST" : pReqRec->fsb.finalBlock ? "FINAL" : "");
+                _otaPendingBytes -= pDropped->fsb.blockLen;
+                delete pDropped;
             }
+            _otaRequests.clear();
+            RaftMutex_unlock(_otaRequestsMutex);
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Handle a request (a block or a cancel) on the file system worker
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void ESPOTAUpdate::handleRequest(OTAUpdateFileBlock* pReqRec)
+{
+    // Handle the request
+    if (pReqRec->fsb.isCancelUpdate())
+    {
+        // Cancel update (if in progress - a cancel is also requested after a normal end and,
+        // in that case, the result of the completed update must not be overwritten)
+        if (_otaDirectInProgress)
+        {
+            LOG_I(MODULE_PREFIX, "otaJob cancel update");
+            completeOTAUpdate(true);
+        }
+    }
+    else
+    {
+
+        // Handle block
+#ifdef DEBUG_ESP_OTA_UPDATE_FIRST_AND_LAST
+        // Debug
+        if (pReqRec->fsb.firstBlock || pReqRec->fsb.finalBlock)
+        {
+            LOG_I(MODULE_PREFIX, "otaJob blkLen %d pos %d bytesRcvd %d %s", 
+                    pReqRec->fsb.blockLen, pReqRec->fsb.filePos,
+                    pReqRec->fsb.filePos + pReqRec->fsb.blockLen,
+                    pReqRec->fsb.firstBlock ? "FIRST" : pReqRec->fsb.finalBlock ? "FINAL" : "");
+        }
 #endif
 #ifdef DEBUG_ESP_OTA_UPDATE_BLOCK_DETAIL
-            LOG_I(MODULE_PREFIX, "otaWorkerTask blkLen %d pos %d %s", 
-                        pReqRec->fsb.blockLen, pReqRec->fsb.filePos,
-                        pReqRec->fsb.firstBlock ? "FIRST" : pReqRec->fsb.finalBlock ? "FINAL" : "");
-            if (pReqRec->fsb.firstBlock || pReqRec->fsb.finalBlock)
-            {
-                String outStr;
-                Raft::hexDump(pReqRec->fsb.pBlock, pReqRec->fsb.blockLen, outStr);
-                LOG_I(MODULE_PREFIX, "otaWorkerTask %s bytesRcvd %d data %s", 
-                            pReqRec->fsb.firstBlock ? "FIRST" : pReqRec->fsb.finalBlock ? "FINAL" : "",
-                            pReqRec->fsb.filePos + pReqRec->fsb.blockLen,
-                            outStr.c_str());
-            }
+        LOG_I(MODULE_PREFIX, "otaJob blkLen %d pos %d %s", 
+                    pReqRec->fsb.blockLen, pReqRec->fsb.filePos,
+                    pReqRec->fsb.firstBlock ? "FIRST" : pReqRec->fsb.finalBlock ? "FINAL" : "");
+        if (pReqRec->fsb.firstBlock || pReqRec->fsb.finalBlock)
+        {
+            String outStr;
+            Raft::hexDump(pReqRec->fsb.pBlock, pReqRec->fsb.blockLen, outStr);
+            LOG_I(MODULE_PREFIX, "otaJob %s bytesRcvd %d data %s", 
+                        pReqRec->fsb.firstBlock ? "FIRST" : pReqRec->fsb.finalBlock ? "FINAL" : "",
+                        pReqRec->fsb.filePos + pReqRec->fsb.blockLen,
+                        outStr.c_str());
+        }
 #endif
 
-            // Check for start
-            bool isOk = true;
-            String failReason;
-            if (pReqRec->fsb.firstBlock)
-            {
-                isOk = startOTAUpdate(pReqRec->fsb.fileLenValid ? pReqRec->fsb.fileLen : pReqRec->fsb.contentLen);
-                if (!isOk)
-                {
-                    failReason = "FailedStartOTA";
-                }
-            }
-
-            // Check if update in progress
-            const uint8_t* pBlock = pReqRec->fsb.pBlock;
-            uint32_t blockLen = pReqRec->fsb.blockLen;
-            if (isOk && _otaDirectInProgress && pBlock && (blockLen > 0))
-            {
-                // Write block
-                uint64_t fwStart = micros();
-                esp_err_t err = esp_ota_write(_espOTAHandle, (const void *)pBlock, blockLen);
-
-                // Check result
-                if (err == ESP_OK) 
-                {
-                    // Calculate CRC outside the mutex (totalCRC is only written on this task so can be read here)
-                    uint64_t writeUs = micros() - fwStart;
-                    uint16_t totalCRC = MiniHDLC::crcUpdateCCITT(_otaStatus.totalCRC, pBlock, blockLen);
-
-                    // Update status (statistics only so failure to obtain the mutex is not a failure of the update)
-                    if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, pdMS_TO_TICKS(FW_UPDATE_STATS_MUTEX_MAX_WAIT_MS)) == pdTRUE))
-                    {
-                        _otaStatus.totalWriteUs += writeUs;
-                        _otaStatus.totalBytes += blockLen;
-                        _otaStatus.lastBlockSize = blockLen;
-                        _otaStatus.totalCRC = totalCRC;
-                        xSemaphoreGive(_fwUpdateStatusSemaphore);
-                    }
-                }
-                else
-                {
-                    // Failed
-                    isOk = false;
-                    failReason = "FailedWriteOTA";
-                    LOG_E(MODULE_PREFIX, "otaWorkerTask esp_ota_write FAILED err=0x%x", err);
-                }
-            }
-
-            // Check if final
-            if (isOk && pReqRec->fsb.finalBlock)
-            {
-                completeOTAUpdate(false);
-            }
-
-            // Handle failures
+        // Check for start
+        bool isOk = true;
+        String failReason;
+        if (pReqRec->fsb.firstBlock)
+        {
+            isOk = startOTAUpdate(pReqRec->fsb.fileLenValid ? pReqRec->fsb.fileLen : pReqRec->fsb.contentLen);
             if (!isOk)
             {
-                // No longer in progress (abort the update to release the OTA handle if it was started)
-                if (_otaDirectInProgress.exchange(false))
-                    esp_ota_abort(_espOTAHandle);
+                failReason = "FailedStartOTA";
+            }
+        }
 
-                // Update status
-                if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, portMAX_DELAY) == pdTRUE))
+        // Check if update in progress
+        const uint8_t* pBlock = pReqRec->fsb.pBlock;
+        uint32_t blockLen = pReqRec->fsb.blockLen;
+        if (isOk && _otaDirectInProgress && pBlock && (blockLen > 0))
+        {
+            // Write block
+            uint64_t fwStart = micros();
+            esp_err_t err = esp_ota_write(_espOTAHandle, (const void *)pBlock, blockLen);
+
+            // Check result
+            if (err == ESP_OK) 
+            {
+                // Calculate CRC outside the mutex (totalCRC is only written on this task so can be read here)
+                uint64_t writeUs = micros() - fwStart;
+                uint16_t totalCRC = MiniHDLC::crcUpdateCCITT(_otaStatus.totalCRC, pBlock, blockLen);
+
+                // Update status (statistics only so failure to obtain the mutex is not a failure of the update)
+                if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, pdMS_TO_TICKS(FW_UPDATE_STATS_MUTEX_MAX_WAIT_MS)) == pdTRUE))
                 {
-                    _otaStatus.lastOTAUpdateOK = false;
-                    _otaStatus.lastOTAUpdateResult = "Failed";
+                    _otaStatus.totalWriteUs += writeUs;
+                    _otaStatus.totalBytes += blockLen;
+                    _otaStatus.lastBlockSize = blockLen;
+                    _otaStatus.totalCRC = totalCRC;
                     xSemaphoreGive(_fwUpdateStatusSemaphore);
                 }
             }
+            else
+            {
+                // Failed
+                isOk = false;
+                failReason = "FailedWriteOTA";
+                LOG_E(MODULE_PREFIX, "otaJob esp_ota_write FAILED err=0x%x", err);
+            }
         }
 
-        // Remove the item from the queue (should not fail as we already know there is an item)
-        xQueueReceive(_otaUpdateQueue, &pReqRec, 0);
-
-        // Delete the request
-        delete pReqRec;
-
-        // Check for a cancel request that could not be queued because this task was busy with the request above
-        if (_otaCancelRequested.exchange(false) && _otaDirectInProgress)
+        // Check if final
+        if (isOk && pReqRec->fsb.finalBlock)
         {
-            LOG_I(MODULE_PREFIX, "otaWorkerTask cancel update (flagged)");
-            completeOTAUpdate(true);
+            completeOTAUpdate(false);
+        }
+
+        // Handle failures
+        if (!isOk)
+        {
+            _otaWriteFailed = true;
+            // No longer in progress (abort the update to release the OTA handle if it was started)
+            if (_otaDirectInProgress.exchange(false))
+                esp_ota_abort(_espOTAHandle);
+
+            // Update status
+            if (_fwUpdateStatusSemaphore && (xSemaphoreTake(_fwUpdateStatusSemaphore, portMAX_DELAY) == pdTRUE))
+            {
+                _otaStatus.lastOTAUpdateOK = false;
+                _otaStatus.lastOTAUpdateResult = "Failed";
+                xSemaphoreGive(_fwUpdateStatusSemaphore);
+            }
         }
     }
 }
