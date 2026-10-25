@@ -245,6 +245,15 @@ void StatePublisher::loop()
         }
     }
 
+    // Remove subscriptions whose channel has no connection: the client that subscribed has gone, and the next
+    // connection on the channel (e.g. a websocket in the same slot) mustn't get its publishes - a client
+    // subscribes again when it connects
+    _subscriptions.remove_if([](const Subscription& sub) {
+        if (sub._noConn)
+            LOG_I(MODULE_PREFIX, "loop removed subscription topic %s channelID %d (no connection)",
+                        sub._pubTopic.c_str(), sub._channelID);
+        return sub._noConn;
+    });
 
 #ifdef DEBUG_STATEPUB_OUTPUT_PUBLISH_STATS
     uint64_t loopTimeUs = micros() - loopStartUs;
@@ -497,6 +506,14 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
                 continue;
             }
 
+            // A rate of 0 disables the subscription (it isn't kept with a rate of 0, which would publish at
+            // every check)
+            if (pubRateHz <= 0)
+            {
+                removeSubscription(pubTopic, channelID);
+                continue;
+            }
+
 #ifdef DEBUG_API_SUBSCRIPTION
             LOG_I(MODULE_PREFIX, "apiSubscription topic %s rateHz %.2f minMs %d trigger %s channelID %d", 
                   pubTopic.c_str(), pubRateHz, minMs, triggerStr.c_str(), channelID);
@@ -611,6 +628,13 @@ bool StatePublisher::createSubscription(const String& pubTopic, uint32_t channel
     {
         LOG_W(MODULE_PREFIX, "createSubscription unknown topic %s", pubTopic.c_str());
         return false;
+    }
+
+    // A rate of 0 disables the subscription
+    if (rateHz <= 0)
+    {
+        removeSubscription(pubTopic, channelID);
+        return true;
     }
 
     // Find or create subscription for this topic+channel
@@ -752,10 +776,9 @@ bool StatePublisher::attemptPublish(Subscription& sub)
 #ifdef DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
         LOG_I(MODULE_PREFIX, "attemptPublish cannot accept outbound channelID %d noConn %d", sub._channelID, noConn);
 #endif
-#ifdef ENABLE_CONNECTION_BACKOFF
+        // No connection on the channel: the subscription is removed (after the loop)
         if (noConn)
-            handleConnectionLost(sub);
-#endif
+            sub._noConn = true;
         return false;
     }
 
@@ -781,12 +804,12 @@ bool StatePublisher::attemptPublish(Subscription& sub)
 #endif
         return true;
     }
-#ifdef ENABLE_CONNECTION_BACKOFF
     else if (retc == COMMS_CORE_RET_NO_CONN)
     {
-        handleConnectionLost(sub);
+        sub._noConn = true;
         return false;
     }
+#ifdef ENABLE_CONNECTION_BACKOFF
     else
     {
         // Other failure

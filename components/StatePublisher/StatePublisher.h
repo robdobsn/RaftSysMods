@@ -145,6 +145,7 @@ private:
         uint32_t _lastCheckMs = 0;                  // Last time we checked for a publish trigger
         uint32_t _lastPublishMs = 0;                // Last time a message was actually published
         bool _isPending = false;                    // Publish is due but not sent yet
+        bool _noConn = false;                       // No connection on the channel (removed after the loop)
 
         // Callbacks (copied from PubSource for performance - avoids lookup in loop)
         SysMod_publishMsgGenFn _msgGenFn = nullptr;
