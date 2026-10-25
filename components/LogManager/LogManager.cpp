@@ -47,6 +47,11 @@ void LogManager::setup()
         if (!isEnabled)
             continue;
         String logDestType = logDestConfig.getString("type", "");
+#ifdef RAFT_NO_NETWORKING
+        // Every log destination is a network one
+        LOG_W(MODULE_PREFIX, "setup log destination %s needs networking (this build has none - RAFT_NO_NETWORKING)",
+                    logDestType.c_str());
+#else
         if (logDestType.equalsIgnoreCase("RaftRemote"))
         {
             // Construct raft remote logger
@@ -68,6 +73,7 @@ void LogManager::setup()
             loggerCore.addLogger(pLogger);
             // LOG_I(MODULE_PREFIX, "Added Loki logger");
         }
+#endif
     }
 }
 

@@ -13,7 +13,9 @@
 #include "SysManager.h"
 
 // Check if networking is enabled
-#if defined(CONFIG_ESP_WIFI_ENABLED) || defined(CONFIG_ETH_USE_ESP32_EMAC) || defined(CONFIG_ETH_USE_SPI_ETHERNET) || defined(CONFIG_ETH_USE_OPENETH) || defined(CONFIG_ETH_USE_RMII_ETHERNET)
+// Networking SysMods (NetMan, CommandSocket, MQTTMan) - not in a build without networking (RAFT_NO_NETWORKING, set
+// for the whole project in features.cmake), whose WiFi and IP code then isn't linked
+#if (defined(CONFIG_ESP_WIFI_ENABLED) || defined(CONFIG_ETH_USE_ESP32_EMAC) || defined(CONFIG_ETH_USE_SPI_ETHERNET) || defined(CONFIG_ETH_USE_OPENETH) || defined(CONFIG_ETH_USE_RMII_ETHERNET)) && !defined(RAFT_NO_NETWORKING)
 #define NETWORKING_IS_ENABLED
 #endif
 
