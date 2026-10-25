@@ -214,9 +214,16 @@ bool BLEGattOutbound::sendMsg(CommsChannelMsg& msg)
 #endif
 #endif
 
-    // Route to appropriate queue based on message type (the message is moved into the queue, not copied again)
-    ProtocolRawMsg bleOutMsg(msg.getBuf(), msg.getBufLen());
+    // The message's buffer is taken if it may be (e.g. a message just encoded for sending), and copied otherwise,
+    // then moved into the queue
     uint32_t msgLen = msg.getBufLen();
+    ProtocolRawMsg bleOutMsg;
+    if (msg.isBufTakeable())
+        bleOutMsg.takeBuffer(msg.getCmdVector());
+    else
+        bleOutMsg.setFromBuffer(msg.getBuf(), msg.getBufLen());
+
+    // Route to appropriate queue based on message type
     bool putOk = false;
     if (msg.getMsgTypeCode() == MSG_TYPE_PUBLISH)
     {
@@ -227,7 +234,7 @@ bool BLEGattOutbound::sendMsg(CommsChannelMsg& msg)
         {
             _publishQueueBytes -= msgLen;
             LOG_W(MODULE_PREFIX, "sendBLEMsg PUBLISH FAILEDTOSEND totalLen %d qCount %d", 
-                        msg.getBufLen(), _publishQueue.count());
+                        (int)msgLen, _publishQueue.count());
         }
     }
     else
@@ -236,7 +243,7 @@ bool BLEGattOutbound::sendMsg(CommsChannelMsg& msg)
         if (!putOk)
         {
             LOG_W(MODULE_PREFIX, "sendBLEMsg CMD FAILEDTOSEND totalLen %d qCount %d", 
-                        msg.getBufLen(), _commandQueue.count());
+                        (int)msgLen, _commandQueue.count());
         }
     }
 
