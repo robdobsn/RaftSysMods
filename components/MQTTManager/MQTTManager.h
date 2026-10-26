@@ -45,6 +45,12 @@ protected:
     // Post-setup - create subscriptions for pub sources
     virtual void postSetup() override final;
 
+    // Status JSON
+    virtual String getStatusJSON() const override final;
+
+    // Named values (connected, pubInFlight, pubAcked, pubLost, rxMsgs)
+    virtual double getNamedValue(const char* pValueName, bool& isValid) override final;
+
 private:
     // MQTT client
     RaftMQTTClient _mqttClient;
@@ -54,10 +60,15 @@ private:
 
     // Map of topic name to channel ID
     std::map<String, uint32_t> _topicChannelIDs;
+    std::map<String, uint32_t> _inboundTopicChannelIDs;
+
+    // Max QoS 1 messages awaiting acknowledgement before further messages wait
+    static const uint32_t MAX_PUB_IN_FLIGHT = 8;
 
     // Helpers
     bool sendMQTTMsg(const String& topicName, CommsChannelMsg& msg);
     bool readyToSend(uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn);
+    void handleRxMsg(const String& topicName, const uint8_t* pPayload, uint32_t payloadLen);
 
     // Log prefix
     static constexpr const char *MODULE_PREFIX = "MQTTMan";
