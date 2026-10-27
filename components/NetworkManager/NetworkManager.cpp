@@ -88,7 +88,9 @@ void NetworkManager::applyConfiguredCredentials()
         String password = configGetString("wifiPW", configGetString("WiFiPass", ""));
         if (!ssid.isEmpty())
         {
-            bool rsltOk = networkSystem.configWifiSTA(ssid, password);
+            // Applied on every WiFi start - so only if the stored credentials differ (a reconnect for the same
+            // credentials would waste time and forget the fast reconnect AP)
+            bool rsltOk = networkSystem.configWifiSTA(ssid, password, true);
             LOG_I(MODULE_PREFIX, "setup WiFi STA %s SSID %s",
                 rsltOk ? "OK" : "FAILED",
                 ssid.c_str());
