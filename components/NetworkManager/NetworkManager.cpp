@@ -265,7 +265,7 @@ void NetworkManager::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager
                           "Stop WiFi");
     endpointManager.addEndpoint("wifiip", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
                           std::bind(&NetworkManager::apiWifiIP, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
-                          "Static IP for this device (from the next WiFi start) e.g. wifiip/192.168.1.30/192.168.1.1[/netmask[/dns]], "
+                          "Static IP for this device (from the next restart) e.g. wifiip/192.168.1.30/192.168.1.1[/netmask[/dns]], "
                           "wifiip/clear to use the SysType setting (normally DHCP), wifiip returns the setting");
 }
 
@@ -287,7 +287,7 @@ RaftRetCode NetworkManager::apiWifiStop(const String &reqStr, String &respStr, c
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// WiFi static IP for this device (kept in NVS, applied from the next WiFi start)
+// WiFi static IP for this device (kept in NVS, applied from the next restart)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 RaftRetCode NetworkManager::apiWifiIP(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
@@ -296,7 +296,7 @@ RaftRetCode NetworkManager::apiWifiIP(const String &reqStr, String &respStr, con
     if (ip.equalsIgnoreCase("clear"))
     {
         _deviceNetConfig.setJsonDoc("{}");
-        LOG_I(MODULE_PREFIX, "apiWifiIP cleared - SysType setting used from the next WiFi start");
+        LOG_I(MODULE_PREFIX, "apiWifiIP cleared - SysType setting used from the next restart");
     }
     else if (!ip.isEmpty())
     {
@@ -315,7 +315,7 @@ RaftRetCode NetworkManager::apiWifiIP(const String &reqStr, String &respStr, con
             jsonDoc += R"(,"wifiStaticDNS":")" + dns + R"(")";
         jsonDoc += "}";
         _deviceNetConfig.setJsonDoc(jsonDoc.c_str());
-        LOG_I(MODULE_PREFIX, "apiWifiIP set %s - used from the next WiFi start", jsonDoc.c_str());
+        LOG_I(MODULE_PREFIX, "apiWifiIP set %s - used from the next restart", jsonDoc.c_str());
     }
     String settingJSON = R"("wifiip":)" + String(_deviceNetConfig.getJsonDoc());
     return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true, settingJSON.c_str());
