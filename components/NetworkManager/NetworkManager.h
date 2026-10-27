@@ -63,6 +63,7 @@ private:
     // Helpers
     void applyConfiguredCredentials();
     bool startWiFi(bool fullScan);
+    void getStaticIPSetting(String& ip, String& gateway, String& netmask, String& dns);
     void stopWiFi();
     RaftRetCode apiWifiSTASet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
     RaftRetCode apiWifiAPSet(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo);
