@@ -7,6 +7,7 @@
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#include <string.h>
 #include "Logger.h"
 #include "NetworkManager.h"
 #include "RaftUtils.h"
@@ -21,7 +22,8 @@ NetworkManager* NetworkManager::_pNetworkManager = NULL;
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 NetworkManager::NetworkManager(const char *pModuleName, RaftJsonIF& sysConfig)
-    : RaftSysMod(pModuleName, sysConfig)
+    : RaftSysMod(pModuleName, sysConfig),
+      _deviceNetConfig("netman")
 {
     // Singleton
     _pNetworkManager = this;
@@ -36,6 +38,16 @@ void NetworkManager::setup()
     // Network settings
     NetworkSettings networkSettings;
     networkSettings.setFromConfig(configGetConfig(), "");
+
+    // Static IP set for this device (wifiip API) overrides the SysType
+    String deviceStaticIP = _deviceNetConfig.getString("wifiStaticIP", "");
+    if (!deviceStaticIP.isEmpty())
+    {
+        networkSettings.wifiStaticIP = deviceStaticIP;
+        networkSettings.wifiStaticGateway = _deviceNetConfig.getString("wifiStaticGateway", "");
+        networkSettings.wifiStaticNetmask = _deviceNetConfig.getString("wifiStaticNetmask", "255.255.255.0");
+        networkSettings.wifiStaticDNS = _deviceNetConfig.getString("wifiStaticDNS", "");
+    }
 
     // Check if we have a friendly name
     bool friendlyNameSet = false;
@@ -55,7 +67,20 @@ void NetworkManager::setup()
     if (!setupOk)
         return;
 
+    // Apply WiFi credentials from config (when WiFi is started on demand this is done when it starts)
+    if (networkSystem.isWifiStarted())
+        applyConfiguredCredentials();
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Apply WiFi credentials from config (once WiFi is started)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void NetworkManager::applyConfiguredCredentials()
+{
     // Setup WiFi STA
+    NetworkSettings networkSettings;
+    networkSettings.setFromConfig(configGetConfig(), "");
     if (networkSettings.enableWifiSTAMode)
     {
         // Get Wifi STA SSID and password
@@ -64,7 +89,7 @@ void NetworkManager::setup()
         if (!ssid.isEmpty())
         {
             bool rsltOk = networkSystem.configWifiSTA(ssid, password);
-            LOG_I(MODULE_PREFIX, "setup WiFi STA %s SSID %s", 
+            LOG_I(MODULE_PREFIX, "setup WiFi STA %s SSID %s",
                 rsltOk ? "OK" : "FAILED",
                 ssid.c_str());
         }
@@ -83,6 +108,25 @@ void NetworkManager::setup()
                 apSSID.c_str());
         }
     }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Start and stop WiFi (on demand)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool NetworkManager::startWiFi(bool fullScan)
+{
+    if (networkSystem.isWifiStarted())
+        return true;
+    if (!networkSystem.wifiStart(fullScan))
+        return false;
+    applyConfiguredCredentials();
+    return true;
+}
+
+void NetworkManager::stopWiFi()
+{
+    networkSystem.wifiStop();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -132,13 +176,51 @@ String NetworkManager::getDebugJSON() const
 // GetNamedValue
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+//   RSSI          - WiFi STA RSSI (dBm) - any name starting with R as before
+//   started       - 1 if WiFi is started (or will be when unpaused)
+//   connected     - 1 if connected with an IP address (WiFi or Ethernet)
+//   connMs        - time (ms) from the latest WiFi start to getting an IP address (0 if not yet)
+//   fastReconnect - 1 if the latest WiFi start went straight to the remembered AP (wifiSTAFastReconnect)
+//   fastFallbacks - number of times since boot that the remembered AP failed and a scan was made
+
 double NetworkManager::getNamedValue(const char* valueName, bool& isValid)
 {
-    switch(valueName[0])
+    isValid = true;
+    if (strcmp(valueName, "started") == 0)
+        return networkSystem.isWifiStarted() ? 1 : 0;
+    if (strcmp(valueName, "connected") == 0)
+        return networkSystem.isIPConnected() ? 1 : 0;
+    if (strcmp(valueName, "connMs") == 0)
+        return networkSystem.getWifiConnectMs();
+    if (strcmp(valueName, "fastReconnect") == 0)
+        return networkSystem.wasFastReconnectUsed() ? 1 : 0;
+    if (strcmp(valueName, "fastFallbacks") == 0)
+        return networkSystem.getFastReconnectFallbacks();
+    if (valueName[0] == 'R')
+        return networkSystem.getRSSI(isValid);
+    isValid = false;
+    return 0;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Receive JSON command from another SysMod
+//   {"cmd":"wifiStart","fullScan":0|1} - start WiFi (fullScan forgets the fast reconnect AP and scans all
+//                                        channels for the strongest AP)
+//   {"cmd":"wifiStop"}                 - stop WiFi
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+RaftRetCode NetworkManager::receiveCmdJSON(const char* cmdJSON, String* pRespStr)
+{
+    RaftJson cmd(cmdJSON);
+    String cmdName = cmd.getString("cmd", "");
+    if (cmdName.equalsIgnoreCase("wifiStart"))
+        return startWiFi(cmd.getBool("fullScan", false)) ? RAFT_OK : RAFT_INVALID_OPERATION;
+    if (cmdName.equalsIgnoreCase("wifiStop"))
     {
-        case 'R': { return networkSystem.getRSSI(isValid); }
-        default: { isValid = false; return 0; }
+        stopWiFi();
+        return RAFT_OK;
     }
+    return RAFT_INVALID_OPERATION;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -172,6 +254,69 @@ void NetworkManager::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager
                           std::bind(&NetworkManager::apiWifiDiag, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
                           "WiFi link diagnostics - wifidiag returns diagnostics, wifidiag?ps=none|min|max&txPwr=dBm&proto=bgn|bg|b&bw=20|40"
                           "&pingMs=N&pingRecover=N&logS=N&reconnect=1 sets link options");
+    endpointManager.addEndpoint("wifistart", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
+                          std::bind(&NetworkManager::apiWifiStart, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                          "Start WiFi (e.g. when startMode is onDemand), wifistart?fullScan=1 forgets the fast reconnect AP and scans "
+                          "all channels for the strongest AP");
+    endpointManager.addEndpoint("wifistop", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
+                          std::bind(&NetworkManager::apiWifiStop, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                          "Stop WiFi");
+    endpointManager.addEndpoint("wifiip", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
+                          std::bind(&NetworkManager::apiWifiIP, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+                          "Static IP for this device (from the next WiFi start) e.g. wifiip/192.168.1.30/192.168.1.1[/netmask[/dns]], "
+                          "wifiip/clear to use the SysType setting (normally DHCP), wifiip returns the setting");
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// WiFi start and stop
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+RaftRetCode NetworkManager::apiWifiStart(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+{
+    RaftJson params = RestAPIEndpointManager::getJSONFromRESTRequest(reqStr.c_str(), RestAPIEndpointManager::PARAMS_ONLY);
+    bool rslt = startWiFi(params.getBool("fullScan", false));
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, rslt);
+}
+
+RaftRetCode NetworkManager::apiWifiStop(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+{
+    stopWiFi();
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// WiFi static IP for this device (kept in NVS, applied from the next WiFi start)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+RaftRetCode NetworkManager::apiWifiIP(const String &reqStr, String &respStr, const APISourceInfo& sourceInfo)
+{
+    String ip = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1);
+    if (ip.equalsIgnoreCase("clear"))
+    {
+        _deviceNetConfig.setJsonDoc("{}");
+        LOG_I(MODULE_PREFIX, "apiWifiIP cleared - SysType setting used from the next WiFi start");
+    }
+    else if (!ip.isEmpty())
+    {
+        String gateway = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 2);
+        String netmask = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 3);
+        String dns = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 4);
+        esp_ip4_addr_t addr;
+        if ((esp_netif_str_to_ip4(ip.c_str(), &addr) != ESP_OK) || (esp_netif_str_to_ip4(gateway.c_str(), &addr) != ESP_OK) ||
+            (!netmask.isEmpty() && (esp_netif_str_to_ip4(netmask.c_str(), &addr) != ESP_OK)) ||
+            (!dns.isEmpty() && (esp_netif_str_to_ip4(dns.c_str(), &addr) != ESP_OK)))
+            return Raft::setJsonErrorResult(reqStr.c_str(), respStr, "invalidAddress");
+        String jsonDoc = R"({"wifiStaticIP":")" + ip + R"(","wifiStaticGateway":")" + gateway + R"(")";
+        if (!netmask.isEmpty())
+            jsonDoc += R"(,"wifiStaticNetmask":")" + netmask + R"(")";
+        if (!dns.isEmpty())
+            jsonDoc += R"(,"wifiStaticDNS":")" + dns + R"(")";
+        jsonDoc += "}";
+        _deviceNetConfig.setJsonDoc(jsonDoc.c_str());
+        LOG_I(MODULE_PREFIX, "apiWifiIP set %s - used from the next WiFi start", jsonDoc.c_str());
+    }
+    String settingJSON = R"("wifiip":)" + String(_deviceNetConfig.getJsonDoc());
+    return Raft::setJsonBoolResult(reqStr.c_str(), respStr, true, settingJSON.c_str());
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -216,7 +361,8 @@ RaftRetCode NetworkManager::apiWifiSTASet(const String &reqStr, String &respStr,
     bool configRslt = false;
     if (!ssid.isEmpty())
     {
-        // Configure WiFi
+        // Configure WiFi (starting it if it is started on demand and not yet started)
+        startWiFi(false);
         configRslt = networkSystem.configWifiSTA(ssid, pw);
         if (!configRslt)
             errorStr = "configWifiSTA failed";
@@ -249,7 +395,8 @@ RaftRetCode NetworkManager::apiWifiAPSet(const String &reqStr, String &respStr, 
     // Debug
     if (ssid.length() > 0)
     {
-        // Configure WiFi AP
+        // Configure WiFi AP (starting WiFi if it is started on demand and not yet started)
+        startWiFi(false);
         bool rslt = networkSystem.configWifiAP(ssid, pw);
         LOG_I(MODULE_PREFIX, "apiWifiAPSet %s SSID %s (len %d)", 
                     rslt ? "OK" : "FAIL",
@@ -273,7 +420,8 @@ RaftRetCode NetworkManager::apiWifiClear(const String &reqStr, String &respStr, 
     String sysRestartStr = RestAPIEndpointManager::getNthArgStr(reqStr.c_str(), 1);
     bool sysRestart = !sysRestartStr.equalsIgnoreCase("norestart");
 
-    // Clear stored credentials back to default
+    // Clear stored credentials back to default (WiFi must be started to do this)
+    startWiFi(false);
     esp_err_t err = networkSystem.clearCredentials();
 
     // Debug
