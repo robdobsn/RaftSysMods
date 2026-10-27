@@ -273,6 +273,7 @@ void MQTTManager::postSetup()
             }
             uint32_t minMs = pubSourceConf.getLong("minMs", DEFAULT_MIN_TIME_BETWEEN_MSGS_MS);
 
+            // These subscriptions are persistent - kept while the broker isn't connected
             bool ok = pStatePublisher->createSubscription(pubTopic, channelID, rateHz, trigger, minMs);
 #ifdef DEBUG_MQTT_MAN_PUB_SOURCE_SUBS
             LOG_I(MODULE_PREFIX, "postSetup subscription mqttTopic %s pubSource %s channelID %d rateHz %.2f trigger %s minMs %d %s",
