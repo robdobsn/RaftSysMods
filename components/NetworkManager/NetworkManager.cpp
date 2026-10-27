@@ -40,14 +40,8 @@ void NetworkManager::setup()
     networkSettings.setFromConfig(configGetConfig(), "");
 
     // Static IP set for this device (wifiip API) overrides the SysType
-    String deviceStaticIP = _deviceNetConfig.getString("wifiStaticIP", "");
-    if (!deviceStaticIP.isEmpty())
-    {
-        networkSettings.wifiStaticIP = deviceStaticIP;
-        networkSettings.wifiStaticGateway = _deviceNetConfig.getString("wifiStaticGateway", "");
-        networkSettings.wifiStaticNetmask = _deviceNetConfig.getString("wifiStaticNetmask", "255.255.255.0");
-        networkSettings.wifiStaticDNS = _deviceNetConfig.getString("wifiStaticDNS", "");
-    }
+    getStaticIPSetting(networkSettings.wifiStaticIP, networkSettings.wifiStaticGateway, networkSettings.wifiStaticNetmask,
+                networkSettings.wifiStaticDNS);
 
     // Check if we have a friendly name
     bool friendlyNameSet = false;
@@ -120,10 +114,35 @@ bool NetworkManager::startWiFi(bool fullScan)
 {
     if (networkSystem.isWifiStarted())
         return true;
+
+    // The static IP setting as it is now (wifiip may have changed it since the last start)
+    String ip, gateway, netmask, dns;
+    getStaticIPSetting(ip, gateway, netmask, dns);
+    networkSystem.setWifiStaticIP(ip, gateway, netmask, dns);
     if (!networkSystem.wifiStart(fullScan))
         return false;
     applyConfiguredCredentials();
     return true;
+}
+
+// The WiFi static IP to use: this device's (wifiip API, kept in NVS) if set, otherwise the SysType's (empty for DHCP)
+void NetworkManager::getStaticIPSetting(String& ip, String& gateway, String& netmask, String& dns)
+{
+    String deviceStaticIP = _deviceNetConfig.getString("wifiStaticIP", "");
+    if (!deviceStaticIP.isEmpty())
+    {
+        ip = deviceStaticIP;
+        gateway = _deviceNetConfig.getString("wifiStaticGateway", "");
+        netmask = _deviceNetConfig.getString("wifiStaticNetmask", "255.255.255.0");
+        dns = _deviceNetConfig.getString("wifiStaticDNS", "");
+        return;
+    }
+    NetworkSettings sysTypeSettings;
+    sysTypeSettings.setFromConfig(configGetConfig(), "");
+    ip = sysTypeSettings.wifiStaticIP;
+    gateway = sysTypeSettings.wifiStaticGateway;
+    netmask = sysTypeSettings.wifiStaticNetmask;
+    dns = sysTypeSettings.wifiStaticDNS;
 }
 
 void NetworkManager::stopWiFi()
@@ -265,7 +284,7 @@ void NetworkManager::addRestAPIEndpoints(RestAPIEndpointManager &endpointManager
                           "Stop WiFi");
     endpointManager.addEndpoint("wifiip", RestAPIEndpoint::ENDPOINT_CALLBACK, RestAPIEndpoint::ENDPOINT_GET,
                           std::bind(&NetworkManager::apiWifiIP, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
-                          "Static IP for this device (from the next WiFi start) e.g. wifiip/192.168.1.30/192.168.1.1[/netmask[/dns]], "
+                          "Static IP for this device (from the next WiFi start: wifistop then wifistart, or a restart) e.g. wifiip/192.168.1.30/192.168.1.1[/netmask[/dns]], "
                           "wifiip/clear to use the SysType setting (normally DHCP), wifiip returns the setting");
 }
 

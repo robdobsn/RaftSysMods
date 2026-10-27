@@ -245,9 +245,9 @@ void StatePublisher::loop()
         }
     }
 
-    // Remove subscriptions whose channel has no connection: the client that subscribed has gone, and the next
-    // connection on the channel (e.g. a websocket in the same slot) mustn't get its publishes - a client
-    // subscribes again when it connects
+    // Remove client subscriptions whose channel has no connection (see handleNoConn): the client that subscribed
+    // has gone, and the next connection on the channel (e.g. a websocket in the same slot) mustn't get its
+    // publishes - a client subscribes again when it connects
     _subscriptions.remove_if([](const Subscription& sub) {
         if (sub._noConn)
             LOG_I(MODULE_PREFIX, "loop removed subscription topic %s channelID %d (no connection)",
@@ -618,6 +618,7 @@ RaftRetCode StatePublisher::apiSubscription(const String &reqStr, String& respSt
 /// @param trigger type for the subscription, or TRIGGER_NONE on failure
 /// @param minTimeBetweenMsgsMs Minimum time between messages in milliseconds (to prevent flooding when trigger is state change)
 /// @return true if subscription created/updated successfully
+/// @note The subscription is persistent - kept while the channel has no connection (see handleNoConn)
 bool StatePublisher::createSubscription(const String& pubTopic, uint32_t channelID, double rateHz, 
         TriggerType_t trigger, 
         uint32_t minTimeBetweenMsgsMs)
@@ -650,6 +651,7 @@ bool StatePublisher::createSubscription(const String& pubTopic, uint32_t channel
         pSub->_isPending = true;
         pSub->_trigger = trigger;
         pSub->_minTimeBetweenMsgsMs = minTimeBetweenMsgsMs;
+        pSub->_persistent = true;
         LOG_I(MODULE_PREFIX, "createSubscription updated topic %s channelID %d rateHz %.2f trigger %d minTimeBetweenMsgsMs %d", 
               pubTopic.c_str(), channelID, rateHz, trigger, minTimeBetweenMsgsMs);
     }
@@ -667,6 +669,7 @@ bool StatePublisher::createSubscription(const String& pubTopic, uint32_t channel
         newSub._stateDetectFn = pPubSource->_stateDetectFn;
         newSub._lastCheckMs = 0;
         newSub._isPending = true;
+        newSub._persistent = true;
 #ifdef ENABLE_CONNECTION_BACKOFF
         newSub._connState = Subscription::CONN_STATE_ACTIVE;
         newSub._consecutiveFailures = 0;
@@ -776,9 +779,9 @@ bool StatePublisher::attemptPublish(Subscription& sub)
 #ifdef DEBUG_NO_PUBLISH_IF_CANNOT_ACCEPT_OUTBOUND
         LOG_I(MODULE_PREFIX, "attemptPublish cannot accept outbound channelID %d noConn %d", sub._channelID, noConn);
 #endif
-        // No connection on the channel: the subscription is removed (after the loop)
+        // No connection on the channel
         if (noConn)
-            sub._noConn = true;
+            handleNoConn(sub);
         return false;
     }
 
@@ -806,7 +809,7 @@ bool StatePublisher::attemptPublish(Subscription& sub)
     }
     else if (retc == COMMS_CORE_RET_NO_CONN)
     {
-        sub._noConn = true;
+        handleNoConn(sub);
         return false;
     }
 #ifdef ENABLE_CONNECTION_BACKOFF
@@ -822,6 +825,20 @@ bool StatePublisher::attemptPublish(Subscription& sub)
     // Without backoff, just return false and let pending flag trigger immediate retry
     return false;
 #endif
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Handle no connection on the subscription's channel
+/// @param sub Subscription
+/// @note A client subscription is removed (after the loop) as the client has gone. A persistent subscription
+///       (createSubscription - from config or a SysMod, e.g. MQTT pubSources) is kept and isn't left pending (which
+///       would retry on every loop) - it is retried at its normal interval and publishes once the channel connects
+void StatePublisher::handleNoConn(Subscription& sub)
+{
+    if (sub._persistent)
+        sub._isPending = false;
+    else
+        sub._noConn = true;
 }
 
 #ifdef ENABLE_CONNECTION_BACKOFF

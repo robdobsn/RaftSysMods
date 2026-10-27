@@ -68,6 +68,8 @@ public:
     /// @param trigger type for the subscription, or TRIGGER_NONE on failure
     /// @param minTimeBetweenMsgsMs Minimum time between messages in milliseconds (to prevent flooding when trigger is state change)
     /// @return true if subscription created/updated successfully
+    /// @note Unlike a client subscription (subscription API) this is persistent - it is kept while the channel has
+    ///       no connection (e.g. MQTT before the broker connects) and publishes once it connects
     virtual bool createSubscription(const String& pubTopic, uint32_t channelID, double rateHz, 
             TriggerType_t trigger = TRIGGER_ON_TIME_OR_CHANGE, 
             uint32_t minTimeBetweenMsgsMs = DEFAULT_MIN_TIME_BETWEEN_MSGS_MS) override final;
@@ -146,6 +148,7 @@ private:
         uint32_t _lastPublishMs = 0;                // Last time a message was actually published
         bool _isPending = false;                    // Publish is due but not sent yet
         bool _noConn = false;                       // No connection on the channel (removed after the loop)
+        bool _persistent = false;                   // Created by config/a SysMod (not a client) - kept when no connection
 
         // Callbacks (copied from PubSource for performance - avoids lookup in loop)
         SysMod_publishMsgGenFn _msgGenFn = nullptr;
@@ -201,6 +204,7 @@ private:
     Subscription* findSubscription(const String& pubTopic, uint32_t channelID);
     void removeSubscription(const String& pubTopic, uint32_t channelID);
     bool attemptPublish(Subscription& sub);
+    void handleNoConn(Subscription& sub);
 #ifdef ENABLE_CONNECTION_BACKOFF
     void handleConnectionLost(Subscription& sub);
 #endif
