@@ -155,11 +155,12 @@ void BLEGapServer::teardown()
     // Stop advertising
     stopAdvertising();
 
-    // Host is no longer ready (NimBLE functions must not now be called from the main task)
-    _bleHostReady = false;
-
-    // Stop GATTServer
+    // Stop the outbound message task (if used) so it cannot be using the BLE stack when it is stopped
     _gattServer.stop();
+
+    // Stop the host and deinitialise the stack (nimbleStop clears _bleHostReady first so NimBLE functions are not
+    // called from the main task from here on)
+    bool stopped = nimbleStop();
 
     // Remove callbacks etc
     ble_hs_cfg.store_status_cb = NULL;
@@ -167,17 +168,18 @@ void BLEGapServer::teardown()
     ble_hs_cfg.sync_cb = NULL;
     ble_hs_cfg.reset_cb = NULL;
 
-    // Deinitialize
-    nimble_port_deinit();
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
-    esp_err_t err = esp_nimble_hci_and_controller_deinit();
-    if (err != ESP_OK)
+    // No connection (the NimBLE host task is not running so the connection state is set here)
+    if (RaftMutex_lock(_connArbiterMutex, RAFT_MUTEX_WAIT_FOREVER))
     {
-#ifdef WARN_ON_BLE_INIT_FAILED
-        LOG_W(MODULE_PREFIX, "applySetup deinit failed");
-#endif
+        _connArbiter.clear();
+        RaftMutex_unlock(_connArbiterMutex);
     }
-#endif
+    setConnState(false);
+    _bleRestartState = BLERestartState_Idle;
+
+    // Not initialised - setup() starts the stack again
+    _isInit = false;
+    LOG_I(MODULE_PREFIX, "teardown %s", stopped ? "ok" : "NimBLE stop failed");
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -241,6 +241,15 @@ RaftRetCode NetworkManager::receiveCmdJSON(const char* cmdJSON, String* pRespStr
         stopWiFi();
         return RAFT_OK;
     }
+    // Low-power mode: WiFi off (it stays off, whatever pauses and resumes it meanwhile, until started again)
+    if (cmdName.equalsIgnoreCase("lowPower"))
+    {
+        if (cmd.getBool("enable", true))
+            stopWiFi();
+        else
+            startWiFi(false);
+        return RAFT_OK;
+    }
     return RAFT_INVALID_OPERATION;
 }
 
