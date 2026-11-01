@@ -52,6 +52,10 @@ protected:
     // Receive JSON command
     virtual RaftRetCode receiveCmdJSON(const char* cmdJSON, String* pRespStr = nullptr) override final
     {
+        // Commands sent to all SysMods aren't samples
+        String cmdName = RaftJson(cmdJSON).getString("cmd", "");
+        if (cmdName.equalsIgnoreCase("shutdown") || cmdName.equalsIgnoreCase("lowPower"))
+            return RAFT_INVALID_OPERATION;
         addSample(cmdJSON);
         return RAFT_OK;
     }

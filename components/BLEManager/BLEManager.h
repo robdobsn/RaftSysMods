@@ -57,12 +57,25 @@ protected:
     // Set named value
     virtual bool setNamedValue(const char* valueName, double value) override final;
 
+    /// @brief Receive a JSON command
+    /// @param cmdJSON command: {"cmd":"lowPower","enable":1} disconnects any central and stops the BLE stack (for a
+    ///        low-power mode); {"cmd":"lowPower","enable":0} starts it again
+    /// @param pRespStr optional response
+    /// @return result
+    virtual RaftRetCode receiveCmdJSON(const char* cmdJSON, String* pRespStr = nullptr) override final;
+
 private:
 
 #ifdef CONFIG_BT_ENABLED
 
     // BLE enabled
     bool _enableBLE = false;
+
+    // BLE stopped for low power (the stack is torn down and loop() does nothing until it is enabled again)
+    bool _stoppedForLowPower = false;
+
+    // Settings (kept so the stack can be started again after a low-power stop)
+    BLEConfig _bleConfig;
 
     // BLE Gap server
     BLEGapServer _gapServer;

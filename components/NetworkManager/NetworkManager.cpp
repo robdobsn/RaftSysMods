@@ -228,6 +228,8 @@ double NetworkManager::getNamedValue(const char* valueName, bool& isValid)
 //   {"cmd":"wifiStart","fullScan":0|1} - start WiFi (fullScan forgets the fast reconnect AP and scans all
 //                                        channels for the strongest AP)
 //   {"cmd":"wifiStop"}                 - stop WiFi
+//   {"cmd":"lowPower","enable":1}      - stop WiFi if it is running (for a low-power mode)
+//   {"cmd":"lowPower","enable":0}      - start WiFi again if the low-power command stopped it
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 RaftRetCode NetworkManager::receiveCmdJSON(const char* cmdJSON, String* pRespStr)
@@ -239,6 +241,23 @@ RaftRetCode NetworkManager::receiveCmdJSON(const char* cmdJSON, String* pRespStr
     if (cmdName.equalsIgnoreCase("wifiStop"))
     {
         stopWiFi();
+        return RAFT_OK;
+    }
+    // Low-power mode: WiFi off (it stays off, whatever pauses and resumes it meanwhile, until started again). WiFi
+    // that wasn't running (e.g. startMode onDemand and not yet started) isn't started when low power ends
+    if (cmdName.equalsIgnoreCase("lowPower"))
+    {
+        if (cmd.getBool("enable", true))
+        {
+            if (networkSystem.isWifiStarted())
+                _restartWiFiAfterLowPower = true;
+            stopWiFi();
+        }
+        else if (_restartWiFiAfterLowPower)
+        {
+            _restartWiFiAfterLowPower = false;
+            startWiFi(false);
+        }
         return RAFT_OK;
     }
     return RAFT_INVALID_OPERATION;

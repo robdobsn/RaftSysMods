@@ -66,7 +66,7 @@ void BLEManager::setup()
         }
 
         // Settings
-        BLEConfig bleConfig;
+        BLEConfig& bleConfig = _bleConfig;
         bleConfig.setup(modConfig());
 
         // Log level
@@ -129,12 +129,49 @@ void BLEManager::loop()
 {
 #ifdef CONFIG_BT_ENABLED    
     // Check enabled
-    if (!_enableBLE)
+    if (!_enableBLE || _stoppedForLowPower)
         return;
 
     // Service BLE GAP
     _gapServer.loop(getSysManager());
 #endif
+}
+
+// Time allowed for a disconnect to reach the central before the stack is stopped for low power
+static const uint32_t LOW_POWER_DISCONNECT_WAIT_MS = 200;
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Receive a JSON command
+/// @param cmdJSON command
+/// @param pRespStr optional response
+/// @return result
+RaftRetCode BLEManager::receiveCmdJSON(const char* cmdJSON, String* pRespStr)
+{
+    RaftJson cmd(cmdJSON);
+    String cmdName = cmd.getString("cmd", "");
+    if (!cmdName.equalsIgnoreCase("lowPower"))
+        return RAFT_INVALID_OPERATION;
+#ifdef CONFIG_BT_ENABLED
+    if (!_enableBLE)
+        return RAFT_OK;
+    bool stop = cmd.getBool("enable", true);
+    if (stop && !_stoppedForLowPower)
+    {
+        // Tell any central we're going, give the terminate time to be sent, then stop the stack
+        _gapServer.disconnect();
+        delay(LOW_POWER_DISCONNECT_WAIT_MS);
+        _gapServer.teardown();
+        _stoppedForLowPower = true;
+        LOG_I(MODULE_PREFIX, "receiveCmdJSON lowPower BLE stopped");
+    }
+    else if (!stop && _stoppedForLowPower)
+    {
+        _stoppedForLowPower = false;
+        bool isOk = _gapServer.setup(getCommsCore(), _bleConfig);
+        LOG_I(MODULE_PREFIX, "receiveCmdJSON lowPower BLE restarted %s", isOk ? "ok" : "FAILED");
+    }
+#endif
+    return RAFT_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

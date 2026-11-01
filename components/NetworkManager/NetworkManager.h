@@ -57,6 +57,9 @@ private:
     // Last connection status
     bool _prevConnectedWithIP = false;
 
+    // WiFi was stopped by the lowPower command, so it is started again when low power ends
+    bool _restartWiFiAfterLowPower = false;
+
     // Settings for this device (rather than the SysType) kept in NVS - the WiFi STA static IP
     RaftJsonNVS _deviceNetConfig;
 
