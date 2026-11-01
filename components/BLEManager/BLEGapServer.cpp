@@ -159,8 +159,15 @@ void BLEGapServer::teardown()
     _gattServer.stop();
 
     // Stop the host and deinitialise the stack (nimbleStop clears _bleHostReady first so NimBLE functions are not
-    // called from the main task from here on)
-    bool stopped = nimbleStop();
+    // called from the main task from here on). A restart in progress may have stopped it already
+    bool stopped = (_bleRestartState.load() == BLERestartState_StartRequired) || nimbleStop();
+    _bleRestartState = BLERestartState_Idle;
+    if (!stopped)
+    {
+        // The stack is still running so it must not be initialised again: setup() leaves it alone
+        LOG_W(MODULE_PREFIX, "teardown abandoned as NimBLE stop failed");
+        return;
+    }
 
     // Remove callbacks etc
     ble_hs_cfg.store_status_cb = NULL;
@@ -175,11 +182,9 @@ void BLEGapServer::teardown()
         RaftMutex_unlock(_connArbiterMutex);
     }
     setConnState(false);
-    _bleRestartState = BLERestartState_Idle;
 
     // Not initialised - setup() starts the stack again
     _isInit = false;
-    LOG_I(MODULE_PREFIX, "teardown %s", stopped ? "ok" : "NimBLE stop failed");
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////

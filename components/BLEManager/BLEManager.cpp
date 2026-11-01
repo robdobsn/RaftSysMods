@@ -44,9 +44,6 @@ BLEManager::~BLEManager()
 // Setup
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Time allowed for a disconnect to reach the central before the stack is stopped for low power
-static const uint32_t LOW_POWER_DISCONNECT_WAIT_MS = 200;
-
 void BLEManager::setup()
 {
 #ifdef CONFIG_BT_ENABLED
@@ -139,6 +136,9 @@ void BLEManager::loop()
     _gapServer.loop(getSysManager());
 #endif
 }
+
+// Time allowed for a disconnect to reach the central before the stack is stopped for low power
+static const uint32_t LOW_POWER_DISCONNECT_WAIT_MS = 200;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// @brief Receive a JSON command
