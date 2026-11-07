@@ -12,6 +12,9 @@
 #include "RaftSysMod.h"
 #include "ProtocolOverAscii.h"
 #include "SpiramAwareAllocator.h"
+#ifndef __linux__
+#include "sdkconfig.h"
+#endif
 
 class RestAPIEndpointManager;
 class CommsCoreIF;
@@ -49,7 +52,12 @@ public:
 
     // Defaults
     static const int DEFAULT_UART_NUM = 0;
+    // The console's baud rate (set by CONFIG_ESP_CONSOLE_UART_BAUDRATE) is used unless baudRate is configured
+#ifdef CONFIG_ESP_CONSOLE_UART_BAUDRATE
+    static const int DEFAULT_BAUD_RATE = CONFIG_ESP_CONSOLE_UART_BAUDRATE;
+#else
     static const int DEFAULT_BAUD_RATE = 115200;
+#endif
     static const int DEFAULT_RX_BUFFER_SIZE = 1024;
     // USB Serial/JTAG drops what arrives when its buffer is full, and the host sends as fast as USB allows, so a
     // host's protocol frames (e.g. a file upload's blocks) need room while the main loop is busy elsewhere
@@ -110,6 +118,10 @@ private:
     // Buffer sizes
     uint32_t _rxBufferSize = DEFAULT_RX_BUFFER_SIZE;
     uint32_t _txBufferSize = DEFAULT_TX_BUFFER_SIZE;
+
+    // Console output (stdout and ESP-IDF log output) on this UART goes through the UART driver's transmit buffer
+    // rather than waiting for each character to be sent - only when the console is on this UART
+    void setConsoleOutputBuffered(bool buffered);
 
     // Bytes to read in a loop call (read at once, and passed on as one message when they are protocol frames: a
     // byte or a USB packet at a time would make many small messages, which can fill the comms channel's queue)
