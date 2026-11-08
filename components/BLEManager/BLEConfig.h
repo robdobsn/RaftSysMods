@@ -15,6 +15,7 @@
 #include <stdint.h>
 #include <cmath>
 #include <vector>
+#include <algorithm>
 
 // #define DEBUG_BLE_SERVICE_CONFIG
 
@@ -103,7 +104,8 @@ public:
         llPacketTimePref = config.getLong("llPacketTimePref", DEFAULT_LL_PACKET_TIME);
         llPacketLengthPref = config.getLong("llPacketLengthPref", DEFAULT_LL_PACKET_LENGTH);        
         double connIntvPrefMs = config.getDouble("connIntvPrefMs", DEFAULT_CONN_INTERVAL_BLE_UNITS * 1.25);
-        connIntvPrefMs = Raft::clamp(connIntvPrefMs, 7.5, 4000.0);
+        // (std::clamp - Raft::clamp converted to uint32_t, losing the fraction, e.g. 7.5 ms became 7 ms)
+        connIntvPrefMs = std::clamp(connIntvPrefMs, 7.5, 4000.0);
         connIntervalPreferredBLEUnits = std::round(connIntvPrefMs / 1.25);
         connLatencyPref = config.getLong("connLatencyPref", DEFAULT_CONN_LATENCY);
 
