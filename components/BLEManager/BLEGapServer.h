@@ -26,6 +26,7 @@
 #include "CommsCoreIF.h"
 #include "BLEConfig.h"
 #include "BLEAdvertDecoder.h"
+#include <algorithm>
 
 #define USE_TIMED_ADVERTISING_CHECK 1
 
@@ -129,7 +130,7 @@ public:
     void setReqConnInterval(double reqConnIntervalMs)
     {
         // Convert to BLE units
-        uint32_t reqConnIntervalBLEUnits = std::round(Raft::clamp(reqConnIntervalMs, 7.5, 4000.0) / 1.25f);
+        uint32_t reqConnIntervalBLEUnits = std::round(std::clamp(reqConnIntervalMs, 7.5, 4000.0) / 1.25f);
 
         // Request change if connection interval different
         if (reqConnIntervalBLEUnits != _connIntervalPrefBLEUnits.load())
