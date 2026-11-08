@@ -29,6 +29,9 @@
 #include "freertos/FreeRTOS.h"
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
 #include "driver/usb_serial_jtag_vfs.h"
+#if defined(CONFIG_ESP_CONSOLE_UART)
+#include "driver/uart_vfs.h"
+#endif
 #endif
 
 #if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) || defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
@@ -186,8 +189,11 @@ void SerialConsole::setup()
                 _isEnabled ? "YES" : "NO", _rxBufferSize, _txBufferSize);
 
 #if defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
-    // If using USB as secondary console, ensure UART driver is installed for stdin reads
-    esp_err_t uartErr = uart_driver_install((uart_port_t)_uartNum, _rxBufferSize, _txBufferSize, 0,
+    // USB is the secondary console so the primary console is on a UART: install the UART driver for stdin reads
+    // and so that console output is buffered (see setConsoleOutputBuffered). The UART's receive buffer is sized
+    // separately from USB's as nothing sends to the UART as fast as a USB host does
+    uint32_t uartRxBufferSize = configGetLong("uartRxBuf", DEFAULT_RX_BUFFER_SIZE);
+    esp_err_t uartErr = uart_driver_install((uart_port_t)_uartNum, uartRxBufferSize, _txBufferSize, 0,
                             NULL, 0);
     if (uartErr != ESP_OK)
     {
@@ -224,6 +230,11 @@ void SerialConsole::setup()
             return;
         }
     }
+
+    // Console output on the UART through the driver's transmit buffer
+    setConsoleOutputBuffered(true);
+    LOG_I(MODULE_PREFIX, "setup UART console uartNum %d rxBufLen %d txBufLen %d",
+                _uartNum, (int)uartRxBufferSize, (int)_txBufferSize);
 #endif
 
 #else
@@ -290,6 +301,9 @@ void SerialConsole::setup()
         // Delay after UART change
         vTaskDelay(1);
     }
+
+    // Console output on the UART (if the console is on it) through the driver's transmit buffer
+    setConsoleOutputBuffered(true);
 
     // Debug
     LOG_I(MODULE_PREFIX, "setup OK enabled %s uartNum %d crlfOnTx %s rxBufLen %d txBufLen %d", 
@@ -467,6 +481,32 @@ void SerialConsole::putStr(const char* pStr)
 void SerialConsole::putStr(const String& str)
 {
     consoleWrite(str.c_str(), str.length());
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Send console output (stdout, and so ESP-IDF log output) on this UART through the UART driver
+/// @param buffered true to write into the driver's transmit buffer, false to write to the UART directly
+/// @note Without the driver, ESP-IDF's console waits (without yielding) for room in the UART's 128 byte FIFO for
+///       each character: at 115200 baud that is about 87us per character once the FIFO is full, during which the
+///       writing task holds stdout's lock. With the driver the text is copied into the transmit buffer (the task
+///       only waits if that is full). Nothing is done (and the transmit buffer isn't needed for logging) when the
+///       console isn't on this UART, e.g. a build with the console on USB Serial/JTAG. The driver must be
+///       installed when buffered is true and console output must not be buffered while the driver is removed
+void SerialConsole::setConsoleOutputBuffered(bool buffered)
+{
+    (void)buffered;
+#if !defined(__linux__) && defined(CONFIG_ESP_CONSOLE_UART)
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+    if (_uartNum != CONFIG_ESP_CONSOLE_UART_NUM)
+        return;
+    // Write what is already in the stdout buffer by the current method first
+    fflush(stdout);
+    if (buffered)
+        uart_vfs_dev_use_driver(_uartNum);
+    else
+        uart_vfs_dev_use_nonblocking(_uartNum);
+#endif
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -833,6 +873,9 @@ RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON, String* pResponse
             if (rxBufSize > 0)
                 _rxBufferSize = rxBufSize;
 
+            // Console output mustn't use the driver while it is being replaced
+            setConsoleOutputBuffered(false);
+
             // Remove existing driver
             esp_err_t err = uart_driver_delete((uart_port_t)_uartNum);
             if (err != ESP_OK)
@@ -848,6 +891,7 @@ RaftRetCode SerialConsole::receiveCmdJSON(const char* cmdJSON, String* pResponse
                 LOG_E(MODULE_PREFIX, "receiveCmdJson FAILED to install uart driver to port %d, err %d", _uartNum, err);
                 return RAFT_INVALID_DATA;
             }
+            setConsoleOutputBuffered(true);
         }
         return RAFT_OK;
     }
