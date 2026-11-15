@@ -66,6 +66,8 @@ public:
     static const int DEFAULT_INBOUND_MSG_QUEUE_SIZE = 100;
     static const uint32_t BLE_MIN_TIME_BETWEEN_OUTBOUND_MSGS_MS = 5;
     static const uint32_t MAX_BLE_PACKET_LEN_DEFAULT = 500;
+    static const uint32_t OUT_BLOCK_MAX_PSRAM = 4000;
+    static const uint32_t OUT_BLOCK_MAX_NO_PSRAM = 1200;
     static const uint32_t PREFERRED_MTU_SIZE = 512;
     static const uint32_t DEFAULT_NUM_OUTBOUND_MSGS_IN_FLIGHT_MAX = 10;
     static const uint32_t BLE_OUTBOUND_MSGS_IN_FLIGHT_TIMEOUT_MS = 500;
@@ -98,6 +100,7 @@ public:
 
         // Connection params
         maxPacketLen = config.getLong("maxPktLen", MAX_BLE_PACKET_LEN_DEFAULT);
+        outboundBlockMax = config.getLong("outBlockMax", 0);
         preferredMTUSize = config.getLong("mtuSize", PREFERRED_MTU_SIZE);
         sendUsingIndication = config.getBool("sendUseInd", true);
         supvTimeoutPrefMs = config.getLong("supvTimeoutPrefMs", PREF_SUPERVISORY_TIMEOUT_MS);
@@ -154,6 +157,7 @@ public:
         publishQueueSize = config.getLong("pubQSize", DEFAULT_PUBLISH_QUEUE_SIZE);
         publishQueueMaxBytes = config.getLong("pubQMaxBytes", DEFAULT_PUBLISH_QUEUE_MAX_BYTES);
         publishUseIndication = config.getBool("pubUseInd", DEFAULT_PUBLISH_USE_INDICATE);
+        bulkUseIndication = config.getBool("bulkUseInd", false);
 
         // Task settings
         taskCore = config.getLong("taskCore", DEFAULT_TASK_CORE);
@@ -253,6 +257,10 @@ public:
 
     // Connection params
     uint16_t maxPacketLen = MAX_BLE_PACKET_LEN_DEFAULT;
+    // Largest file block offered to a download on the BLE channel (0: OUT_BLOCK_MAX_PSRAM or
+    // OUT_BLOCK_MAX_NO_PSRAM). A block is sent as a message over several packets, so it is larger than a packet:
+    // a block of one packet's size is a full packet and a second of a few bytes once framed
+    uint16_t outboundBlockMax = 0;
     uint16_t preferredMTUSize = PREFERRED_MTU_SIZE;
     uint16_t connIntervalPreferredBLEUnits = DEFAULT_CONN_INTERVAL_BLE_UNITS;
     uint16_t connLatencyPref = DEFAULT_CONN_LATENCY;
@@ -297,6 +305,9 @@ public:
     uint16_t publishQueueSize = DEFAULT_PUBLISH_QUEUE_SIZE;
     uint32_t publishQueueMaxBytes = DEFAULT_PUBLISH_QUEUE_MAX_BYTES;
     bool publishUseIndication:1 = DEFAULT_PUBLISH_USE_INDICATE;
+    // Messages acknowledged by their own protocol (file blocks of a download) sent as indications rather than
+    // notifications
+    bool bulkUseIndication:1 = false;
 
     // Task settings
     uint8_t taskCore = DEFAULT_TASK_CORE;

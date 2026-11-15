@@ -67,13 +67,25 @@ private:
     // Stats
     BLEManStats& _bleStats;
 
+    // A message to send: its bytes, and whether it is acknowledged by its own protocol (e.g. a file block of a
+    // download - see CommsChannelMsg::isAckedByProtocol), so needn't be sent as indications
+    class BLEOutMsg : public ProtocolRawMsg
+    {
+    public:
+        bool ackedByProtocol = false;
+    };
+
+    // Messages acknowledged by their own protocol are sent as notifications (several times faster than
+    // indications, each of which waits for the central's confirmation) unless bulkUseInd is set
+    bool _bulkUseIndication = false;
+
     // Command queue: typically uses indication (ACK'd, reliable)
-    ThreadSafeQueue<ProtocolRawMsg> _commandQueue;
+    ThreadSafeQueue<BLEOutMsg> _commandQueue;
     std::atomic<bool> _commandUseIndication{true};
     uint32_t _commandMsgPos = 0;
 
     // Publish queue: typically uses notification (faster, no ACK wait)
-    ThreadSafeQueue<ProtocolRawMsg> _publishQueue;
+    ThreadSafeQueue<BLEOutMsg> _publishQueue;
     std::atomic<bool> _publishUseIndication{false};
     uint32_t _publishMsgPos = 0;
 
@@ -133,7 +145,7 @@ private:
 
     // Outbound queue handling
     void serviceOutboundQueue();
-    bool handleSendFromQueue(ThreadSafeQueue<ProtocolRawMsg>& queue, uint32_t& msgPos, 
+    bool handleSendFromQueue(ThreadSafeQueue<BLEOutMsg>& queue, uint32_t& msgPos, 
                 bool useIndication, const char* queueName);
     void outboundMsgTask();
 

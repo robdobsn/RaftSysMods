@@ -50,6 +50,7 @@ bool BLEGattOutbound::setup(const BLEConfig& bleConfig)
     // Send params - command queue uses the global sendUseInd setting, publish queue uses publishUseIndication
     _commandUseIndication = bleConfig.sendUsingIndication;
     _publishUseIndication = bleConfig.publishUseIndication;
+    _bulkUseIndication = bleConfig.bulkUseIndication;
     _outMsgsInFlightTimeoutMs = bleConfig.outMsgsInFlightTimeoutMs;
     _minMsBetweenNotifySends = bleConfig.minMsBetweenSends;
 
@@ -217,7 +218,8 @@ bool BLEGattOutbound::sendMsg(CommsChannelMsg& msg)
     // The message's buffer is taken if it may be (e.g. a message just encoded for sending), and copied otherwise,
     // then moved into the queue
     uint32_t msgLen = msg.getBufLen();
-    ProtocolRawMsg bleOutMsg;
+    BLEOutMsg bleOutMsg;
+    bleOutMsg.ackedByProtocol = msg.isAckedByProtocol();
     if (msg.isBufTakeable())
         bleOutMsg.takeBuffer(msg.getCmdVector());
     else
@@ -309,10 +311,22 @@ int32_t BLEGattOutbound::decrementMsgsInFlight()
 // Handle sending from a specific queue
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool BLEGattOutbound::handleSendFromQueue(ThreadSafeQueue<ProtocolRawMsg>& queue, 
+bool BLEGattOutbound::handleSendFromQueue(ThreadSafeQueue<BLEOutMsg>& queue, 
                 uint32_t& msgPos, bool useIndication, const char* queueName)
 {
-    // If this queue uses indication, check if an indication is already in flight
+    // A message acknowledged by its own protocol (a file block) is sent as notifications even on a queue that
+    // uses indications (the queue's order is kept: it goes when the message before it has been sent)
+    if (useIndication && !_bulkUseIndication)
+    {
+        bool ackedByProtocol = false;
+        if (!queue.peekWith([&](const BLEOutMsg& bleOutMsg) { ackedByProtocol = bleOutMsg.ackedByProtocol; },
+                    OUTBOUND_QUEUE_MAX_MS_TO_WAIT))
+            return false;
+        if (ackedByProtocol)
+            useIndication = false;
+    }
+
+    // If this message is sent by indication, check if an indication is already in flight
     if (useIndication && isIndicationInFlight())
         return false;
 
@@ -328,7 +342,7 @@ bool BLEGattOutbound::handleSendFromQueue(ThreadSafeQueue<ProtocolRawMsg>& queue
     uint32_t maxLen = getMaxSendLen();
     uint32_t msgLen = 0;
     uint32_t toSendLen = 0;
-    bool msgFound = queue.peekWith([&](const ProtocolRawMsg& bleOutMsg) {
+    bool msgFound = queue.peekWith([&](const BLEOutMsg& bleOutMsg) {
             msgLen = bleOutMsg.getBufLen();
             if (msgLen > msgPos)
                 toSendLen = msgLen - msgPos;

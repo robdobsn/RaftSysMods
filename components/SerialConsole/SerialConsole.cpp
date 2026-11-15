@@ -14,6 +14,7 @@
 #include "CommsChannelSettings.h"
 #include "CommsCoreIF.h"
 #include "RaftUtils.h"
+#include "PlatformUtils.h"
 #include "CommsChannelMsg.h"
 
 #ifdef __linux__
@@ -332,16 +333,20 @@ void SerialConsole::addRestAPIEndpoints(RestAPIEndpointManager& endpointManager)
 
 void SerialConsole::addCommsChannels(CommsCoreIF& commsCore)
 {
-    // Comms channel
-    static CommsChannelSettings commsChannelSettings;
+    // Comms channel - the largest outbound file block is set by memory (see OUT_BLOCK_MAX_PSRAM), not by the
+    // driver's transmit buffer: sendMsg sends a frame of any size
+    uint32_t outBlockMax = configGetLong("outBlockMax",
+                utilsGetSPIRAMSize() > 0 ? OUT_BLOCK_MAX_PSRAM : OUT_BLOCK_MAX_NO_PSRAM);
+    const CommsChannelSettings commsChannelSettings(0, 0, 0, 0, outBlockMax, 0);
 
-    // Register as a channel of protocol messages
+    // Register as a channel of protocol messages. It is ready for a message when nothing is waiting for the
+    // host to read (so messages wait in the channel's queue, in order, rather than here)
     _commsChannelID = commsCore.registerChannel(_protocol.c_str(),
             modName(),
             modName(),
             std::bind(&SerialConsole::sendMsg, this, std::placeholders::_1),
             [this](uint32_t channelID, CommsMsgTypeCode msgType, bool& noConn) {
-                return true;
+                return !isTxPending();
             },
             &commsChannelSettings);
 }
@@ -524,15 +529,32 @@ void SerialConsole::consoleWrite(const char* pText, uint32_t len)
 #if defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
     uart_write_bytes((uart_port_t)_uartNum, pText, len);
 #endif
-    // Write what fits now (unless text is already waiting, which must go first), and keep the rest
-    if ((_txPendingPos >= _txPending.size()) && writePiecesNow(pText, len))
-        return;
+    writeOrPend(pText, len, false);
+#else
+    uart_write_bytes((uart_port_t)_uartNum, pText, len);
+#endif
+}
+
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) || defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// @brief Write to the USB-Serial-JTAG port what fits in the driver's transmit buffer now, and keep the rest to
+///        be written from loop() (text, or a protocol frame)
+/// @param pText bytes to write
+/// @param len number of bytes
+/// @param isFrame true for a protocol frame (see TX_FRAME_STALL_TIMEOUT_MS)
+/// @return false if it was dropped (too much is already waiting for a host that isn't reading)
+bool SerialConsole::writeOrPend(const char* pText, uint32_t len, bool isFrame)
+{
+    // Write what fits now (unless something is already waiting, which must go first), and keep the rest
+    bool wasPending = isTxPending();
+    if (!wasPending && writePiecesNow(pText, len))
+        return true;
     uint32_t pendingBytes = _txPending.size() - _txPendingPos;
     if (pendingBytes + len > TX_PENDING_MAX_BYTES)
     {
-        // The host isn't reading: drop the text rather than holding more
+        // The host isn't reading: drop it rather than holding more
         _txPendingDropped += len;
-        return;
+        return false;
     }
     if (_txPendingPos > 0)
     {
@@ -540,10 +562,13 @@ void SerialConsole::consoleWrite(const char* pText, uint32_t len)
         _txPendingPos = 0;
     }
     _txPending.insert(_txPending.end(), (const uint8_t*)pText, (const uint8_t*)pText + len);
-#else
-    uart_write_bytes((uart_port_t)_uartNum, pText, len);
-#endif
+    if (isFrame)
+        _txPendingHasFrame = true;
+    if (!wasPending)
+        _txLastProgressMs = millis();
+    return true;
 }
+#endif
 
 #if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) || defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -553,13 +578,18 @@ void SerialConsole::consoleWrite(const char* pText, uint32_t len)
 /// @return true if it was all written
 bool SerialConsole::writePiecesNow(const char*& pText, uint32_t& len)
 {
+    // (a piece is no more than half the driver's buffer, so it fits once the host has read that much)
+    uint32_t pieceMax = TX_PIECE_MAX_BYTES;
+    if (pieceMax > _txBufferSize / 2)
+        pieceMax = _txBufferSize > 1 ? _txBufferSize / 2 : 1;
     while (len > 0)
     {
-        uint32_t pieceLen = len < TX_PIECE_MAX_BYTES ? len : TX_PIECE_MAX_BYTES;
+        uint32_t pieceLen = len < pieceMax ? len : pieceMax;
         if (usb_serial_jtag_write_bytes(pText, pieceLen, 0) != (int)pieceLen)
             return false;
         pText += pieceLen;
         len -= pieceLen;
+        _txLastProgressMs = millis();
     }
     return true;
 }
@@ -583,11 +613,20 @@ void SerialConsole::serviceTxPending()
             writePiecesNow(pText, len);
             _txPendingPos = _txPending.size() - len;
         }
-        if (_txPendingPos >= _txPending.size())
+        if (isTxPending() && _txPendingHasFrame &&
+                    Raft::isTimeout(millis(), _txLastProgressMs, TX_FRAME_STALL_TIMEOUT_MS))
+        {
+            // A frame is waiting and the host has read nothing for a while: drop what is pending so the
+            // channel can take messages again (they go the same way if the host still isn't reading)
+            _txPendingDropped += _txPending.size() - _txPendingPos;
+            _txPendingPos = _txPending.size();
+        }
+        if (!isTxPending())
         {
             // Done - release the memory (a large reply is rare)
             SpiramAwareUint8Vector().swap(_txPending);
             _txPendingPos = 0;
+            _txPendingHasFrame = false;
         }
     }
     if (_txPendingDropped > 0)
@@ -815,7 +854,10 @@ bool SerialConsole::sendMsg(CommsChannelMsg& msg)
 #ifdef __linux__
     int bytesSent = write(STDOUT_FILENO, (const char*)encodedFrame, encodedFrameLen);
 #elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
-    int bytesSent = usb_serial_jtag_write_bytes((const char*)encodedFrame, encodedFrameLen, 1);
+    // What fits in the driver's transmit buffer is written now and the rest from loop() as the host reads
+    // (the driver takes a write whole or not at all, so a frame written in one piece was lost if it was larger
+    // than the buffer, or than the room in it at the time)
+    int bytesSent = writeOrPend((const char*)encodedFrame, encodedFrameLen, true) ? encodedFrameLen : 0;
 #else
     int bytesSent = uart_write_bytes((uart_port_t)_uartNum, (const char*)encodedFrame, encodedFrameLen);
 #endif
