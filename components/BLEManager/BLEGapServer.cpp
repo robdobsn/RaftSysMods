@@ -293,8 +293,12 @@ void BLEGapServer::registerChannel(CommsCoreIF& commsCoreIF)
 {
     // Comms channel
     uint32_t maxPktLen = _gattServer.getMaxPacketLen();
+    // Outbound file blocks (downloads) are larger than a packet - see BLEConfig::outboundBlockMax
+    uint32_t outBlockMax = _bleConfig.outboundBlockMax;
+    if (outBlockMax == 0)
+        outBlockMax = utilsGetSPIRAMSize() > 0 ? BLEConfig::OUT_BLOCK_MAX_PSRAM : BLEConfig::OUT_BLOCK_MAX_NO_PSRAM;
     // The inbound queue length is set explicitly as BLE has no back-pressure (see BLEConfig.h)
-    const CommsChannelSettings commsChannelSettings(maxPktLen, maxPktLen, _bleConfig.inboundQueueSize, 0, maxPktLen, 0);
+    const CommsChannelSettings commsChannelSettings(maxPktLen, maxPktLen, _bleConfig.inboundQueueSize, 0, outBlockMax, 0);
 
     // Register as a message channel
     _commsChannelID = commsCoreIF.registerChannel("RICSerial", 

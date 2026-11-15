@@ -64,6 +64,10 @@ private:
     std::list<std::shared_ptr<DeferredFileJob>> _deferredFileJobs;
     static const uint32_t FILE_JOB_TIMEOUT_MS = 60000;
     static const uint32_t UPLOAD_END_TIMEOUT_MS = 60000;
+
+    // The most a filesection request returns (the reply gives the length read, so a client asks again for the
+    // rest). The reply is one message (base64, 4/3 the size) built in a String, which holds up to 65535 characters
+    static const uint32_t FILE_SECTION_MAX_LEN = 32768;
     void serviceDeferredFileJobs();
     RaftRetCode replyFromWorker(const String& reqStr, String& respStr, const APISourceInfo& sourceInfo,
                 std::function<String()> work);

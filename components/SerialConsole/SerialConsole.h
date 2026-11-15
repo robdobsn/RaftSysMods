@@ -167,6 +167,24 @@ private:
     bool writePiecesNow(const char*& pText, uint32_t& len);
     void serviceTxPending();
 
+    // Protocol frames on USB-Serial-JTAG go the same way (a frame of any size is sent, in pieces, as the host
+    // reads): while anything is pending the channel isn't ready for another message (so the comms core holds later
+    // messages in the channel's queue), and if a frame is pending and the host reads nothing for
+    // TX_FRAME_STALL_TIMEOUT_MS what is pending is dropped, so a port nothing is reading can't hold the queue
+    bool writeOrPend(const char* pText, uint32_t len, bool isFrame);
+    bool isTxPending() const
+    {
+        return _txPendingPos < _txPending.size();
+    }
+    bool _txPendingHasFrame = false;
+    uint32_t _txLastProgressMs = 0;
+    static const uint32_t TX_FRAME_STALL_TIMEOUT_MS = 2000;
+
+    // Largest file block offered to a download on this channel (config outBlockMax): the block is held encoded
+    // (up to 4 times its size for the worst data: HDLC then OverAscii) until the host has read it
+    static const uint32_t OUT_BLOCK_MAX_PSRAM = 5000;
+    static const uint32_t OUT_BLOCK_MAX_NO_PSRAM = 1200;
+
     // Helpers
     void showEndpoints();
     bool sendMsg(CommsChannelMsg& msg);

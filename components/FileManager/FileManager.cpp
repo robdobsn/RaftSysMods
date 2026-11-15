@@ -346,6 +346,8 @@ String FileManager::fileSectionResp(const String& reqStr, const String& fileSyst
     uint32_t maxAvail = fileLength - sectionStart;
     if ((sectionLen == 0) || (sectionLen > maxAvail))
         sectionLen = maxAvail;
+    if (sectionLen > FILE_SECTION_MAX_LEN)
+        sectionLen = FILE_SECTION_MAX_LEN;
 
     // Read the section
     SpiramAwareUint8Vector fileData = fileSystem.getFileSection(fileSystemStr, fileNameStr, sectionStart, sectionLen);
@@ -376,6 +378,10 @@ String FileManager::fileSectionResp(const String& reqStr, const String& fileSyst
                 R"(","fname":")" + fileNameStr + R"(","start":)" + String(sectionStart) +
                 R"(,"len":)" + String(actualLen) + R"(,"total":)" + String(fileLength) +
                 R"(,"data":")" + base64Str + R"("})";
+
+    // A String that couldn't be built (no memory) is left without the data
+    if (respStr.length() < base64Str.length())
+        Raft::setJsonErrorResult(reqStr.c_str(), respStr, "nomem");
     return respStr;
 }
 
